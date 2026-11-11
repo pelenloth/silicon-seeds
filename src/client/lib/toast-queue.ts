@@ -10,6 +10,7 @@ export type ToastItem = {
   message: string;
   action?: ToastAction;
   duration: number;
+  createdAt?: number;
 };
 export const MAX_TOASTS = 4;
 

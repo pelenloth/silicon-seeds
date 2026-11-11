@@ -1,3 +1,4 @@
+import { useSearchParams } from "@solidjs/router";
 import { createResource, createSignal, For } from "solid-js";
 import { Icons } from "../components/Icons";
 import { CopyButton } from "../components/ui/CopyButton";
@@ -10,6 +11,7 @@ import { Segmented } from "../components/ui/Segmented";
 import { SelectField } from "../components/ui/SelectField";
 import { SliderField } from "../components/ui/SliderField";
 import { StatusBadge } from "../components/ui/StatusBadge";
+import { TabLink } from "../components/ui/TabLink";
 import { apiGet, type GalleryItem, type MediaItem } from "../lib/api-client";
 import type { JobProgress } from "../lib/job-view";
 import { confirmDialog } from "../stores/confirm";
@@ -65,9 +67,12 @@ const P_QUEUED: JobProgress = {
 };
 
 export default function DevKit() {
+  const [searchParams] = useSearchParams<{ tab?: string }>();
+  const activeTab = () => searchParams.tab ?? "all";
   const [confirmResult, setConfirmResult] = createSignal("idle");
   const [modalOpen, setModalOpen] = createSignal(false);
   const [segVal, setSegVal] = createSignal("all");
+  const [lockedSegVal, setLockedSegVal] = createSignal("all");
   const [sliderVal, setSliderVal] = createSignal(4);
   const [selectVal, setSelectVal] = createSignal("720p");
   const [lightboxIdx, setLightboxIdx] = createSignal<number | null>(null);
@@ -198,8 +203,23 @@ export default function DevKit() {
       </section>
 
       <section class="panel p-4 flex flex-col gap-3">
+        <span class="section-label">Tabs</span>
+        <div role="tablist" aria-label="Demo tabs" class="tabs tabs-border">
+          <TabLink href="/dev/kit?tab=all" active={activeTab() === "all"}>
+            All
+          </TabLink>
+          <TabLink href="/dev/kit?tab=active" active={activeTab() === "active"}>
+            Active
+          </TabLink>
+          <TabLink href="/dev/kit?tab=failed" active={activeTab() === "failed"}>
+            Failed
+          </TabLink>
+        </div>
+      </section>
+
+      <section class="panel p-4 flex flex-col gap-3">
         <span class="section-label">Segmented</span>
-        <div class="flex items-center gap-3">
+        <div class="flex flex-wrap items-center gap-3">
           <Segmented
             label="Media type"
             name="kit_type"
@@ -218,6 +238,19 @@ export default function DevKit() {
           >
             {segVal()}
           </span>
+          <Segmented
+            label="Media type (audio locked)"
+            name="kit_type_locked"
+            value={lockedSegVal()}
+            onChange={(v) => {
+              if (v !== "audio") setLockedSegVal(v);
+            }}
+            options={[
+              { value: "all", label: "All" },
+              { value: "image", label: "Images" },
+              { value: "audio", label: "Audio" },
+            ]}
+          />
         </div>
       </section>
 

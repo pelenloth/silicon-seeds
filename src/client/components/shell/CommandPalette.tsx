@@ -1,5 +1,5 @@
 import { useNavigate } from "@solidjs/router";
-import { createEffect, createSignal, For, Show } from "solid-js";
+import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import {
   buildCommands,
   filterCommands,
@@ -9,9 +9,11 @@ import {
 import { ROUTES } from "../../lib/routes";
 import { THEMES, type ThemePref } from "../../lib/themes";
 import { jobs } from "../../stores/jobs";
+import { registerOverlay, unregisterOverlay } from "../../stores/overlays";
 import { paletteOpen, setPaletteOpen } from "../../stores/shell";
 import { setThemePref } from "../../stores/theme";
 import { Icons } from "../Icons";
+import { ToastRegion } from "../ui/Toaster";
 
 const GROUP_ORDER: readonly CommandGroup[] = [
   "Create",
@@ -30,6 +32,19 @@ export function CommandPalette() {
   let inputRef!: HTMLInputElement;
   let listRef!: HTMLUListElement;
   let closingProgrammatically = false;
+  const [overlayId, setOverlayId] = createSignal<number | null>(null);
+
+  const releaseOverlay = () => {
+    const id = overlayId();
+    if (id !== null) {
+      unregisterOverlay(id);
+      setOverlayId(null);
+    }
+  };
+
+  onCleanup(() => {
+    releaseOverlay();
+  });
 
   const commands = (): Command[] =>
     filterCommands(
@@ -79,12 +94,16 @@ export function CommandPalette() {
   createEffect(() => {
     if (!dialogRef) return;
     if (paletteOpen()) {
+      if (overlayId() === null) {
+        setOverlayId(registerOverlay());
+      }
       if (!dialogRef.open) {
         dialogRef.showModal();
       }
       setActive(0);
       queueMicrotask(() => inputRef?.focus());
     } else {
+      releaseOverlay();
       setQuery("");
       setActive(0);
       if (dialogRef.open) {
@@ -132,6 +151,7 @@ export function CommandPalette() {
       class="modal items-start"
       aria-label="Command palette"
       onClose={() => {
+        releaseOverlay();
         if (closingProgrammatically) {
           closingProgrammatically = false;
           return;
@@ -206,6 +226,7 @@ export function CommandPalette() {
       <form method="dialog" class="modal-backdrop">
         <button aria-label="Close">close</button>
       </form>
+      <ToastRegion scope={overlayId()} />
     </dialog>
   );
 }

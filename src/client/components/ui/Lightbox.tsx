@@ -2,12 +2,16 @@ import {
   createEffect,
   createSignal,
   Match,
+  on,
+  onCleanup,
   Show,
   Switch,
   type JSX,
 } from "solid-js";
 import { mediaUrl, type MediaItem } from "../../lib/api-client";
+import { registerOverlay, unregisterOverlay } from "../../stores/overlays";
 import { Icons } from "../Icons";
+import { ToastRegion } from "./Toaster";
 
 export type LightboxProps = {
   items: readonly MediaItem[];
@@ -20,6 +24,7 @@ export type LightboxProps = {
 export function Lightbox(props: LightboxProps) {
   let ref!: HTMLDialogElement;
   const [failed, setFailed] = createSignal(false);
+  const [overlayId, setOverlayId] = createSignal<number | null>(null);
 
   const isOpen = () =>
     props.index !== null &&
@@ -28,18 +33,41 @@ export function Lightbox(props: LightboxProps) {
 
   const currentItem = () => (isOpen() ? props.items[props.index!] : undefined);
 
-  createEffect(() => {
-    void props.index;
-    setFailed(false);
+  const itemIdentity = () => {
+    const it = currentItem() as (MediaItem & { id?: string }) | undefined;
+    if (!it) return "";
+    return it.id ?? mediaUrl(it);
+  };
+
+  createEffect(
+    on(itemIdentity, () => {
+      setFailed(false);
+    }),
+  );
+
+  const releaseOverlay = () => {
+    const id = overlayId();
+    if (id !== null) {
+      unregisterOverlay(id);
+      setOverlayId(null);
+    }
+  };
+
+  onCleanup(() => {
+    releaseOverlay();
   });
 
   createEffect(() => {
     if (!ref) return;
     if (isOpen()) {
+      if (overlayId() === null) {
+        setOverlayId(registerOverlay());
+      }
       if (!ref.open) {
         ref.showModal();
       }
     } else {
+      releaseOverlay();
       if (ref.open) {
         ref.close();
       }
@@ -54,7 +82,7 @@ export function Lightbox(props: LightboxProps) {
   };
 
   const handleKeyDown = (e: KeyboardEvent) => {
-    if (e.defaultPrevented) return;
+    if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey) return;
     const t = e.target;
     if (
       t instanceof HTMLMediaElement ||
@@ -80,7 +108,10 @@ export function Lightbox(props: LightboxProps) {
       class="modal"
       aria-label="Media viewer"
       onKeyDown={handleKeyDown}
-      onClose={() => props.onClose()}
+      onClose={() => {
+        releaseOverlay();
+        props.onClose();
+      }}
     >
       <Show when={currentItem()}>
         {(item) => {
@@ -179,6 +210,7 @@ export function Lightbox(props: LightboxProps) {
       <form method="dialog" class="modal-backdrop">
         <button aria-label="Close">close</button>
       </form>
+      <ToastRegion scope={overlayId()} />
     </dialog>
   );
 }

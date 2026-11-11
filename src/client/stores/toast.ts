@@ -46,6 +46,7 @@ function addToast(
     message,
     ...(opts?.action ? { action: opts.action } : {}),
     duration,
+    createdAt: Date.now(),
   };
   setToastsSignal((prev) => {
     const next = pushToast(prev, item);

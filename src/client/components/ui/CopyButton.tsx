@@ -28,6 +28,7 @@ function fallbackCopy(text: string): boolean {
 
 export function CopyButton(props: CopyButtonProps) {
   const [copied, setCopied] = createSignal(false);
+  const [announcement, setAnnouncement] = createSignal("");
   let timer: ReturnType<typeof setTimeout> | undefined;
 
   onCleanup(() => {
@@ -47,32 +48,44 @@ export function CopyButton(props: CopyButtonProps) {
       ok = fallbackCopy(props.text);
     }
 
+    if (timer !== undefined) clearTimeout(timer);
+
     if (ok) {
       setCopied(true);
-      if (timer !== undefined) clearTimeout(timer);
-      timer = setTimeout(() => setCopied(false), 1500);
+      setAnnouncement("Copied");
+      timer = setTimeout(() => {
+        setCopied(false);
+        setAnnouncement("");
+      }, 2000);
     } else {
+      setCopied(false);
+      setAnnouncement("Copy failed");
       toast.error("Could not copy to the clipboard");
+      timer = setTimeout(() => {
+        setAnnouncement("");
+      }, 2000);
     }
   };
 
   return (
-    <button
-      type="button"
-      class={`btn btn-ghost btn-xs ${props.class ?? ""}`}
-      aria-label={props.label ?? "Copy"}
-      onClick={handleCopy}
-    >
-      <Show when={copied()} fallback={<Icons.Copy class="size-4" />}>
-        <Icons.Check class="size-4 text-success" />
-        <span class="sr-only" role="status">
-          Copied
-        </span>
-      </Show>
-      <Show when={props.label}>
-        <span>{props.label}</span>
-      </Show>
-    </button>
+    <>
+      <button
+        type="button"
+        class={`btn btn-ghost btn-xs ${props.class ?? ""}`}
+        aria-label={props.label ?? "Copy"}
+        onClick={handleCopy}
+      >
+        <Show when={copied()} fallback={<Icons.Copy class="size-4" />}>
+          <Icons.Check class="size-4 text-success" />
+        </Show>
+        <Show when={props.label}>
+          <span>{props.label}</span>
+        </Show>
+      </button>
+      <span class="sr-only" aria-live="polite">
+        {announcement()}
+      </span>
+    </>
   );
 }
 

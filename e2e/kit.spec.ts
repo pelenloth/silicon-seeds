@@ -82,7 +82,75 @@ test("ui kit: toast fired while modal is open appears above modal in top layer a
   });
   expect(isOnTop).toBe(true);
 
-  await toastStatus.getByRole("button", { name: "Dismiss" }).click();
+  await toastStatus
+    .getByRole("button", { name: "Dismiss notification" })
+    .click();
   await expect(toastStatus).toBeHidden();
   await expect(modal).toBeVisible();
+});
+
+test("ui kit: toast raised inside modal remains visible after modal closes and focus stays on trigger", async ({
+  page,
+}) => {
+  await page.goto("/dev/kit");
+
+  const successBtn = page.getByRole("button", { name: "Success toast" });
+  await successBtn.focus();
+  await page.keyboard.press("Enter");
+  await expect(
+    page.getByRole("status").filter({ hasText: "Saved" }),
+  ).toBeVisible();
+  await expect(successBtn).toBeFocused();
+
+  await page.getByRole("button", { name: "Open modal" }).click();
+  const modal = page.getByRole("dialog", { name: "Example modal" });
+  await expect(modal).toBeVisible();
+
+  await modal.getByRole("button", { name: "Toast from modal" }).click();
+  const modalToast = page
+    .getByRole("status")
+    .filter({ hasText: "Toast above the modal" });
+  await expect(modalToast).toBeVisible();
+
+  await modal.getByRole("button", { name: "Done" }).click();
+  await expect(modal).toBeHidden();
+  await expect(modalToast).toBeVisible();
+});
+
+test("ui kit: TabLink marks only the active tab with aria-current=page", async ({
+  page,
+}) => {
+  await page.goto("/dev/kit");
+  const tablist = page.getByRole("tablist", { name: "Demo tabs" });
+  await expect(tablist).toBeVisible();
+  await expect(tablist.locator('[aria-current="page"]')).toHaveCount(1);
+  await expect(tablist.getByRole("tab", { name: "All" })).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
+
+  await tablist.getByRole("tab", { name: "Active" }).click();
+  await expect(page).toHaveURL(/tab=active/);
+  await expect(tablist.locator('[aria-current="page"]')).toHaveCount(1);
+  await expect(tablist.getByRole("tab", { name: "Active" })).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
+});
+
+test("ui kit: Segmented re-syncs radio checked state when parent rejects an option", async ({
+  page,
+}) => {
+  await page.goto("/dev/kit");
+  const group = page.getByRole("radiogroup", {
+    name: "Media type (audio locked)",
+  });
+  await expect(group).toBeVisible();
+  const allRadio = group.getByRole("radio", { name: "All" });
+  const audioRadio = group.getByRole("radio", { name: "Audio" });
+  await expect(allRadio).toBeChecked();
+
+  await audioRadio.click({ force: true });
+  await expect(audioRadio).not.toBeChecked();
+  await expect(allRadio).toBeChecked();
 });
