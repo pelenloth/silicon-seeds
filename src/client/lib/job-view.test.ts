@@ -458,6 +458,46 @@ describe("mediaTitle and mediaKindLabel", () => {
     ).toBe("Untitled audio");
   });
 
+  test("mediaTitle handles multi-dot extensions, embedded counters, UUIDs with or without trailing underscores, and whitespace-only job_name", () => {
+    expect(
+      mediaTitle({
+        filename: "01a1c5d1-d113-7000-b503-09218cc141ed_00001_.png",
+        mediaType: "image",
+      }),
+    ).toBe("Untitled image");
+    expect(
+      mediaTitle({
+        filename: "01a1c5d1-d113-7000-b503-09218cc141ed_00001.png",
+        mediaType: "image",
+      }),
+    ).toBe("Untitled image");
+    expect(
+      mediaTitle({
+        filename: "tts/01a1c5d1-d113-7000-b503-09218cc141ed.wav",
+        mediaType: "audio",
+      }),
+    ).toBe("Untitled audio");
+    expect(
+      mediaTitle({
+        filename: "my.final.cut.mp4",
+        mediaType: "video",
+      }),
+    ).toBe("my.final.cut");
+    expect(
+      mediaTitle({
+        filename: "cafe_1_bad.png",
+        mediaType: "image",
+      }),
+    ).toBe("cafe_1_bad");
+    expect(
+      mediaTitle({
+        filename: "01a1c5d1-d113-7000-b503-09218cc141ed.png",
+        mediaType: "image",
+        job_name: "   \t\n  ",
+      }),
+    ).toBe("Untitled image");
+  });
+
   test("mediaKindLabel distinguishes Voiceover, Audio, Video and Image", () => {
     expect(mediaKindLabel({ mediaType: "audio", subfolder: "tts" })).toBe(
       "Voiceover",
@@ -468,6 +508,13 @@ describe("mediaTitle and mediaKindLabel", () => {
     expect(mediaKindLabel({ mediaType: "audio", subfolder: "/tts/2026" })).toBe(
       "Voiceover",
     );
+    expect(
+      mediaKindLabel({
+        mediaType: "audio",
+        subfolder: "",
+        filename: "tts/01a1c5d1-d113-7000-b503-09218cc141ed.wav",
+      }),
+    ).toBe("Voiceover");
     expect(mediaKindLabel({ mediaType: "audio", subfolder: "music" })).toBe(
       "Audio",
     );

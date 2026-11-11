@@ -419,8 +419,12 @@ export default function Gallery() {
         <Show when={items.length > 0}>
           <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
             <For each={items}>
-              {(item) => (
-                <MediaTile item={item} onOpen={() => setLightboxKey(item.id)} />
+              {(item, i) => (
+                <MediaTile
+                  item={item}
+                  position={i() + 1}
+                  onOpen={() => setLightboxKey(item.id)}
+                />
               )}
             </For>
           </div>

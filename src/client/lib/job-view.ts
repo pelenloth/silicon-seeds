@@ -472,16 +472,16 @@ export function nextBackoffMs(attempt: number): number {
 function isIdLikeStem(stem: string): boolean {
   const trimmed = stem.trim();
   if (!trimmed) return true;
-  const withoutCounters = trimmed.replace(/_+\d+_+/g, "");
-  const cleaned = withoutCounters.replace(/^[_-]+|[_-]+$/g, "").trim();
-  if (!cleaned) return true;
   if (
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-      cleaned,
+    /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.test(
+      trimmed,
     )
   ) {
     return true;
   }
+  const withoutCounters = trimmed.replace(/_+\d+_*/g, "_");
+  const cleaned = withoutCounters.replace(/^[_-]+|[_-]+$/g, "").trim();
+  if (!cleaned) return true;
   const tokens = cleaned.split(/[_-]+/).filter(Boolean);
   if (tokens.length === 0) return true;
   return tokens.every((t) => /^\d+$/.test(t) || /^[0-9a-f]{6,}$/i.test(t));
@@ -516,10 +516,12 @@ export function mediaTitle(item: {
 export function mediaKindLabel(item: {
   mediaType: MediaType;
   subfolder?: string | null;
+  filename?: string | null;
 }): string {
   if (item.mediaType === "audio") {
     const sub = (item.subfolder ?? "").replace(/^\/+|\/+$/g, "").trim();
-    if (sub === "tts" || sub.startsWith("tts/")) {
+    const fn = (item.filename ?? "").replace(/^\/+/, "").trim();
+    if (sub === "tts" || sub.startsWith("tts/") || fn.startsWith("tts/")) {
       return "Voiceover";
     }
     return "Audio";

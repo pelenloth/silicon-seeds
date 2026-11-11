@@ -1,4 +1,13 @@
-import { createEffect, createSignal, Match, on, Show, Switch } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  Match,
+  on,
+  onCleanup,
+  Show,
+  Switch,
+} from "solid-js";
 import { mediaUrl, thumbUrl, type MediaItem } from "../../lib/api-client";
 import { mediaKindLabel, mediaTitle } from "../../lib/job-view";
 import { Icons } from "../Icons";
@@ -8,6 +17,7 @@ export type MediaTileProps = {
   onOpen?: () => void;
   class?: string;
   aspect?: "video" | "square" | "photo";
+  position?: number;
 };
 
 const ASPECT: Record<"video" | "square" | "photo", string> = {
@@ -16,45 +26,115 @@ const ASPECT: Record<"video" | "square" | "photo", string> = {
   photo: "aspect-[4/3]",
 };
 
+function prefersReducedMotion(): boolean {
+  try {
+    if (
+      typeof window !== "undefined" &&
+      typeof window.matchMedia === "function"
+    ) {
+      return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    }
+  } catch {}
+  return false;
+}
+
 export function MediaTile(props: MediaTileProps) {
   let v: HTMLVideoElement | undefined;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  let thumbAttemptedRetry = false;
+
   const [failed, setFailed] = createSignal(false);
+  const [thumbRetry, setThumbRetry] = createSignal(false);
   const [imgFallback, setImgFallback] = createSignal(false);
   const [posterFailed, setPosterFailed] = createSignal(false);
   const [playing, setPlaying] = createSignal(false);
 
+  const clearRetryTimer = () => {
+    if (retryTimer !== null) {
+      clearTimeout(retryTimer);
+      retryTimer = null;
+    }
+  };
+
+  onCleanup(clearRetryTimer);
+
   const hasExplicitSrc = () => Boolean(props.item.src);
   const origSrc = () => mediaUrl(props.item);
-  const thumbSrc = () => thumbUrl(props.item, 640);
+  const thumbSrc = () =>
+    `${thumbUrl(props.item, 640)}${thumbRetry() ? "&r=1" : ""}`;
   const imageSrc = () =>
     hasExplicitSrc() || imgFallback() ? origSrc() : thumbSrc();
   const useVideoPoster = () => !hasExplicitSrc() && !posterFailed();
   const title = () => mediaTitle(props.item);
+  const accessibleName = () => {
+    const base = `Open ${title()}, ${mediaKindLabel(props.item).toLowerCase()}`;
+    return props.position !== undefined ? `${base} ${props.position}` : base;
+  };
 
-  const itemKey = () =>
-    `${props.item.src ?? ""}|${props.item.subfolder ?? ""}|${props.item.filename}|${props.item.mediaType ?? ""}`;
+  const itemKey = createMemo(
+    () =>
+      `${props.item.src ?? ""}|${props.item.subfolder ?? ""}|${props.item.filename}|${props.item.mediaType ?? ""}`,
+  );
 
   createEffect(
-    on(itemKey, () => {
-      setFailed(false);
-      setImgFallback(false);
-      setPosterFailed(false);
-      setPlaying(false);
-    }),
+    on(
+      itemKey,
+      () => {
+        clearRetryTimer();
+        thumbAttemptedRetry = false;
+        setThumbRetry(false);
+        setFailed(false);
+        setImgFallback(false);
+        setPosterFailed(false);
+        setPlaying(false);
+      },
+      { defer: true },
+    ),
   );
 
   const onImageError = () => {
     if (!hasExplicitSrc() && !imgFallback()) {
+      if (!thumbAttemptedRetry) {
+        if (retryTimer !== null) return;
+        retryTimer = setTimeout(() => {
+          retryTimer = null;
+          thumbAttemptedRetry = true;
+          setThumbRetry(true);
+        }, 1500);
+        return;
+      }
+      clearRetryTimer();
       setImgFallback(true);
     } else {
+      clearRetryTimer();
       setFailed(true);
     }
   };
 
+  const onPosterError = () => {
+    if (!thumbAttemptedRetry) {
+      if (retryTimer !== null) return;
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        thumbAttemptedRetry = true;
+        setThumbRetry(true);
+      }, 1500);
+      return;
+    }
+    clearRetryTimer();
+    setPosterFailed(true);
+  };
+
   const playVideo = () => {
+    if (prefersReducedMotion()) return;
     if (v) {
       v.play().catch(() => {});
     }
+  };
+
+  const onPointerEnter = (e: PointerEvent) => {
+    if (e.pointerType === "touch") return;
+    playVideo();
   };
 
   const stopVideo = () => {
@@ -70,10 +150,10 @@ export function MediaTile(props: MediaTileProps) {
   return (
     <button
       type="button"
-      aria-label={`Open ${title()}`}
+      aria-label={accessibleName()}
       title={title()}
       onClick={() => props.onOpen?.()}
-      onPointerEnter={playVideo}
+      onPointerEnter={onPointerEnter}
       onPointerLeave={stopVideo}
       onFocus={playVideo}
       onBlur={stopVideo}
@@ -108,7 +188,7 @@ export function MediaTile(props: MediaTileProps) {
                 loading="lazy"
                 decoding="async"
                 class="absolute inset-0 z-0 size-full object-cover"
-                onError={() => setPosterFailed(true)}
+                onError={onPosterError}
               />
             </Show>
             <video
@@ -148,7 +228,11 @@ export function MediaTile(props: MediaTileProps) {
           </Match>
         </Switch>
       </Show>
-      <Show when={props.item.mediaType !== "image"}>
+      <Show
+        when={
+          props.item.mediaType !== "image" && props.item.mediaType !== "audio"
+        }
+      >
         <span class="badge badge-neutral badge-sm absolute left-2 top-2 z-20 capitalize">
           {props.item.mediaType}
         </span>

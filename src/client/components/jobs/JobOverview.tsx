@@ -216,9 +216,10 @@ export function JobOverview(props: JobOverviewProps) {
           </div>
           <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
             <For each={props.media.slice(0, 8)}>
-              {(item) => (
+              {(item, i) => (
                 <MediaTile
                   item={item}
+                  position={i() + 1}
                   aspect="video"
                   onOpen={() => props.onOpenMedia(item)}
                 />

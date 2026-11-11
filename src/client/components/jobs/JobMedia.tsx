@@ -73,9 +73,10 @@ export function JobMedia(props: JobMediaProps) {
                     </div>
                     <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
                       <For each={items()}>
-                        {(item) => (
+                        {(item, i) => (
                           <MediaTile
                             item={item}
+                            position={i() + 1}
                             aspect="video"
                             onOpen={() => props.onOpen(item)}
                           />
