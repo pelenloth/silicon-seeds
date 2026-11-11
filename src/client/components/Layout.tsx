@@ -1,7 +1,7 @@
 import type { ParentProps } from "solid-js";
 import { A, useLocation } from "@solidjs/router";
 import { Icons } from "./Icons";
-import { createTheme } from "../stores/theme";
+import { initTheme } from "../stores/theme";
 
 function getPageTitle(path: string) {
   if (path.startsWith("/jobs") || path === "/" || path.startsWith("/dashboard"))
@@ -19,8 +19,8 @@ function getPageTitle(path: string) {
 }
 
 export default function Layout(props: ParentProps) {
+  initTheme();
   const location = useLocation();
-  const { theme, toggle, setTheme } = createTheme();
   const title = () => getPageTitle(location.pathname);
 
   return (
@@ -147,23 +147,6 @@ export default function Layout(props: ParentProps) {
               <label for="main-drawer" class="btn btn-ghost btn-circle btn-sm">
                 <Icons.Drawer />
               </label>
-              <select
-                class="select select-xs select-bordered is-drawer-close:hidden"
-                value={theme()}
-                onChange={(e) => setTheme(e.currentTarget.value as any)}
-              >
-                <option value="bumblebee">bumblebee</option>
-                <option value="tokyonight">tokyonight</option>
-                <option value="opencode">opencode</option>
-                <option value="dracula">dracula</option>
-              </select>
-              <button
-                class="btn btn-ghost btn-circle btn-sm is-drawer-close:inline-flex hidden"
-                onClick={toggle}
-                aria-label="Toggle theme"
-              >
-                <Icons.Moon />
-              </button>
             </div>
           </div>
         </div>

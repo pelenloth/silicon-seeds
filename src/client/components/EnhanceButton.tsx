@@ -1,7 +1,7 @@
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import SparkleIcon from "./SparkleIcon";
 import EnhanceModal from "./EnhanceModal";
-import type { EnhanceKind } from "../../prompts/prompt-enhancer";
+import type { EnhanceKind } from "../../prompts/enhance-prompts";
 
 export type EnhanceButtonProps = {
   textareaId: string;

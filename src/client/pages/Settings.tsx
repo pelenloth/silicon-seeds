@@ -1,5 +1,6 @@
 import { createSignal, For, Show } from "solid-js";
 import { Icons } from "../components/Icons";
+import AppearanceSection from "../components/settings/AppearanceSection";
 
 type SettingsMap = Record<string, string>;
 type Preset = {
@@ -240,6 +241,7 @@ export default function Settings() {
 
   return (
     <div class="flex flex-col gap-5 p-4 sm:p-6 bg-base-200 min-h-[calc(100vh-4rem)] w-full max-w-none">
+      <AppearanceSection />
       <Show when={msg()}>
         <div class="alert alert-success text-sm py-2 shadow-sm">
           <Icons.StatusCompleteSmall /> <span>{msg()}</span>

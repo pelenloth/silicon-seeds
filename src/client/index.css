@@ -1,14 +1,41 @@
 @import "tailwindcss";
 @plugin "daisyui" {
-  themes:
-    light --default,
-    dark --prefersdark,
-    tokyonight,
-    opencode,
-    dracula,
-    night,
-    forest,
-    luxury;
+  themes: dracula;
+}
+
+@plugin "daisyui/theme" {
+  name: "daylight";
+  default: true;
+  prefersdark: false;
+  color-scheme: light;
+  --color-base-100: #ffffff;
+  --color-base-200: #f5f6f8;
+  --color-base-300: #e4e6eb;
+  --color-base-content: #1c1e26;
+  --color-primary: #4f46e5;
+  --color-primary-content: #ffffff;
+  --color-secondary: #64748b;
+  --color-secondary-content: #ffffff;
+  --color-accent: #0d9488;
+  --color-accent-content: #ffffff;
+  --color-neutral: #2b3040;
+  --color-neutral-content: #f5f6f8;
+  --color-info: #0284c7;
+  --color-info-content: #ffffff;
+  --color-success: #16a34a;
+  --color-success-content: #ffffff;
+  --color-warning: #d97706;
+  --color-warning-content: #ffffff;
+  --color-error: #dc2626;
+  --color-error-content: #ffffff;
+  --radius-selector: 0.5rem;
+  --radius-field: 0.5rem;
+  --radius-box: 0.75rem;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 0;
+  --noise: 0;
 }
 
 @plugin "daisyui/theme" {
@@ -47,7 +74,7 @@
 
 @plugin "daisyui/theme" {
   name: "opencode";
-  prefersdark: true;
+  prefersdark: false;
   color-scheme: dark;
   --color-base-100: #0a0a0a;
   --color-base-200: #141414;
@@ -77,6 +104,57 @@
   --border: 1px;
   --depth: 0;
   --noise: 0;
+}
+
+@utility panel {
+  border-radius: var(--radius-box);
+  border: 1px solid var(--color-base-300);
+  background-color: var(--color-base-100);
+}
+@utility section-label {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: color-mix(in oklab, var(--color-base-content) 60%, transparent);
+}
+@utility page {
+  padding: 1rem;
+  @media (width >= 64rem) {
+    padding: 1.5rem;
+  }
+}
+@utility scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(
+      in oklab,
+      var(--color-base-content) 25%,
+      transparent
+    )
+    transparent;
+}
+@utility fade-in {
+  animation: ss-fade-in 150ms ease-out both;
+}
+@keyframes ss-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* Hide scrollbar while keeping content scrollable */
