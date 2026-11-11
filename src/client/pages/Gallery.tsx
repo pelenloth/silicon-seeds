@@ -104,12 +104,32 @@ export default function Gallery() {
   let sentinelRef: HTMLDivElement | undefined;
   let observer: IntersectionObserver | null = null;
   let abortController: AbortController | null = null;
+  let rearmFrame: number | null = null;
   let requestSeq = 0;
   let cursorValue: string | undefined;
   let inFlightCursor: string | null = null;
   let disposed = false;
 
+  const cancelRearm = () => {
+    if (rearmFrame !== null && typeof cancelAnimationFrame === "function") {
+      cancelAnimationFrame(rearmFrame);
+      rearmFrame = null;
+    }
+  };
+
+  const rearmObserver = () => {
+    cancelRearm();
+    if (typeof requestAnimationFrame !== "function") return;
+    rearmFrame = requestAnimationFrame(() => {
+      rearmFrame = null;
+      if (disposed || !observer || !sentinelRef || !hasMore()) return;
+      observer.unobserve(sentinelRef);
+      observer.observe(sentinelRef);
+    });
+  };
+
   const abortInFlight = () => {
+    cancelRearm();
     if (abortController) {
       abortController.abort();
       abortController = null;
@@ -154,6 +174,7 @@ export default function Gallery() {
     if (filterType !== "all") q.set("type", filterType);
     q.set("limit", "20");
 
+    let shouldRearm = false;
     try {
       const data = await apiGet<{ items: GalleryItem[] }>(
         `/api/gallery/items?${q.toString()}`,
@@ -167,6 +188,7 @@ export default function Gallery() {
       const nextKeyed = toKeyedMediaItems(raw);
       const lastMetaId =
         raw.length > 0 ? raw[raw.length - 1]?.meta_id : undefined;
+      const more = raw.length >= 20 && Boolean(lastMetaId);
 
       batch(() => {
         if (mode === "append") {
@@ -198,10 +220,11 @@ export default function Gallery() {
         } else if (mode !== "append") {
           cursorValue = undefined;
         }
-        setHasMore(raw.length >= 20 && Boolean(lastMetaId));
+        setHasMore(more);
         setError(null);
         setLoading(false);
       });
+      shouldRearm = more;
     } catch (err) {
       if (
         disposed ||
@@ -227,12 +250,16 @@ export default function Gallery() {
         if (abortController === controller) {
           abortController = null;
         }
+        if (shouldRearm) {
+          rearmObserver();
+        }
       }
     }
   };
 
   createEffect(
     on(type, () => {
+      cancelRearm();
       void fetchPage("reset");
     }),
   );
@@ -287,6 +314,7 @@ export default function Gallery() {
 
   onCleanup(() => {
     disposed = true;
+    cancelRearm();
     if (observer) {
       observer.disconnect();
       observer = null;

@@ -60,3 +60,40 @@ test("gallery: fits a phone without horizontal scroll", async ({ page }) => {
     ),
   ).toBe(true);
 });
+
+test("gallery: keeps loading on a tall screen", async ({ page }) => {
+  await page.setViewportSize({ width: 1600, height: 1600 });
+  const res = await page.request.get("/api/gallery/items?limit=21");
+  const data = (await res.json()) as { items?: unknown[] };
+  test.skip(
+    (data.items?.length ?? 0) <= 20,
+    "fewer than 21 gallery items in DB",
+  );
+
+  await page.goto("/gallery");
+  const tiles = page.locator('#gallery-grid button[aria-label^="Open "]');
+  await expect
+    .poll(() => tiles.count(), { timeout: 15000 })
+    .toBeGreaterThan(20);
+
+  const countBeforeScroll = await tiles.count();
+  await page.evaluate(() => {
+    const main = document.getElementById("app-main");
+    if (main) {
+      main.scrollTop = main.scrollHeight;
+    }
+  });
+  await expect
+    .poll(
+      async () => {
+        const count = await tiles.count();
+        const done = await page
+          .getByText("That is everything.")
+          .isVisible()
+          .catch(() => false);
+        return count > countBeforeScroll || done;
+      },
+      { timeout: 15000 },
+    )
+    .toBe(true);
+});
