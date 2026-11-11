@@ -17,31 +17,34 @@ import { toast } from "../stores/toast";
 
 const FALLBACK_SVGS: readonly MediaItem[] = [
   {
-    filename:
+    filename: "demo-1.svg",
+    subfolder: "",
+    mediaType: "image",
+    src:
       "data:image/svg+xml;utf8," +
       encodeURIComponent(
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300"><rect width="400" height="300" fill="#4f46e5"/><text x="200" y="155" font-family="sans-serif" font-size="24" fill="#ffffff" text-anchor="middle">Sample 1</text></svg>',
       ),
-    subfolder: "",
-    mediaType: "image",
   },
   {
-    filename:
+    filename: "demo-2.svg",
+    subfolder: "",
+    mediaType: "image",
+    src:
       "data:image/svg+xml;utf8," +
       encodeURIComponent(
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300"><rect width="400" height="300" fill="#0f766e"/><text x="200" y="155" font-family="sans-serif" font-size="24" fill="#ffffff" text-anchor="middle">Sample 2</text></svg>',
       ),
-    subfolder: "",
-    mediaType: "image",
   },
   {
-    filename:
+    filename: "demo-3.svg",
+    subfolder: "",
+    mediaType: "image",
+    src:
       "data:image/svg+xml;utf8," +
       encodeURIComponent(
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300"><rect width="400" height="300" fill="#0369a1"/><text x="200" y="155" font-family="sans-serif" font-size="24" fill="#ffffff" text-anchor="middle">Sample 3</text></svg>',
       ),
-    subfolder: "",
-    mediaType: "image",
   },
 ];
 
@@ -170,13 +173,22 @@ export default function DevKit() {
           onClose={() => setModalOpen(false)}
           title="Example modal"
           actions={
-            <button
-              type="button"
-              class="btn btn-sm btn-primary"
-              onClick={() => setModalOpen(false)}
-            >
-              Done
-            </button>
+            <>
+              <button
+                type="button"
+                class="btn btn-sm"
+                onClick={() => toast.info("Toast above the modal")}
+              >
+                Toast from modal
+              </button>
+              <button
+                type="button"
+                class="btn btn-sm btn-primary"
+                onClick={() => setModalOpen(false)}
+              >
+                Done
+              </button>
+            </>
           }
         >
           <p class="text-sm text-base-content/80">

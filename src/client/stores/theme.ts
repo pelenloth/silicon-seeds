@@ -74,6 +74,7 @@ export function initTheme(): void {
         });
       }
       window.addEventListener("storage", (e: StorageEvent) => {
+        if (e.storageArea !== window.localStorage) return;
         if (e.key === THEME_STORAGE_KEY || e.key === null) {
           setThemePrefSignal(
             normalizeThemePref(e.key === null ? null : e.newValue),

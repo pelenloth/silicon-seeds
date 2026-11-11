@@ -58,3 +58,31 @@ test("ui kit: back-to-back confirm dialog stays open after first closes", async 
   await page.waitForTimeout(300);
   await expect(confirm).toBeVisible();
 });
+
+test("ui kit: toast fired while modal is open appears above modal in top layer and can be dismissed", async ({
+  page,
+}) => {
+  await page.goto("/dev/kit");
+  await page.getByRole("button", { name: "Open modal" }).click();
+  const modal = page.getByRole("dialog", { name: "Example modal" });
+  await expect(modal).toBeVisible();
+
+  await modal.getByRole("button", { name: "Toast from modal" }).click();
+  const toastStatus = page
+    .getByRole("status")
+    .filter({ hasText: "Toast above the modal" });
+  await expect(toastStatus).toBeVisible();
+
+  const isOnTop = await toastStatus.evaluate((toastEl) => {
+    const rect = toastEl.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const hit = document.elementFromPoint(cx, cy);
+    return Boolean(hit && toastEl.contains(hit));
+  });
+  expect(isOnTop).toBe(true);
+
+  await toastStatus.getByRole("button", { name: "Dismiss" }).click();
+  await expect(toastStatus).toBeHidden();
+  await expect(modal).toBeVisible();
+});

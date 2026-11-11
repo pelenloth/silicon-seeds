@@ -1,9 +1,38 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { ApiError, apiGet, apiSend, parseApiError } from "./api-client";
+import {
+  ApiError,
+  apiGet,
+  apiSend,
+  getAssetPath,
+  mediaUrl,
+  parseApiError,
+} from "./api-client";
 
 const originalFetch = globalThis.fetch;
 afterEach(() => {
   globalThis.fetch = originalFetch;
+});
+
+describe("mediaUrl", () => {
+  test("protocol-relative filename goes through getAssetPath, not raw filename", () => {
+    const url = mediaUrl({
+      filename: "//evil.example/x.png",
+      subfolder: "",
+      mediaType: "image",
+    });
+    expect(url).toBe(getAssetPath("", "//evil.example/x.png"));
+    expect(url).not.toBe("//evil.example/x.png");
+  });
+
+  test("uses explicit src when provided", () => {
+    const url = mediaUrl({
+      filename: "a.png",
+      subfolder: "",
+      mediaType: "image",
+      src: "data:image/png;base64,AAAA",
+    });
+    expect(url).toBe("data:image/png;base64,AAAA");
+  });
 });
 
 describe("parseApiError", () => {
@@ -122,6 +151,40 @@ describe("apiGet and apiSend", () => {
     expect((caught as ApiError).message).toBe(
       "Unexpected response from the server",
     );
+  });
+
+  test("apiGet rejects with ApiError(200, 'Unexpected response from the server') for HTML body", async () => {
+    globalThis.fetch = (async () =>
+      new Response("<!doctype html><html></html>", {
+        status: 200,
+        headers: { "Content-Type": "text/html" },
+      })) as unknown as typeof fetch;
+
+    let caught: unknown;
+    try {
+      await apiGet("/x");
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(ApiError);
+    expect((caught as ApiError).status).toBe(200);
+    expect((caught as ApiError).message).toBe(
+      "Unexpected response from the server",
+    );
+  });
+
+  test("apiGet resolves undefined for 204 and empty 200, and parses JSON without JSON content-type", async () => {
+    globalThis.fetch = (async () =>
+      new Response(null, { status: 204 })) as unknown as typeof fetch;
+    expect(await apiGet("/x")).toBeUndefined();
+
+    globalThis.fetch = (async () =>
+      new Response("", { status: 200 })) as unknown as typeof fetch;
+    expect(await apiGet("/x")).toBeUndefined();
+
+    globalThis.fetch = (async () =>
+      new Response('{"ok":true}', { status: 200 })) as unknown as typeof fetch;
+    expect(await apiGet<{ ok: boolean }>("/x")).toEqual({ ok: true });
   });
 
   test("apiSend rejects with ApiError status, message and fields on 400", async () => {

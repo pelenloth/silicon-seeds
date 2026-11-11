@@ -12,8 +12,7 @@ export type SegmentedProps = {
 
 export function Segmented(props: SegmentedProps) {
   return (
-    <fieldset class={props.class}>
-      <legend class="sr-only">{props.label}</legend>
+    <div class={props.class}>
       <div class="join" role="radiogroup" aria-label={props.label}>
         <For each={props.options}>
           {(o) => (
@@ -23,13 +22,16 @@ export function Segmented(props: SegmentedProps) {
               value={o.value}
               aria-label={o.label}
               checked={props.value === o.value}
-              onChange={() => props.onChange(o.value)}
+              onChange={(e) => {
+                props.onChange(o.value);
+                e.currentTarget.checked = props.value === o.value;
+              }}
               class={`btn join-item ${props.size === "xs" ? "btn-xs" : "btn-sm"}`}
             />
           )}
         </For>
       </div>
-    </fieldset>
+    </div>
   );
 }
 

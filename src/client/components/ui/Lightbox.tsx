@@ -1,5 +1,12 @@
-import { createEffect, Match, Show, Switch, type JSX } from "solid-js";
-import { getAssetPath, type MediaItem } from "../../lib/api-client";
+import {
+  createEffect,
+  createSignal,
+  Match,
+  Show,
+  Switch,
+  type JSX,
+} from "solid-js";
+import { mediaUrl, type MediaItem } from "../../lib/api-client";
 import { Icons } from "../Icons";
 
 export type LightboxProps = {
@@ -10,21 +17,9 @@ export type LightboxProps = {
   actions?: (item: MediaItem) => JSX.Element;
 };
 
-function mediaSrc(item: MediaItem): string {
-  if (
-    item.filename.startsWith("data:") ||
-    item.filename.startsWith("blob:") ||
-    item.filename.startsWith("http://") ||
-    item.filename.startsWith("https://") ||
-    item.filename.startsWith("/")
-  ) {
-    return item.filename;
-  }
-  return getAssetPath(item.subfolder, item.filename);
-}
-
 export function Lightbox(props: LightboxProps) {
   let ref!: HTMLDialogElement;
+  const [failed, setFailed] = createSignal(false);
 
   const isOpen = () =>
     props.index !== null &&
@@ -32,6 +27,11 @@ export function Lightbox(props: LightboxProps) {
     props.index < props.items.length;
 
   const currentItem = () => (isOpen() ? props.items[props.index!] : undefined);
+
+  createEffect(() => {
+    void props.index;
+    setFailed(false);
+  });
 
   createEffect(() => {
     if (!ref) return;
@@ -54,6 +54,17 @@ export function Lightbox(props: LightboxProps) {
   };
 
   const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.defaultPrevented) return;
+    const t = e.target;
+    if (
+      t instanceof HTMLMediaElement ||
+      t instanceof HTMLInputElement ||
+      t instanceof HTMLTextAreaElement ||
+      t instanceof HTMLSelectElement ||
+      (t instanceof HTMLElement && t.isContentEditable)
+    ) {
+      return;
+    }
     if (e.key === "ArrowLeft") {
       e.preventDefault();
       step(-1);
@@ -73,7 +84,7 @@ export function Lightbox(props: LightboxProps) {
     >
       <Show when={currentItem()}>
         {(item) => {
-          const src = () => mediaSrc(item());
+          const src = () => mediaUrl(item());
           return (
             <div class="modal-box flex h-[92dvh] w-[96vw] max-w-none flex-col gap-3 bg-base-100 p-3">
               <div class="flex items-center gap-3">
@@ -106,26 +117,42 @@ export function Lightbox(props: LightboxProps) {
                 </button>
               </div>
               <div class="relative flex min-h-0 flex-1 items-center justify-center rounded-box bg-base-300">
-                <Switch>
-                  <Match when={item().mediaType === "image"}>
-                    <img
-                      src={src()}
-                      alt={item().filename}
-                      class="max-h-full max-w-full object-contain"
-                    />
-                  </Match>
-                  <Match when={item().mediaType === "video"}>
-                    <video
-                      src={src()}
-                      controls
-                      autoplay
-                      class="max-h-full max-w-full"
-                    />
-                  </Match>
-                  <Match when={item().mediaType === "audio"}>
-                    <audio src={src()} controls autoplay />
-                  </Match>
-                </Switch>
+                <Show
+                  when={!failed()}
+                  fallback={
+                    <span class="text-sm text-base-content/60">
+                      This file is no longer available
+                    </span>
+                  }
+                >
+                  <Switch>
+                    <Match when={item().mediaType === "image"}>
+                      <img
+                        src={src()}
+                        alt={item().filename}
+                        class="max-h-full max-w-full object-contain"
+                        onError={() => setFailed(true)}
+                      />
+                    </Match>
+                    <Match when={item().mediaType === "video"}>
+                      <video
+                        src={src()}
+                        controls
+                        autoplay
+                        class="max-h-full max-w-full"
+                        onError={() => setFailed(true)}
+                      />
+                    </Match>
+                    <Match when={item().mediaType === "audio"}>
+                      <audio
+                        src={src()}
+                        controls
+                        autoplay
+                        onError={() => setFailed(true)}
+                      />
+                    </Match>
+                  </Switch>
+                </Show>
                 <Show when={props.items.length > 1}>
                   <button
                     type="button"

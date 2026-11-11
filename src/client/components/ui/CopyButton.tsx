@@ -65,6 +65,9 @@ export function CopyButton(props: CopyButtonProps) {
     >
       <Show when={copied()} fallback={<Icons.Copy class="size-4" />}>
         <Icons.Check class="size-4 text-success" />
+        <span class="sr-only" role="status">
+          Copied
+        </span>
       </Show>
       <Show when={props.label}>
         <span>{props.label}</span>

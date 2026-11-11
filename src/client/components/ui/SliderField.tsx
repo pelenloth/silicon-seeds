@@ -40,6 +40,7 @@ export function SliderField(props: SliderFieldProps) {
         max={props.max}
         step={props.step ?? 1}
         value={props.value}
+        aria-valuetext={(props.format ?? String)(props.value)}
         aria-describedby={describedBy()}
         aria-invalid={props.error ? "true" : undefined}
         onInput={(e) => props.onInput(Number(e.currentTarget.value))}

@@ -106,6 +106,31 @@ function isAbortError(err: unknown, signal?: AbortSignal): boolean {
   );
 }
 
+async function handleResponse<T>(
+  r: Response,
+  signal?: AbortSignal,
+): Promise<T> {
+  let text: string;
+  try {
+    text = await r.text();
+  } catch (err) {
+    if (isAbortError(err, signal)) throw err;
+    throw new ApiError(0, "Cannot reach the server");
+  }
+  if (!r.ok) {
+    const parsed = parseApiError(r.status, text);
+    throw new ApiError(r.status, parsed.message, parsed.fields);
+  }
+  if (r.status === 204 || !text) {
+    return undefined as T;
+  }
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new ApiError(r.status, "Unexpected response from the server");
+  }
+}
+
 export async function apiGet<T>(
   path: string,
   init?: { signal?: AbortSignal },
@@ -120,26 +145,7 @@ export async function apiGet<T>(
     if (isAbortError(err, init?.signal)) throw err;
     throw new ApiError(0, "Cannot reach the server");
   }
-  if (!r.ok) {
-    const parsed = parseApiError(r.status, await r.text());
-    throw new ApiError(r.status, parsed.message, parsed.fields);
-  }
-  const ct = r.headers.get("content-type") ?? "";
-  if (ct.includes("application/json")) {
-    try {
-      return (await r.json()) as T;
-    } catch (err) {
-      if (isAbortError(err, init?.signal)) throw err;
-      throw new ApiError(r.status, "Unexpected response from the server");
-    }
-  }
-  const text = await r.text();
-  if (!text) return undefined as T;
-  try {
-    return JSON.parse(text) as T;
-  } catch {
-    return undefined as T;
-  }
+  return handleResponse<T>(r, init?.signal);
 }
 
 export async function apiSend<T = unknown>(
@@ -171,26 +177,7 @@ export async function apiSend<T = unknown>(
     if (isAbortError(err, init?.signal)) throw err;
     throw new ApiError(0, "Cannot reach the server");
   }
-  if (!r.ok) {
-    const parsed = parseApiError(r.status, await r.text());
-    throw new ApiError(r.status, parsed.message, parsed.fields);
-  }
-  const ct = r.headers.get("content-type") ?? "";
-  if (ct.includes("application/json")) {
-    try {
-      return (await r.json()) as T;
-    } catch (err) {
-      if (isAbortError(err, init?.signal)) throw err;
-      throw new ApiError(r.status, "Unexpected response from the server");
-    }
-  }
-  const text = await r.text();
-  if (!text) return undefined as T;
-  try {
-    return JSON.parse(text) as T;
-  } catch {
-    return undefined as T;
-  }
+  return handleResponse<T>(r, init?.signal);
 }
 
 export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
@@ -203,6 +190,7 @@ export type MediaItem = {
   filename: string;
   subfolder: string;
   mediaType: MediaType;
+  src?: string;
   created_at?: string;
   job_id?: string;
   event_id?: string;
@@ -246,4 +234,8 @@ export function getAssetPath(subfolder: string, filename: string): string {
   const clean = subfolder.endsWith("/") ? subfolder.slice(0, -1) : subfolder;
   if (!clean || clean.trim() === "") return `/assets/${filename}`;
   return `/assets/${clean}/${filename}`;
+}
+
+export function mediaUrl(item: MediaItem): string {
+  return item.src ?? getAssetPath(item.subfolder, item.filename);
 }
