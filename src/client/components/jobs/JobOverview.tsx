@@ -1,7 +1,8 @@
-import { A } from "@solidjs/router";
+import { useNavigate } from "@solidjs/router";
 import { createSignal, For, Show } from "solid-js";
 import type { MediaItem } from "../../lib/api-client";
 import {
+  eventLabel,
   formatDuration,
   jobDurationMs,
   jobKindMeta,
@@ -19,8 +20,7 @@ export type JobOverviewProps = {
   events: JobEvent[];
   media: MediaItem[];
   mediaHref: string;
-  onOpenMedia: (index: number) => void;
-  onRetry: () => void;
+  onOpenMedia: (item: MediaItem) => void;
 };
 
 function parseLoraNames(loras: string | null | undefined): string | null {
@@ -47,6 +47,7 @@ function parseLoraNames(loras: string | null | undefined): string | null {
 }
 
 export function JobOverview(props: JobOverviewProps) {
+  const navigate = useNavigate();
   const [expandedPrompt, setExpandedPrompt] = createSignal(false);
 
   const summary = () => summarizeEvents(props.events);
@@ -55,11 +56,18 @@ export function JobOverview(props: JobOverviewProps) {
   const totalSteps = () =>
     props.events.length > 0 ? summary().total : props.job.progress.total;
 
-  const failedError = () => {
-    const failedEvt = props.events.find(
-      (e) => e.status === "failed" && e.error && e.error.trim(),
-    );
-    return failedEvt?.error?.trim() || "This job failed.";
+  const failedEvent = () => props.events.find((e) => e.status === "failed");
+
+  const failedStepName = () => {
+    const evt = failedEvent();
+    if (!evt) return null;
+    return `${eventLabel(evt.type, evt.mode)}${evt.index != null ? ` #${evt.index + 1}` : ""}`;
+  };
+
+  const failedErrorText = () => {
+    const evt = failedEvent();
+    const err = evt?.error?.trim();
+    return err || null;
   };
 
   const split = () =>
@@ -67,7 +75,7 @@ export function JobOverview(props: JobOverviewProps) {
 
   const detailsRows = () => {
     const j = props.job;
-    const rows: { label: string; value: string; mono?: boolean }[] = [];
+    const rows: { label: string; value: string }[] = [];
 
     if (j.kind) {
       rows.push({ label: "Kind", value: jobKindMeta(j.kind).label });
@@ -82,7 +90,7 @@ export function JobOverview(props: JobOverviewProps) {
     const dur = formatDuration(
       jobDurationMs(j.created_at, props.events, j.status, nowTick()),
     );
-    if (dur) {
+    if (dur && dur !== "0s") {
       rows.push({ label: "Duration", value: dur });
     }
     if (j.resolution) {
@@ -112,9 +120,6 @@ export function JobOverview(props: JobOverviewProps) {
     const loraStr = parseLoraNames(j.loras);
     if (loraStr) {
       rows.push({ label: "LoRAs", value: loraStr });
-    }
-    if (j.id) {
-      rows.push({ label: "Job ID", value: j.id, mono: true });
     }
     return rows;
   };
@@ -170,14 +175,17 @@ export function JobOverview(props: JobOverviewProps) {
 
       <Show when={props.job.status === "failed"}>
         <div role="alert" class="alert alert-error alert-soft">
-          <span class="flex-1 text-sm">{failedError()}</span>
-          <button
-            type="button"
-            class="btn btn-sm btn-primary"
-            onClick={() => props.onRetry()}
-          >
-            Retry
-          </button>
+          <div class="flex flex-1 flex-col gap-0.5 text-sm">
+            <span class="font-medium">
+              This job failed
+              <Show when={failedStepName()}>
+                {(step) => <span> · {step()}</span>}
+              </Show>
+            </span>
+            <Show when={failedErrorText()}>
+              {(err) => <span class="text-xs opacity-90">{err()}</span>}
+            </Show>
+          </div>
         </div>
       </Show>
 
@@ -185,17 +193,34 @@ export function JobOverview(props: JobOverviewProps) {
         <div class="panel space-y-3 p-4">
           <div class="flex items-center justify-between">
             <span class="section-label">Outputs</span>
-            <A href={props.mediaHref} class="link link-hover text-xs">
+            <a
+              href={props.mediaHref}
+              class="link link-hover text-xs"
+              onClick={(e) => {
+                if (
+                  e.defaultPrevented ||
+                  e.button !== 0 ||
+                  e.metaKey ||
+                  e.ctrlKey ||
+                  e.shiftKey ||
+                  e.altKey
+                ) {
+                  return;
+                }
+                e.preventDefault();
+                navigate(props.mediaHref);
+              }}
+            >
               View all {props.media.length}
-            </A>
+            </a>
           </div>
           <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
             <For each={props.media.slice(0, 8)}>
-              {(item, idx) => (
+              {(item) => (
                 <MediaTile
                   item={item}
                   aspect="video"
-                  onOpen={() => props.onOpenMedia(idx())}
+                  onOpen={() => props.onOpenMedia(item)}
                 />
               )}
             </For>
@@ -208,7 +233,7 @@ export function JobOverview(props: JobOverviewProps) {
           <div class="flex items-center justify-between">
             <span class="section-label">Prompt</span>
             <Show when={split().prompt}>
-              <CopyButton text={split().prompt} />
+              <CopyButton text={split().prompt} label="Copy prompt" />
             </Show>
           </div>
           <Show
@@ -239,7 +264,7 @@ export function JobOverview(props: JobOverviewProps) {
           <div class="space-y-1 border-t border-base-300 pt-3">
             <div class="flex items-center justify-between">
               <span class="section-label">Style guide</span>
-              <CopyButton text={split().styleGuide} />
+              <CopyButton text={split().styleGuide} label="Copy style guide" />
             </div>
             <p class="whitespace-pre-wrap break-words text-sm leading-6">
               {split().styleGuide}
@@ -255,18 +280,23 @@ export function JobOverview(props: JobOverviewProps) {
             {(row) => (
               <div>
                 <dt class="text-xs text-base-content/60">{row.label}</dt>
-                <dd
-                  class={
-                    row.mono
-                      ? "mt-0.5 font-mono text-xs break-all"
-                      : "mt-0.5 font-medium"
-                  }
-                >
-                  {row.value}
-                </dd>
+                <dd class="mt-0.5 font-medium">{row.value}</dd>
               </div>
             )}
           </For>
+          <Show when={props.job.id}>
+            {(id) => (
+              <div class="col-span-full">
+                <dt class="text-xs text-base-content/60">Job ID</dt>
+                <dd class="mt-0.5 flex items-center gap-2">
+                  <span class="font-mono text-xs whitespace-nowrap break-all">
+                    {id()}
+                  </span>
+                  <CopyButton text={id()} label="Copy ID" />
+                </dd>
+              </div>
+            )}
+          </Show>
         </dl>
         <Show when={stepChips().length > 0}>
           <div class="flex flex-wrap gap-1.5 border-t border-base-300 pt-3">

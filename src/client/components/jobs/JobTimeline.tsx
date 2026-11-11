@@ -13,6 +13,7 @@ import { StatusBadge } from "../ui/StatusBadge";
 
 export type JobTimelineProps = {
   events: JobEvent[];
+  actionPending?: boolean;
   onRegenerate: (eventId: string) => void;
 };
 
@@ -32,6 +33,8 @@ export function JobTimeline(props: JobTimelineProps) {
           {(e) => {
             const hasDetails = () =>
               Boolean(e.prompt || e.text || e.lyrics || e.error);
+            const stepName = () =>
+              `${eventLabel(e.type, e.mode)}${e.index != null ? ` #${e.index + 1}` : ""}`;
             return (
               <li class="panel [content-visibility:auto] [contain-intrinsic-size:auto_44px]">
                 <details class="group">
@@ -54,10 +57,7 @@ export function JobTimeline(props: JobTimelineProps) {
                         <Icons.ExclamationCircle class="size-4 text-error" />
                       </Match>
                     </Switch>
-                    <span class="text-sm font-medium">
-                      {eventLabel(e.type, e.mode)}
-                      {e.index != null ? ` #${e.index + 1}` : ""}
-                    </span>
+                    <span class="text-sm font-medium">{stepName()}</span>
                     <Show when={(e.attempt_count ?? 0) > 1}>
                       <span class="badge badge-ghost badge-xs">
                         attempt {e.attempt_count}
@@ -75,7 +75,10 @@ export function JobTimeline(props: JobTimelineProps) {
                         <div>
                           <div class="flex items-center justify-between">
                             <span class="section-label">Prompt</span>
-                            <CopyButton text={val()} />
+                            <CopyButton
+                              text={val()}
+                              label={`Copy prompt (${stepName()})`}
+                            />
                           </div>
                           <p class="mt-1 whitespace-pre-wrap break-words text-sm">
                             {val()}
@@ -88,7 +91,10 @@ export function JobTimeline(props: JobTimelineProps) {
                         <div>
                           <div class="flex items-center justify-between">
                             <span class="section-label">Text</span>
-                            <CopyButton text={val()} />
+                            <CopyButton
+                              text={val()}
+                              label={`Copy text (${stepName()})`}
+                            />
                           </div>
                           <p class="mt-1 whitespace-pre-wrap break-words text-sm">
                             {val()}
@@ -101,7 +107,10 @@ export function JobTimeline(props: JobTimelineProps) {
                         <div>
                           <div class="flex items-center justify-between">
                             <span class="section-label">Lyrics</span>
-                            <CopyButton text={val()} />
+                            <CopyButton
+                              text={val()}
+                              label={`Copy lyrics (${stepName()})`}
+                            />
                           </div>
                           <p class="mt-1 whitespace-pre-wrap break-words text-sm">
                             {val()}
@@ -125,6 +134,7 @@ export function JobTimeline(props: JobTimelineProps) {
                       <button
                         type="button"
                         class="btn btn-sm btn-ghost"
+                        disabled={props.actionPending}
                         onClick={() => props.onRegenerate(e.id)}
                       >
                         <Icons.Refresh class="size-4" />

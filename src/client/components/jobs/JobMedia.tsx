@@ -5,13 +5,10 @@ import { MediaTile } from "../ui/MediaTile";
 
 export type JobMediaProps = {
   media: MediaItem[];
+  total?: number;
   loaded: boolean;
-  onOpen: (index: number) => void;
-};
-
-type IndexedItem = {
-  item: MediaItem;
-  index: number;
+  onOpen: (item: MediaItem) => void;
+  onShowAll?: () => void;
 };
 
 const GROUPS: { type: MediaType; label: string }[] = [
@@ -21,11 +18,10 @@ const GROUPS: { type: MediaType; label: string }[] = [
 ];
 
 export function JobMedia(props: JobMediaProps) {
-  const indexed = (): IndexedItem[] =>
-    props.media.map((item, index) => ({ item, index }));
+  const byType = (type: MediaType): MediaItem[] =>
+    props.media.filter((item) => item.mediaType === type);
 
-  const byType = (type: MediaType) =>
-    indexed().filter((entry) => entry.item.mediaType === type);
+  const totalCount = () => Math.max(props.total ?? 0, props.media.length);
 
   return (
     <Show
@@ -48,6 +44,24 @@ export function JobMedia(props: JobMediaProps) {
         }
       >
         <div class="flex flex-col gap-6">
+          <Show when={totalCount() > props.media.length}>
+            <div class="flex items-center justify-between rounded-box border border-base-300 bg-base-100 px-3 py-2 text-xs text-base-content/70">
+              <span>
+                Showing {props.media.length} of {totalCount()}
+              </span>
+              <Show when={props.onShowAll}>
+                {(showAll) => (
+                  <button
+                    type="button"
+                    class="btn btn-xs btn-ghost"
+                    onClick={() => showAll()()}
+                  >
+                    Show all
+                  </button>
+                )}
+              </Show>
+            </div>
+          </Show>
           <For each={GROUPS}>
             {(group) => {
               const items = () => byType(group.type);
@@ -59,11 +73,11 @@ export function JobMedia(props: JobMediaProps) {
                     </div>
                     <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
                       <For each={items()}>
-                        {(entry) => (
+                        {(item) => (
                           <MediaTile
-                            item={entry.item}
+                            item={item}
                             aspect="video"
-                            onOpen={() => props.onOpen(entry.index)}
+                            onOpen={() => props.onOpen(item)}
                           />
                         )}
                       </For>

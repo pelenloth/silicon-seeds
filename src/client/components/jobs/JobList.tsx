@@ -1,5 +1,12 @@
 import { A } from "@solidjs/router";
-import { createEffect, createSignal, For, on, Show } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  on,
+  Show,
+} from "solid-js";
 import { Dynamic } from "solid-js/web";
 import { thumbUrl } from "../../lib/api-client";
 import {
@@ -12,6 +19,7 @@ import { nowTick } from "../../stores/shell";
 import { Icons, KIND_ICONS } from "../Icons";
 import { EmptyState } from "../ui/EmptyState";
 import { StatusBadge } from "../ui/StatusBadge";
+import { TabLink } from "../ui/TabLink";
 
 export type JobListProps = {
   jobs: JobSummary[];
@@ -118,10 +126,11 @@ function JobRow(props: { job: JobSummary; selected: boolean; href: string }) {
 }
 
 export function JobList(props: JobListProps) {
-  const visibleFilters = () =>
+  const visibleFilters = createMemo(() =>
     FILTERS.filter(
       (f) => f.always || props.counts[f.key] > 0 || props.filter === f.key,
-    );
+    ),
+  );
 
   return (
     <aside id="job-list" class="flex h-full min-h-0 flex-col bg-base-100">
@@ -142,8 +151,9 @@ export function JobList(props: JobListProps) {
           <span class="hidden xl:inline">New Job</span>
         </A>
       </div>
-      <nav
+      <div
         id="job-filter"
+        role="tablist"
         aria-label="Filter jobs"
         class="scrollbar-hide flex gap-1 overflow-x-auto border-b border-base-300 px-3 py-2"
       >
@@ -151,18 +161,17 @@ export function JobList(props: JobListProps) {
           {(f) => {
             const active = () => props.filter === f.key;
             return (
-              <A
+              <TabLink
                 href={props.filterHref(f.key)}
-                class="btn btn-xs"
-                classList={{ "btn-primary": active(), "btn-ghost": !active() }}
-                aria-current={active() ? "true" : undefined}
+                active={active()}
+                class={`btn btn-xs ${active() ? "btn-primary" : "btn-ghost"}`}
               >
                 {f.label} <span class="opacity-60">{props.counts[f.key]}</span>
-              </A>
+              </TabLink>
             );
           }}
         </For>
-      </nav>
+      </div>
       <ul class="min-h-0 flex-1 overflow-y-auto scroll-thin p-2">
         <Show when={props.loading && !props.hasAnyJobs}>
           <For each={[0, 1, 2, 3, 4, 5, 6, 7]}>

@@ -1,5 +1,12 @@
 import { useNavigate, useParams, useSearchParams } from "@solidjs/router";
-import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js";
 import { JobDetail } from "../components/jobs/JobDetail";
 import { JobList } from "../components/jobs/JobList";
 import { EmptyState } from "../components/ui/EmptyState";
@@ -70,24 +77,30 @@ export default function Jobs() {
   const id = () => params.jobId ?? legacyJobId();
 
   const jobHref = (jobId: string) =>
-    `/jobs/${jobId}?tab=${tab()}&filter=${filter()}`;
+    `/jobs/${encodeURIComponent(jobId)}?tab=${encodeURIComponent(tab())}&filter=${encodeURIComponent(filter())}`;
 
   const filterHref = (f: string) => {
     const curId = id();
+    const encFilter = encodeURIComponent(f);
     return curId
-      ? `/jobs/${curId}?tab=${tab()}&filter=${f}`
-      : `/jobs?filter=${f}`;
+      ? `/jobs/${encodeURIComponent(curId)}?tab=${encodeURIComponent(tab())}&filter=${encFilter}`
+      : `/jobs?filter=${encFilter}`;
   };
 
-  const counts = () => countByStatus(jobs());
-  const list = () => filterJobs(jobs(), { status: filter(), query: query() });
+  const counts = createMemo(() => countByStatus(jobs()));
+  const list = createMemo(() =>
+    filterJobs(jobs(), { status: filter(), query: query() }),
+  );
 
   createEffect(() => {
     const leg = legacyJobId();
     if (leg) {
-      navigate(`/jobs/${leg}?tab=${tab()}&filter=${filter()}`, {
-        replace: true,
-      });
+      navigate(
+        `/jobs/${encodeURIComponent(leg)}?tab=${encodeURIComponent(tab())}&filter=${encodeURIComponent(filter())}`,
+        {
+          replace: true,
+        },
+      );
       return;
     }
     if (!params.jobId && isDesktop() && list().length > 0) {
