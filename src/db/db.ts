@@ -197,7 +197,40 @@ export namespace DB {
         .executeTakeFirst();
     }
 
+    export async function eventSignatures(jobIds: string[]) {
+      if (jobIds.length === 0) return [];
+      return await db
+        .selectFrom("events")
+        .select(["job_id", "type", "mode", "status"])
+        .select((eb) => eb.fn.countAll<number>().as("count"))
+        .where("job_id", "in", jobIds)
+        .groupBy(["job_id", "type", "mode", "status"])
+        .execute();
+    }
+
+    export async function outputFiles(jobIds: string[]) {
+      if (jobIds.length === 0) return [];
+      return await db
+        .selectFrom("meta")
+        .innerJoin("events", "events.id", "meta.event_id")
+        .select(["events.job_id as job_id", "meta.filename", "meta.subfolder"])
+        .where("meta.type", "=", "output")
+        .where("events.job_id", "in", jobIds)
+        .orderBy("meta.id", "asc")
+        .execute();
+    }
+
     export async function deleteById(id: string) {
+      const eventRows = await db
+        .selectFrom("events")
+        .select("id")
+        .where("job_id", "=", id)
+        .execute();
+      const eventIds = eventRows.map((r) => r.id);
+      if (eventIds.length > 0) {
+        await db.deleteFrom("meta").where("event_id", "in", eventIds).execute();
+      }
+
       // First delete all related events to avoid orphaned records
       await db.deleteFrom("events").where("job_id", "=", id).execute();
 

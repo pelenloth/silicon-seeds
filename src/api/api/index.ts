@@ -29,6 +29,15 @@ import {
   PostTextToImageSchema,
   PostTextToVideoSchema,
 } from "../schemas";
+import { validationHook } from "../validation";
+import { galleryEtag } from "../gallery-etag";
+import {
+  aggregateProgress,
+  deriveJobKind,
+  mediaTypeFromFilename,
+  pickThumb,
+  type EventSig,
+} from "../../jobs/job-summary";
 
 const app = new Hono();
 
@@ -42,7 +51,7 @@ app.get("/jobs/text", async () => {
 
 app.post(
   "/jobs/images",
-  zValidator("form", PostTextToImageSchema),
+  zValidator("form", PostTextToImageSchema, validationHook),
   async (c) => {
     const body = c.req.valid("form");
     return text_to_image(body);
@@ -51,7 +60,7 @@ app.post(
 
 app.post(
   "/jobs/audio",
-  zValidator("form", PostDistinctAudioSchema),
+  zValidator("form", PostDistinctAudioSchema, validationHook),
   async (c) => {
     const body = c.req.valid("form");
     return text_to_audio(body);
@@ -64,7 +73,7 @@ app.post("/jobs/scenes", async () => {
 
 app.post(
   "/jobs/videos",
-  zValidator("form", PostTextToVideoSchema),
+  zValidator("form", PostTextToVideoSchema, validationHook),
   async (c) => {
     const body = c.req.valid("form");
     return text_to_image_to_video(body);
@@ -73,7 +82,7 @@ app.post(
 
 app.post(
   "/jobs/videos/compose",
-  zValidator("form", PostComposeSchema),
+  zValidator("form", PostComposeSchema, validationHook),
   async (c) => {
     const body = c.req.valid("form");
 
@@ -140,8 +149,42 @@ app.post("/jobs/:job_id/events/:event_id/regenerate", async (c) => {
 // --- JSON list/detail endpoints for SolidJS SPA ---
 
 app.get("/jobs", async (c) => {
-  const jobs = await DB.Jobs.list();
-  return c.json({ jobs });
+  const raw = parseInt(c.req.query("limit") ?? "100", 10);
+  const limit = Number.isNaN(raw) ? 100 : Math.min(Math.max(raw, 1), 500);
+  const jobs = await DB.Jobs.list(limit);
+  const ids = jobs.map((j) => j.id);
+  const [sigRows, outputRows] = await Promise.all([
+    DB.Jobs.eventSignatures(ids),
+    DB.Jobs.outputFiles(ids),
+  ]);
+  const sigs = new Map<string, EventSig[]>();
+  for (const r of sigRows) {
+    const list = sigs.get(r.job_id) ?? [];
+    list.push({
+      type: r.type,
+      mode: r.mode,
+      status: r.status,
+      count: Number(r.count),
+    });
+    sigs.set(r.job_id, list);
+  }
+  const outputs = new Map<string, { filename: string; subfolder: string }[]>();
+  for (const r of outputRows) {
+    const list = outputs.get(r.job_id) ?? [];
+    list.push({ filename: r.filename, subfolder: r.subfolder });
+    outputs.set(r.job_id, list);
+  }
+  return c.json({
+    jobs: jobs.map((j) => {
+      const s = sigs.get(j.id) ?? [];
+      return {
+        ...j,
+        kind: deriveJobKind(j, s),
+        progress: aggregateProgress(s),
+        thumb: pickThumb(outputs.get(j.id) ?? []),
+      };
+    }),
+  });
 });
 
 app.get("/jobs/:jobId", async (c) => {
@@ -149,7 +192,15 @@ app.get("/jobs/:jobId", async (c) => {
   const job = await DB.Jobs.findById(jobId);
   if (!job) return c.json({ error: "job not found" }, 404);
   const events = await DB.Events.findByJobIdChronological(jobId);
-  return c.json({ job, events });
+  const sigs: EventSig[] = events.map((e) => ({
+    type: e.type,
+    mode: e.mode,
+    status: e.status,
+    count: 1,
+  }));
+  const kind = deriveJobKind(job, sigs);
+  const progress = aggregateProgress(sigs);
+  return c.json({ job: { ...job, kind, progress }, events });
 });
 
 app.get("/jobs/:jobId/events", async (c) => {
@@ -174,30 +225,6 @@ app.get("/jobs/:jobId/media", async (c) => {
   const limitVal = Number.isNaN(limit) ? 12 : Math.min(limit, 100);
   const effectiveType =
     type && type !== "all" ? (type as "image" | "video" | "audio") : undefined;
-  function getMediaTypeFromExtension(
-    filename: string,
-  ): "image" | "video" | "audio" | null {
-    const ext = filename.split(".").pop()?.toLowerCase();
-    if (!ext) return null;
-    if (["jpg", "jpeg", "png", "gif", "webp", "bmp", "svg"].includes(ext))
-      return "image";
-    if (["mp4", "mov", "avi", "mkv", "webm"].includes(ext)) return "video";
-    if (
-      [
-        "mp3",
-        "wav",
-        "flac",
-        "ogg",
-        "m4a",
-        "aac",
-        "wma",
-        "opus",
-        "aiff",
-      ].includes(ext)
-    )
-      return "audio";
-    return null;
-  }
   function getOutputAssetPath(subfolder: string, filename: string) {
     const outputDir = Bun.env.OUTPUT_DIR?.replace(/\/$/, "") ?? "";
     const cleanSubfolder = subfolder.replace(/^\/+|\/+$/g, "").trim();
@@ -255,7 +282,7 @@ app.get("/jobs/:jobId/media", async (c) => {
     mediaType: "image" | "video" | "audio";
   }> = [];
   for (const row of results) {
-    const mediaType = getMediaTypeFromExtension(row.filename);
+    const mediaType = mediaTypeFromFilename(row.filename);
     if (!mediaType) continue;
     if (effectiveType && mediaType !== effectiveType) continue;
     const primaryPath = getAssetPathInternal(row.subfolder, row.filename);
@@ -290,21 +317,25 @@ app.get("/gallery/items", async (c) => {
   const cursor = c.req.query("cursor") as string | undefined;
   const type = c.req.query("type") as string | undefined;
   const limit = parseInt(c.req.query("limit") || "20", 10);
+  const effectiveLimit = Number.isNaN(limit) ? 20 : limit;
   const effectiveType =
     type && type !== "all" ? (type as "image" | "video" | "audio") : undefined;
   const items = await DB.Gallery.listItems({
     cursor,
-    limit: Number.isNaN(limit) ? 20 : limit,
+    limit: effectiveLimit,
     type: effectiveType,
   });
   // ETag + Cache-Control for gallery (Solid client respects 304)
-  const etag = `"${items.length}-${cursor ?? ""}-${type ?? ""}"`;
+  const etag = galleryEtag({ type, cursor, limit: effectiveLimit }, items);
   const ifNoneMatch = c.req.header("If-None-Match");
   if (ifNoneMatch === etag) {
-    return new Response(null, { status: 304, headers: { ETag: etag } });
+    return new Response(null, {
+      status: 304,
+      headers: { ETag: etag, "Cache-Control": "no-cache" },
+    });
   }
   return c.json({ items }, 200, {
-    "Cache-Control": "public, max-age=60, must-revalidate",
+    "Cache-Control": "no-cache",
     ETag: etag,
   });
 });

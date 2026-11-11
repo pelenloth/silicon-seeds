@@ -66,7 +66,7 @@ export async function compose_video(options: PostCompose) {
     voice_id: options.voice_id,
   });
 
-  return new Response(JSON.stringify({ message: "job queued" }), {
+  return new Response(JSON.stringify({ message: "job queued", jobId }), {
     status: 200,
     headers: {
       "Content-Type": "application/json",

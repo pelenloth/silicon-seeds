@@ -3,6 +3,8 @@ import { JobUpdates } from "../../sse/job-updates";
 
 const app = new Hono();
 
+app.get("/stream/all", () => JobUpdates.streamAll());
+
 app.get("/stream", (c) => {
   const jobId = c.req.query("job_id");
   if (!jobId) {

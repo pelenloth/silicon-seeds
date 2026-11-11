@@ -4,6 +4,7 @@ type Subscriber = (eventName: string, data?: string) => void;
 
 export namespace JobUpdates {
   const subscribers = new Map<string, Set<Subscriber>>();
+  const globalSubscribers = new Set<Subscriber>();
   const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const pendingJobs = new Set<string>();
 
@@ -17,16 +18,31 @@ export namespace JobUpdates {
       debounceTimers.delete(jobId);
       if (!pendingJobs.has(jobId)) return;
       pendingJobs.delete(jobId);
+      const payload = JSON.stringify({ jobId });
       const listeners = subscribers.get(jobId);
-      if (!listeners) return;
-      for (const send of listeners) {
-        send("job-update", JSON.stringify({ jobId }));
+      if (listeners) {
+        for (const send of listeners) {
+          send("job-update", payload);
+        }
+      }
+      for (const send of globalSubscribers) {
+        send("job-update", payload);
       }
     }, 300);
     debounceTimers.set(jobId, timer);
   }
 
-  export function stream(jobId: string) {
+  export function subscribeAll(send: Subscriber): () => void {
+    globalSubscribers.add(send);
+    return () => {
+      globalSubscribers.delete(send);
+    };
+  }
+
+  function createStream(
+    register: (send: Subscriber) => () => void,
+    hello: string,
+  ): Response {
     let cleanup: (() => void) | undefined;
 
     const stream = new ReadableStream({
@@ -41,9 +57,7 @@ export namespace JobUpdates {
           );
         };
 
-        const listeners = subscribers.get(jobId) ?? new Set<Subscriber>();
-        listeners.add(send);
-        subscribers.set(jobId, listeners);
+        const unregister = register(send);
 
         const keepAlive = setInterval(() => {
           if (closed) return;
@@ -55,11 +69,7 @@ export namespace JobUpdates {
           closed = true;
 
           clearInterval(keepAlive);
-          listeners.delete(send);
-
-          if (listeners.size === 0) {
-            subscribers.delete(jobId);
-          }
+          unregister();
 
           try {
             controller.close();
@@ -68,7 +78,7 @@ export namespace JobUpdates {
           }
         };
 
-        send("connected", JSON.stringify({ jobId }));
+        send("connected", hello);
       },
       cancel() {
         cleanup?.();
@@ -83,5 +93,26 @@ export namespace JobUpdates {
         "X-Accel-Buffering": "no",
       },
     });
+  }
+
+  export function stream(jobId: string): Response {
+    return createStream((send) => {
+      const listeners = subscribers.get(jobId) ?? new Set<Subscriber>();
+      listeners.add(send);
+      subscribers.set(jobId, listeners);
+      return () => {
+        listeners.delete(send);
+        if (listeners.size === 0) {
+          subscribers.delete(jobId);
+        }
+      };
+    }, JSON.stringify({ jobId }));
+  }
+
+  export function streamAll(): Response {
+    return createStream(
+      (send) => subscribeAll(send),
+      JSON.stringify({ jobId: "*" }),
+    );
   }
 }

@@ -101,7 +101,7 @@ export type PostCompose = z.infer<typeof PostComposeSchema>;
 
 export const PostDistinctAudioSchema = z.object({
   instrumental_prompt: z.string().min(1, "Instrumental prompt is required"),
-  lyric_prompt: z.string().min(1, "Lyric prompt is required"),
+  lyric_prompt: z.string().optional().default(""),
   duration: z.coerce.number().int().min(10).max(720),
   bpm: z.coerce.number().int().min(40).max(240),
   cfg_scale: z.coerce.number().min(0).max(10),
