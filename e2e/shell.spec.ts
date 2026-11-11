@@ -169,3 +169,23 @@ test("shell: the command palette is centered and thumbnails are served", async (
     (await request.get("/thumbs/..%2F..%2Fetc%2Fpasswd?w=96")).status(),
   ).toBe(404);
 });
+
+test("shell: deep links are served to clients that do not ask for HTML", async ({
+  request,
+}) => {
+  for (const path of [
+    "/jobs",
+    "/gallery",
+    "/create/image",
+    "/settings",
+    "/compose",
+  ]) {
+    const res = await request.get(path, { headers: { Accept: "*/*" } });
+    expect(res.status(), path).toBe(200);
+    expect(res.headers()["content-type"], path).toContain("text/html");
+  }
+  const missing = await request.get("/thumbs/does-not-exist.png", {
+    headers: { Accept: "text/html" },
+  });
+  expect(missing.status()).toBe(404);
+});

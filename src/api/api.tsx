@@ -286,7 +286,7 @@ app.use("/*", async (c, next) => {
     const viteIndex = Bun.file("dist/client/index.html");
     if (
       (await viteIndex.exists()) &&
-      (accept.includes("text/html") || path === "/")
+      (accept.includes("text/html") || path === "/" || !path.includes("."))
     ) {
       const html = await viteIndex.text();
       return c.html(html);
