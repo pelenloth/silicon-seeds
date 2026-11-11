@@ -9,7 +9,7 @@ import apiRoutes from "./api/index";
 import jobsRoutes from "./jobs/jobs";
 import { parseRange } from "./range";
 import { Thumbs } from "../media/thumb-service";
-import { clampThumbWidth } from "../media/thumbs";
+import { clampThumbWidth, resolveMediaPath } from "../media/thumbs";
 
 const app = new Hono();
 
@@ -144,8 +144,17 @@ app.use("/assets/*", async (c, next) => {
 
 // Serve media files under /assets/* from OUTPUT_DIR
 app.use("/assets/*", async (c) => {
-  const pathAfterAssets = c.req.path.replace("/assets", "");
-  const filePath = `${Bun.env.OUTPUT_DIR}${pathAfterAssets}`;
+  const rawRel = new URL(c.req.url).pathname.slice("/assets/".length);
+  let decodedRelPath: string;
+  try {
+    decodedRelPath = decodeURIComponent(rawRel);
+  } catch {
+    return c.text("Not found", 404);
+  }
+  const filePath = resolveMediaPath(Bun.env.OUTPUT_DIR ?? "", decodedRelPath);
+  if (!filePath) {
+    return c.text("Not found", 404);
+  }
   const file = Bun.file(filePath);
 
   if (await file.exists()) {
@@ -226,6 +235,11 @@ app.get("/thumbs/*", async (c) => {
   }
   const result = await Thumbs.get(rel, clampThumbWidth(c.req.query("w")));
   if (!result.ok) {
+    if (result.reason === "busy") {
+      return c.json({ error: "Thumbnail service busy" }, 503, {
+        "Retry-After": "1",
+      });
+    }
     if (result.reason === "failed") {
       return c.json({ error: "Thumbnail failed" }, 500);
     }

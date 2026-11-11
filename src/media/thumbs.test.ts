@@ -3,6 +3,7 @@ import {
   clampThumbWidth,
   ffmpegThumbArgs,
   resolveMediaPath,
+  THUMB_VERSION,
   THUMB_WIDTHS,
   thumbCacheFile,
   thumbKind,
@@ -66,15 +67,22 @@ describe("resolveMediaPath", () => {
     expect(resolveMediaPath(root, "sub/dir/a.png")).toBe(
       "/data/out/sub/dir/a.png",
     );
-    expect(resolveMediaPath("/data/out/", "/a.png")).toBe("/data/out/a.png");
   });
   test("inner dot segments that stay inside are normalised", () => {
     expect(resolveMediaPath(root, "sub/../a.png")).toBe("/data/out/a.png");
   });
-  test("rejects traversal, empty input and NUL bytes", () => {
+  test("preserves backslashes as literal filename characters", () => {
+    expect(resolveMediaPath(root, "sub\\a.png")).toBe("/data/out/sub\\a.png");
+    expect(resolveMediaPath(root, "..\\secret.png")).toBe(
+      "/data/out/..\\secret.png",
+    );
+  });
+  test("rejects traversal, absolute relPath, empty input and NUL bytes", () => {
     for (const p of [
       "",
       "/",
+      "/a.png",
+      "/data/out/a.png",
       "..",
       "../secret.png",
       "a/../../secret.png",
@@ -94,6 +102,7 @@ describe("resolveMediaPath", () => {
 
 describe("thumbCacheFile", () => {
   test("is deterministic and width-specific", () => {
+    expect(THUMB_VERSION).toBe(2);
     const a = thumbCacheFile("/cache", "/data/out/a.png", 100, 5, 320);
     expect(a).toMatch(/^\/cache\/[0-9a-f]{32}-320\.jpg$/);
     expect(thumbCacheFile("/cache", "/data/out/a.png", 100, 5, 320)).toBe(a);
@@ -101,7 +110,7 @@ describe("thumbCacheFile", () => {
       a.replace("-320.jpg", "-96.jpg"),
     );
   });
-  test("changes when the file changes", () => {
+  test("changes when the file or version changes", () => {
     const a = thumbCacheFile("/cache", "/data/out/a.png", 100, 5, 320);
     expect(thumbCacheFile("/cache", "/data/out/a.png", 101, 5, 320)).not.toBe(
       a,
@@ -112,22 +121,51 @@ describe("thumbCacheFile", () => {
     expect(thumbCacheFile("/cache", "/data/out/b.png", 100, 5, 320)).not.toBe(
       a,
     );
+    expect(
+      thumbCacheFile("/cache", "/data/out/a.png", 100, 5, 320, 1),
+    ).not.toBe(a);
+    expect(
+      thumbCacheFile("/cache", "/data/out/a.png", 100, 5, 320, THUMB_VERSION),
+    ).toBe(a);
   });
 });
 
 describe("ffmpegThumbArgs", () => {
-  test("one quiet, downscale-only JPEG frame, no hardware acceleration", () => {
-    const args = ffmpegThumbArgs("/in/a.mp4", "/c/x.jpg", 320);
+  test("image: protocol whitelist before -i, downscale-only JPEG frame, no hardware acceleration", () => {
+    const args = ffmpegThumbArgs("/in/a.png", "/c/x.jpg", 320, "image");
     expect(args).toEqual([
       "-v",
       "error",
       "-y",
+      "-protocol_whitelist",
+      "file",
+      "-i",
+      "/in/a.png",
+      "-frames:v",
+      "1",
+      "-vf",
+      "scale='min(320,iw)':-2",
+      "-q:v",
+      "5",
+      "/c/x.jpg",
+    ]);
+    expect(args.join(" ")).not.toMatch(/hwaccel|cuda|nvenc|vaapi/);
+  });
+
+  test("video: uses thumbnail=48 filter before scale to skip flat gray opening frames", () => {
+    const args = ffmpegThumbArgs("/in/a.mp4", "/c/x.jpg", 640, "video");
+    expect(args).toEqual([
+      "-v",
+      "error",
+      "-y",
+      "-protocol_whitelist",
+      "file",
       "-i",
       "/in/a.mp4",
       "-frames:v",
       "1",
       "-vf",
-      "scale='min(320,iw)':-2",
+      "thumbnail=48,scale='min(640,iw)':-2",
       "-q:v",
       "5",
       "/c/x.jpg",

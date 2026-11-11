@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
 
+export const THUMB_VERSION = 2;
 export const THUMB_WIDTHS = [96, 320, 640] as const;
 export type ThumbWidth = (typeof THUMB_WIDTHS)[number];
 
@@ -38,16 +39,21 @@ export function thumbKind(filename: string): "image" | "video" | null {
   return null;
 }
 
-/** Absolute path of relPath inside outputDir, or null when relPath is empty, contains a NUL byte, or escapes outputDir after normalisation. */
+/** Absolute path of relPath inside outputDir, or null when relPath is empty, absolute, contains a NUL byte, or escapes outputDir after normalisation. */
 export function resolveMediaPath(
   outputDir: string,
   relPath: string,
 ): string | null {
-  if (!outputDir || !relPath || relPath.includes("\0")) return null;
-  const stripped = relPath.replace(/\\/g, "/").replace(/^\/+/, "");
-  if (!stripped) return null;
+  if (
+    !outputDir ||
+    !relPath ||
+    relPath.includes("\0") ||
+    path.isAbsolute(relPath)
+  ) {
+    return null;
+  }
   const root = path.resolve(outputDir);
-  const abs = path.resolve(root, stripped);
+  const abs = path.resolve(root, relPath);
   const prefix = root === path.sep ? path.sep : root + path.sep;
   if (abs !== root && abs.startsWith(prefix)) {
     return abs;
@@ -55,16 +61,17 @@ export function resolveMediaPath(
   return null;
 }
 
-/** `${cacheDir}/${first 32 hex chars of sha1(`${absPath}|${size}|${mtimeMs}`)}-${width}.jpg` */
+/** `${cacheDir}/${first 32 hex chars of sha1(`${version}|${absPath}|${size}|${mtimeMs}`)}-${width}.jpg` */
 export function thumbCacheFile(
   cacheDir: string,
   absPath: string,
   size: number,
   mtimeMs: number,
   width: ThumbWidth,
+  version: number = THUMB_VERSION,
 ): string {
   const hash = createHash("sha1")
-    .update(`${absPath}|${size}|${mtimeMs}`)
+    .update(`${version}|${absPath}|${size}|${mtimeMs}`)
     .digest("hex")
     .slice(0, 32);
   return path.join(cacheDir, `${hash}-${width}.jpg`);
@@ -75,17 +82,24 @@ export function ffmpegThumbArgs(
   input: string,
   output: string,
   width: ThumbWidth,
+  kind: "image" | "video",
 ): string[] {
+  const vf =
+    kind === "video"
+      ? `thumbnail=48,scale='min(${width},iw)':-2`
+      : `scale='min(${width},iw)':-2`;
   return [
     "-v",
     "error",
     "-y",
+    "-protocol_whitelist",
+    "file",
     "-i",
     input,
     "-frames:v",
     "1",
     "-vf",
-    `scale='min(${width},iw)':-2`,
+    vf,
     "-q:v",
     "5",
     output,
