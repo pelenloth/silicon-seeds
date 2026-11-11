@@ -23,4 +23,16 @@ describe("galleryEtag", () => {
     expect(galleryEtag({ limit: 10 }, page(["a"]))).not.toBe(base);
     expect(galleryEtag({ limit: 20 }, [])).not.toBe(base);
   });
+  test("encodes non-ASCII, CR/LF and quotes in type and cursor into valid ETag characters", () => {
+    const tag = galleryEtag(
+      { limit: 20, cursor: "€\r\nX-Evil: 1", type: 'vi deo"' },
+      page(["a"]),
+    );
+    expect(tag).toMatch(/^"[\x21\x23-\x7e]*"$/);
+    const other = galleryEtag(
+      { limit: 20, cursor: "€\r\nX-Evil: 2", type: 'vi deo"' },
+      page(["a"]),
+    );
+    expect(other).not.toBe(tag);
+  });
 });

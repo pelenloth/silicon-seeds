@@ -22,11 +22,22 @@ export namespace JobUpdates {
       const listeners = subscribers.get(jobId);
       if (listeners) {
         for (const send of listeners) {
-          send("job-update", payload);
+          try {
+            send("job-update", payload);
+          } catch {
+            listeners.delete(send);
+          }
+        }
+        if (listeners.size === 0) {
+          subscribers.delete(jobId);
         }
       }
       for (const send of globalSubscribers) {
-        send("job-update", payload);
+        try {
+          send("job-update", payload);
+        } catch {
+          globalSubscribers.delete(send);
+        }
       }
     }, 300);
     debounceTimers.set(jobId, timer);

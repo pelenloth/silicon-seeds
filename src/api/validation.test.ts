@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { formatZodIssues } from "./validation";
+import { formatZodIssues, validationHook } from "./validation";
 
 describe("formatZodIssues", () => {
   test("first issue becomes the error, each path gets a field message", () => {
@@ -32,6 +32,38 @@ describe("formatZodIssues", () => {
     expect(formatZodIssues([])).toEqual({
       error: "Invalid request",
       fields: {},
+    });
+  });
+});
+
+describe("validationHook", () => {
+  const fakeContext = {
+    json: (body: unknown, status?: number) =>
+      new Response(JSON.stringify(body), {
+        status: status ?? 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+  } as unknown as Parameters<typeof validationHook>[1];
+
+  test("returns undefined on success", () => {
+    expect(validationHook({ success: true }, fakeContext)).toBeUndefined();
+  });
+
+  test("returns a 400 JSON response with formatted issues on failure", async () => {
+    const res = validationHook(
+      {
+        success: false,
+        error: {
+          issues: [{ path: ["prompt"], message: "Prompt is required" }],
+        },
+      },
+      fakeContext,
+    );
+    expect(res).toBeDefined();
+    expect(res!.status).toBe(400);
+    expect(await res!.json()).toEqual({
+      error: "Prompt is required",
+      fields: { prompt: "Prompt is required" },
     });
   });
 });

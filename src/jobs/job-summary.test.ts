@@ -83,6 +83,12 @@ describe("deriveJobKind (shapes taken from live data)", () => {
     ).toBe("image");
     expect(deriveJobKind({}, [])).toBe("image");
   });
+  test("hypercut workflow is video unless overridden by new_text_prompt", () => {
+    expect(deriveJobKind({ workflow: "hypercut" }, [])).toBe("video");
+    expect(
+      deriveJobKind({ workflow: "hypercut" }, [sig("new_text_prompt", "text")]),
+    ).toBe("compose");
+  });
 });
 
 describe("aggregateProgress", () => {

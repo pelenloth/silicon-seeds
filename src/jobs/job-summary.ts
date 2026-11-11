@@ -57,6 +57,7 @@ export function deriveJobKind(
   if (types.has("new_text_prompt") || job.workflow === "autocut") {
     return "compose";
   }
+  if (job.workflow === "hypercut") return "video";
   if (
     job.workflow === "video" ||
     types.has("new_video_prompt") ||

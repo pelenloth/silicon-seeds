@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { HTTPException } from "hono/http-exception";
 import { Utils } from "../utils/utils";
 import { Metadata } from "../meta/meta";
 import { not_found } from "./not_found";
@@ -212,14 +213,17 @@ app.use("/assets/*", async (c) => {
 });
 
 app.onError((error, c) => {
-  Logger.error("[API] error", error);
+  const status = error instanceof HTTPException ? error.status : 500;
+  if (status >= 500) {
+    Logger.error("[API] error", error);
+  }
   return c.json(
     {
       error: error.message,
       message: error.message,
       name: error.name,
     },
-    500,
+    status,
   );
 });
 

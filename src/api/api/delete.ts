@@ -11,7 +11,7 @@ export async function delete_job(
     .where("id", "=", jobId)
     .executeTakeFirst();
   if (!job) {
-    return c.json({ error: "job not found" }, 404);
+    return c.json({ error: "Job not found" }, 404);
   }
   if (job.status === "active") {
     return c.json({ error: "Cancel the job before deleting it" }, 409);

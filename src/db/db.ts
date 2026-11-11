@@ -189,6 +189,16 @@ export namespace DB {
         .executeTakeFirstOrThrow();
     }
 
+    export async function findByIdOrNull(
+      id: string,
+    ): Promise<JobsSchema | undefined> {
+      return await DB.db
+        .selectFrom("jobs")
+        .selectAll()
+        .where("id", "=", id)
+        .executeTakeFirst();
+    }
+
     export async function findByName(name: string) {
       return await DB.db
         .selectFrom("jobs")
@@ -221,21 +231,26 @@ export namespace DB {
     }
 
     export async function deleteById(id: string) {
-      const eventRows = await db
-        .selectFrom("events")
-        .select("id")
-        .where("job_id", "=", id)
-        .execute();
-      const eventIds = eventRows.map((r) => r.id);
-      if (eventIds.length > 0) {
-        await db.deleteFrom("meta").where("event_id", "in", eventIds).execute();
-      }
+      await db.transaction().execute(async (trx) => {
+        const eventRows = await trx
+          .selectFrom("events")
+          .select("id")
+          .where("job_id", "=", id)
+          .execute();
+        const eventIds = eventRows.map((r) => r.id);
+        if (eventIds.length > 0) {
+          await trx
+            .deleteFrom("meta")
+            .where("event_id", "in", eventIds)
+            .execute();
+        }
 
-      // First delete all related events to avoid orphaned records
-      await db.deleteFrom("events").where("job_id", "=", id).execute();
+        // First delete all related events to avoid orphaned records
+        await trx.deleteFrom("events").where("job_id", "=", id).execute();
 
-      // Then delete the job
-      await db.deleteFrom("jobs").where("id", "=", id).execute();
+        // Then delete the job
+        await trx.deleteFrom("jobs").where("id", "=", id).execute();
+      });
     }
 
     export async function updateStatus(id: string, status: JobLifecycleStatus) {

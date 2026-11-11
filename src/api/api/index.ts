@@ -189,8 +189,8 @@ app.get("/jobs", async (c) => {
 
 app.get("/jobs/:jobId", async (c) => {
   const jobId = c.req.param("jobId");
-  const job = await DB.Jobs.findById(jobId);
-  if (!job) return c.json({ error: "job not found" }, 404);
+  const job = await DB.Jobs.findByIdOrNull(jobId);
+  if (!job) return c.json({ error: "Job not found" }, 404);
   const events = await DB.Events.findByJobIdChronological(jobId);
   const sigs: EventSig[] = events.map((e) => ({
     type: e.type,
