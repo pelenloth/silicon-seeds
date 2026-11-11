@@ -19,7 +19,8 @@ export function normalizeThemePref(
   stored: string | null | undefined,
 ): ThemePref {
   if (!stored || stored === "system") return "system";
-  if (stored in LEGACY_THEME_ALIASES) return LEGACY_THEME_ALIASES[stored];
+  if (Object.hasOwn(LEGACY_THEME_ALIASES, stored))
+    return LEGACY_THEME_ALIASES[stored];
   if (KNOWN_IDS.has(stored)) return stored as ThemeId;
   return "system";
 }

@@ -39,12 +39,11 @@ function applyDomTheme(theme: ThemeId): void {
 const [themePref, setThemePrefSignal] = createSignal<ThemePref>(
   normalizeThemePref(readStorage()),
 );
-export const [prefersDark, setPrefersDark] =
-  createSignal<boolean>(readPrefersDark());
+const [prefersDark, setPrefersDark] = createSignal<boolean>(readPrefersDark());
 export const activeTheme: () => ThemeId = () =>
   resolveTheme(themePref(), prefersDark());
 
-export { themePref };
+export { themePref, prefersDark };
 
 export function setThemePref(pref: ThemePref): void {
   setThemePrefSignal(pref);

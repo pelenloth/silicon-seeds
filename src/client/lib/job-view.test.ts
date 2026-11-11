@@ -317,4 +317,17 @@ describe("reuse settings", () => {
       transition_duration: "2",
     });
   });
+  test("a style guide alone keeps a video job on text-to-video", () => {
+    const out = jobToPrefill(
+      job({
+        kind: "video",
+        original_prompt: "waves\n\nStyle Guide: ink",
+        style_guide: "ink",
+        style_preset: "none",
+      }),
+    );
+    expect(out.route).toBe("/create/text-to-video");
+    expect(out.values.style_guide).toBe("ink");
+    expect(out.values.prompt).toBe("waves");
+  });
 });

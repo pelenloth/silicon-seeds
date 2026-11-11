@@ -18,6 +18,16 @@ describe("themes", () => {
     expect(normalizeThemePref(null)).toBe("system");
     expect(normalizeThemePref("nope")).toBe("system");
   });
+  test("inherited object keys are not theme aliases", () => {
+    for (const v of [
+      "constructor",
+      "toString",
+      "__proto__",
+      "hasOwnProperty",
+    ]) {
+      expect(normalizeThemePref(v)).toBe("system");
+    }
+  });
   test("system resolves by color scheme, explicit choice wins", () => {
     expect(resolveTheme("system", true)).toBe("tokyonight");
     expect(resolveTheme("system", false)).toBe("daylight");

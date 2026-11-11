@@ -429,8 +429,6 @@ export function jobToPrefill(job: JobSummary): {
     return { route: "/compose", values };
   }
   const route =
-    values.style_preset || hasLoras || styleGuide
-      ? "/create/video"
-      : "/create/text-to-video";
+    values.style_preset || hasLoras ? "/create/video" : "/create/text-to-video";
   return { route, values };
 }
