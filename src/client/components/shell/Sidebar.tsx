@@ -38,7 +38,7 @@ export function Sidebar() {
         href={r.path}
         id={r.sidebarId}
         end={r.path === "/"}
-        activeClass="menu-active"
+        activeClass="bg-primary/10 text-primary font-medium"
         aria-current={isActive(r) ? "page" : undefined}
         class="tooltip-right flex items-center gap-3"
         classList={{ "lg:tooltip lg:justify-center": sidebarCollapsed() }}

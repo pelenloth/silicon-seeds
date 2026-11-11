@@ -1,3 +1,4 @@
+import { basename } from "node:path";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { Utils } from "../utils/utils";
@@ -7,6 +8,8 @@ import { Logger } from "../logger/logger";
 import apiRoutes from "./api/index";
 import jobsRoutes from "./jobs/jobs";
 import { parseRange } from "./range";
+import { Thumbs } from "../media/thumb-service";
+import { clampThumbWidth } from "../media/thumbs";
 
 const app = new Hono();
 
@@ -212,6 +215,43 @@ app.use("/assets/*", async (c) => {
   return c.text("Not found", 404);
 });
 
+// Serve cached CPU-only JPEG thumbnails under /thumbs/*
+app.get("/thumbs/*", async (c) => {
+  const rawRel = new URL(c.req.url).pathname.slice("/thumbs/".length);
+  let rel: string;
+  try {
+    rel = decodeURIComponent(rawRel);
+  } catch {
+    return c.json({ error: "Not found" }, 404);
+  }
+  const result = await Thumbs.get(rel, clampThumbWidth(c.req.query("w")));
+  if (!result.ok) {
+    if (result.reason === "failed") {
+      return c.json({ error: "Thumbnail failed" }, 500);
+    }
+    return c.json({ error: "Not found" }, 404);
+  }
+  const etag = `"${basename(result.file)}"`;
+  const cacheControl = "public, max-age=604800";
+  if (c.req.header("If-None-Match") === etag) {
+    return new Response(null, {
+      status: 304,
+      headers: {
+        ETag: etag,
+        "Cache-Control": cacheControl,
+      },
+    });
+  }
+  return new Response(Bun.file(result.file) as unknown as BodyInit, {
+    status: 200,
+    headers: {
+      "Content-Type": "image/jpeg",
+      "Cache-Control": cacheControl,
+      ETag: etag,
+    },
+  });
+});
+
 app.onError((error, c) => {
   const status = error instanceof HTTPException ? error.status : 500;
   if (status >= 500) {
@@ -238,6 +278,7 @@ app.use("/*", async (c, next) => {
   const isApi =
     path.startsWith("/api/") ||
     path.startsWith("/assets/") ||
+    path.startsWith("/thumbs/") ||
     path.startsWith("/static/");
   // Allow SSE path to pass through
   if (path.startsWith("/jobs/stream")) return next();
@@ -245,7 +286,7 @@ app.use("/*", async (c, next) => {
     const viteIndex = Bun.file("dist/client/index.html");
     if (
       (await viteIndex.exists()) &&
-      (accept.includes("text/html") || path === "/" || !path.includes("."))
+      (accept.includes("text/html") || path === "/")
     ) {
       const html = await viteIndex.text();
       return c.html(html);

@@ -239,3 +239,14 @@ export function getAssetPath(subfolder: string, filename: string): string {
 export function mediaUrl(item: MediaItem): string {
   return item.src ?? getAssetPath(item.subfolder, item.filename);
 }
+
+export function thumbUrl(
+  item: { subfolder: string; filename: string },
+  width: 96 | 320 | 640,
+): string {
+  const segments = [
+    ...item.subfolder.split("/").filter(Boolean),
+    item.filename,
+  ];
+  return `/thumbs/${segments.map(encodeURIComponent).join("/")}?w=${width}`;
+}

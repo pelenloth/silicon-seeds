@@ -1,5 +1,5 @@
-import { createEffect, createSignal, Match, Show, Switch } from "solid-js";
-import { mediaUrl, type MediaItem } from "../../lib/api-client";
+import { createEffect, createSignal, Match, on, Show, Switch } from "solid-js";
+import { mediaUrl, thumbUrl, type MediaItem } from "../../lib/api-client";
 import { Icons } from "../Icons";
 
 export type MediaTileProps = {
@@ -18,12 +18,41 @@ const ASPECT: Record<"video" | "square" | "photo", string> = {
 export function MediaTile(props: MediaTileProps) {
   let v: HTMLVideoElement | undefined;
   const [failed, setFailed] = createSignal(false);
-  const src = () => mediaUrl(props.item);
+  const [imgFallback, setImgFallback] = createSignal(false);
+  const [posterFailed, setPosterFailed] = createSignal(false);
+  const [playing, setPlaying] = createSignal(false);
 
-  createEffect(() => {
-    void src();
-    setFailed(false);
-  });
+  const hasExplicitSrc = () => Boolean(props.item.src);
+  const origSrc = () => mediaUrl(props.item);
+  const thumbSrc = () => thumbUrl(props.item, 640);
+  const imageSrc = () =>
+    hasExplicitSrc() || imgFallback() ? origSrc() : thumbSrc();
+  const useVideoPoster = () => !hasExplicitSrc() && !posterFailed();
+
+  createEffect(
+    on(
+      () => [
+        props.item.src,
+        props.item.subfolder,
+        props.item.filename,
+        props.item.mediaType,
+      ],
+      () => {
+        setFailed(false);
+        setImgFallback(false);
+        setPosterFailed(false);
+        setPlaying(false);
+      },
+    ),
+  );
+
+  const onImageError = () => {
+    if (!hasExplicitSrc() && !imgFallback()) {
+      setImgFallback(true);
+    } else {
+      setFailed(true);
+    }
+  };
 
   const playVideo = () => {
     if (v) {
@@ -38,6 +67,7 @@ export function MediaTile(props: MediaTileProps) {
         v.currentTime = 0;
       } catch {}
     }
+    setPlaying(false);
   };
 
   return (
@@ -63,26 +93,49 @@ export function MediaTile(props: MediaTileProps) {
         <Switch>
           <Match when={props.item.mediaType === "image"}>
             <img
-              src={src()}
+              src={imageSrc()}
               alt=""
               loading="lazy"
               decoding="async"
               class="size-full object-cover opacity-0 transition-opacity duration-300"
               onLoad={(e) => e.currentTarget.classList.remove("opacity-0")}
-              onError={() => setFailed(true)}
+              onError={onImageError}
             />
           </Match>
           <Match when={props.item.mediaType === "video"}>
+            <Show when={useVideoPoster()}>
+              <img
+                src={thumbSrc()}
+                alt=""
+                loading="lazy"
+                decoding="async"
+                class="absolute inset-0 size-full object-cover"
+                onError={() => setPosterFailed(true)}
+              />
+            </Show>
             <video
-              src={src()}
+              src={origSrc()}
               muted
               loop
               playsinline
-              preload="metadata"
+              preload={useVideoPoster() ? "none" : "metadata"}
               class="size-full object-cover"
+              classList={{
+                "opacity-0": useVideoPoster() && !playing(),
+                "opacity-100": !useVideoPoster() || playing(),
+              }}
               ref={v}
+              onPlaying={() => setPlaying(true)}
+              onPause={() => setPlaying(false)}
               onError={() => setFailed(true)}
             />
+            <Show when={useVideoPoster() && !playing()}>
+              <span class="pointer-events-none absolute inset-0 flex items-center justify-center">
+                <span class="flex size-9 items-center justify-center rounded-full bg-base-100/80">
+                  <Icons.Play class="size-4" />
+                </span>
+              </span>
+            </Show>
           </Match>
           <Match when={props.item.mediaType === "audio"}>
             <div class="flex size-full flex-col items-center justify-center gap-2 bg-base-200 text-base-content/50">

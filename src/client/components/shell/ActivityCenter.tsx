@@ -9,7 +9,7 @@ import {
   type Component,
 } from "solid-js";
 import { Dynamic } from "solid-js/web";
-import { getAssetPath } from "../../lib/api-client";
+import { thumbUrl } from "../../lib/api-client";
 import { jobKindMeta, type JobKind, type JobSummary } from "../../lib/job-view";
 import {
   activeCount,
@@ -28,14 +28,22 @@ const KIND_ICONS: Record<JobKind, Component<{ class?: string }>> = {
 };
 
 function ActivityRow(props: { job: JobSummary; onClose: () => void }) {
+  const [thumbFailed, setThumbFailed] = createSignal(false);
   const isRunning = () =>
     props.job.status === "active" && props.job.progress.running > 0;
   const isActive = () => props.job.status === "active";
   const isPaused = () => props.job.status === "paused";
-  const thumbUrl = () =>
-    props.job.thumb
-      ? getAssetPath(props.job.thumb.subfolder, props.job.thumb.filename)
-      : null;
+  const previewSrc = () => {
+    const t = props.job.thumb;
+    if (!t || (t.mediaType !== "image" && t.mediaType !== "video")) return null;
+    return thumbUrl(t, 96);
+  };
+
+  createEffect(
+    on(previewSrc, () => {
+      setThumbFailed(false);
+    }),
+  );
 
   return (
     <div class="flex flex-col gap-1.5 rounded-field p-2 hover:bg-base-200/70">
@@ -47,11 +55,7 @@ function ActivityRow(props: { job: JobSummary; onClose: () => void }) {
         >
           <div class="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-field bg-base-200 text-base-content/70">
             <Show
-              when={
-                thumbUrl() && props.job.thumb?.mediaType === "image"
-                  ? thumbUrl()
-                  : null
-              }
+              when={!thumbFailed() ? previewSrc() : null}
               fallback={
                 <Dynamic
                   component={KIND_ICONS[props.job.kind]}
@@ -65,6 +69,7 @@ function ActivityRow(props: { job: JobSummary; onClose: () => void }) {
                   alt=""
                   class="size-full object-cover"
                   loading="lazy"
+                  onError={() => setThumbFailed(true)}
                 />
               )}
             </Show>

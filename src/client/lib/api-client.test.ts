@@ -6,6 +6,7 @@ import {
   getAssetPath,
   mediaUrl,
   parseApiError,
+  thumbUrl,
 } from "./api-client";
 
 const originalFetch = globalThis.fetch;
@@ -212,5 +213,19 @@ describe("apiGet and apiSend", () => {
     expect((caught as ApiError).fields).toEqual({
       prompt: "Prompt is required",
     });
+  });
+});
+
+describe("thumbUrl", () => {
+  test("builds an encoded /thumbs path with a width", () => {
+    expect(thumbUrl({ subfolder: "", filename: "a.png" }, 320)).toBe(
+      "/thumbs/a.png?w=320",
+    );
+    expect(thumbUrl({ subfolder: "sub/dir/", filename: "c.mp4" }, 96)).toBe(
+      "/thumbs/sub/dir/c.mp4?w=96",
+    );
+    expect(thumbUrl({ subfolder: "", filename: "a b#1?.png" }, 640)).toBe(
+      "/thumbs/a%20b%231%3F.png?w=640",
+    );
   });
 });

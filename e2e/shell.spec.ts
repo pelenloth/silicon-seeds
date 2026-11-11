@@ -129,3 +129,43 @@ test("shell: unknown routes show a not-found page", async ({ page }) => {
   await page.getByRole("link", { name: "Go home" }).click();
   await expect(page).not.toHaveURL(/definitely/);
 });
+
+test("shell: the command palette is centered and thumbnails are served", async ({
+  page,
+  request,
+}) => {
+  await page.goto("/gallery");
+  await expect(page.locator("#header-title")).toHaveText("Gallery", {
+    timeout: 10000,
+  });
+  await page.locator("#palette-button").click();
+  const box = page
+    .getByRole("dialog", { name: "Command palette" })
+    .locator(".modal-box");
+  await expect(box).toBeVisible();
+  const rect = (await box.boundingBox())!;
+  const viewport = page.viewportSize()!;
+  expect(
+    Math.abs(rect.x + rect.width / 2 - viewport.width / 2),
+  ).toBeLessThanOrEqual(8);
+  await page.keyboard.press("Escape");
+
+  const jobs = (await (await request.get("/api/jobs?limit=50")).json()) as {
+    jobs: { thumb: { subfolder: string; filename: string } | null }[];
+  };
+  const thumb = jobs.jobs.find((j) => j.thumb)?.thumb;
+  test.skip(!thumb, "no job with media in this database");
+  const sub = thumb!.subfolder ? `${thumb!.subfolder.replace(/\/$/, "")}/` : "";
+  const res = await request.get(
+    `/thumbs/${sub}${encodeURIComponent(thumb!.filename)}?w=96`,
+  );
+  expect(res.status()).toBe(200);
+  expect(res.headers()["content-type"]).toContain("image/jpeg");
+  expect((await res.body()).byteLength).toBeLessThan(60_000);
+  expect((await request.get("/thumbs/does-not-exist.png?w=96")).status()).toBe(
+    404,
+  );
+  expect(
+    (await request.get("/thumbs/..%2F..%2Fetc%2Fpasswd?w=96")).status(),
+  ).toBe(404);
+});

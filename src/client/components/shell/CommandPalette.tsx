@@ -129,7 +129,7 @@ export function CommandPalette() {
   return (
     <dialog
       ref={dialogRef}
-      class="modal modal-top"
+      class="modal items-start"
       aria-label="Command palette"
       onClose={() => {
         if (closingProgrammatically) {
@@ -139,7 +139,7 @@ export function CommandPalette() {
         setPaletteOpen(false);
       }}
     >
-      <div class="modal-box mt-[10vh] max-w-xl p-0">
+      <div class="modal-box mx-auto mt-[10vh] w-[calc(100%-1rem)] max-w-xl p-0">
         <label class="flex items-center gap-2 border-b border-base-300 px-4 py-3">
           <Icons.Search class="size-4 opacity-50" />
           <input
