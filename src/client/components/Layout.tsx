@@ -2,6 +2,8 @@ import type { ParentProps } from "solid-js";
 import { A, useLocation } from "@solidjs/router";
 import { Icons } from "./Icons";
 import { initTheme } from "../stores/theme";
+import { ConfirmHost } from "./ui/ConfirmHost";
+import { Toaster } from "./ui/Toaster";
 
 function getPageTitle(path: string) {
   if (path.startsWith("/jobs") || path === "/" || path.startsWith("/dashboard"))
@@ -43,6 +45,8 @@ export default function Layout(props: ParentProps) {
           <div id="job-content-container" class="min-h-[400px]">
             {props.children}
           </div>
+          <Toaster />
+          <ConfirmHost />
         </main>
       </div>
       <aside class="drawer-side z-20 is-drawer-close:overflow-visible">

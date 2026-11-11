@@ -10,6 +10,7 @@ const CreateAudio = lazy(() => import("./pages/CreateAudio"));
 const CreateVideo = lazy(() => import("./pages/CreateVideo"));
 const CreateTextToVideo = lazy(() => import("./pages/CreateTextToVideo"));
 const Settings = lazy(() => import("./pages/Settings"));
+const DevKit = lazy(() => import("./pages/DevKit"));
 
 export default function App() {
   return (
@@ -147,6 +148,21 @@ export default function App() {
             }
           >
             <Settings />
+          </Suspense>
+        )}
+      />
+
+      <Route
+        path="/dev/kit"
+        component={() => (
+          <Suspense
+            fallback={
+              <div class="flex justify-center py-16">
+                <span class="loading loading-spinner" />
+              </div>
+            }
+          >
+            <DevKit />
           </Suspense>
         )}
       />
