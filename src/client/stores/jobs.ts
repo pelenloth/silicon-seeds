@@ -66,35 +66,35 @@ export async function refreshJobs(): Promise<void> {
     if (data && data.jobs !== undefined && !Array.isArray(data.jobs)) {
       throw new Error("Unexpected jobs payload");
     }
-    if (hasLoadedOnce) {
-      const transitions = detectTransitions(prevStatuses, list);
-      for (const t of transitions) {
-        if (t.to === "complete") {
-          toast.success(`${t.name} finished`, {
-            action: {
-              label: "View",
-              href: `/jobs/${encodeURIComponent(t.id)}`,
-            },
-          });
-        } else if (t.to === "failed") {
-          toast.error(`${t.name} failed`, {
-            action: {
-              label: "View",
-              href: `/jobs/${encodeURIComponent(t.id)}`,
-            },
-          });
-        }
-      }
-    }
+    setJobsStore(reconcile(list, { key: "id", merge: true }));
+    setJobsLoadedSignal(true);
+    setJobsErrorSignal(null);
+    lastAppliedSeq = seq;
+    const transitions = hasLoadedOnce
+      ? detectTransitions(prevStatuses, list)
+      : [];
     hasLoadedOnce = true;
     prevStatuses.clear();
     for (const j of list) {
       prevStatuses.set(j.id, j.status);
     }
-    setJobsStore(reconcile(list, { key: "id", merge: true }));
-    setJobsLoadedSignal(true);
-    setJobsErrorSignal(null);
-    lastAppliedSeq = seq;
+    for (const t of transitions) {
+      if (t.to === "complete") {
+        toast.success(`${t.name} finished`, {
+          action: {
+            label: "View",
+            href: `/jobs/${encodeURIComponent(t.id)}`,
+          },
+        });
+      } else if (t.to === "failed") {
+        toast.error(`${t.name} failed`, {
+          action: {
+            label: "View",
+            href: `/jobs/${encodeURIComponent(t.id)}`,
+          },
+        });
+      }
+    }
   } catch (err) {
     if (!shouldApplyResponse(seq, lastAppliedSeq)) {
       return;
@@ -218,6 +218,7 @@ export function startJobsStore(): () => void {
     if (stopped) return;
     stopped = true;
     started = false;
+    streamDown = false;
     currentStop = null;
     if (reconnectTimer !== null) {
       clearTimeout(reconnectTimer);

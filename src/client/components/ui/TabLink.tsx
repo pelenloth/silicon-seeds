@@ -4,6 +4,7 @@ import type { JSX } from "solid-js";
 export type TabLinkProps = {
   href: string;
   active: boolean;
+  variant?: "tab" | "chip";
   children: JSX.Element;
   class?: string;
 };
@@ -26,13 +27,18 @@ export function TabLink(props: TabLinkProps) {
     navigate(props.href);
   };
 
+  const baseClass = () => {
+    if (props.variant === "chip") {
+      return `btn btn-sm ${props.active ? "btn-primary" : "btn-ghost"}`;
+    }
+    return `tab ${props.active ? "tab-active" : ""}`.trim();
+  };
+
   return (
     <a
-      role="tab"
       href={props.href}
-      class={`tab ${props.active ? "tab-active" : ""} ${props.class ?? ""}`.trim()}
+      class={`${baseClass()} ${props.class ?? ""}`.trim()}
       aria-current={props.active ? "page" : undefined}
-      aria-selected={props.active ? "true" : undefined}
       onClick={handleClick}
     >
       {props.children}

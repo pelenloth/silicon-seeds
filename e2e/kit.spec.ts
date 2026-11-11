@@ -117,25 +117,41 @@ test("ui kit: toast raised inside modal remains visible after modal closes and f
   await expect(modalToast).toBeVisible();
 });
 
-test("ui kit: TabLink marks only the active tab with aria-current=page", async ({
+test("ui kit: TabLink marks only the active link with aria-current=page in tab and chip variants", async ({
   page,
 }) => {
   await page.goto("/dev/kit");
-  const tablist = page.getByRole("tablist", { name: "Demo tabs" });
-  await expect(tablist).toBeVisible();
-  await expect(tablist.locator('[aria-current="page"]')).toHaveCount(1);
-  await expect(tablist.getByRole("tab", { name: "All" })).toHaveAttribute(
+  const tabsNav = page.locator('nav[aria-label="Demo tabs"]');
+  await expect(tabsNav).toBeVisible();
+  await expect(tabsNav.locator('[role="tab"]')).toHaveCount(0);
+  await expect(tabsNav.locator('a[aria-current="page"]')).toHaveCount(1);
+  await expect(tabsNav.getByRole("link", { name: "All" })).toHaveAttribute(
     "aria-current",
     "page",
   );
 
-  await tablist.getByRole("tab", { name: "Active" }).click();
+  const chipsNav = page.locator('nav[aria-label="Demo chips"]');
+  await expect(chipsNav).toBeVisible();
+  await expect(chipsNav.locator('[role="tab"]')).toHaveCount(0);
+  await expect(chipsNav.locator('a[aria-current="page"]')).toHaveCount(1);
+  const allChip = chipsNav.getByRole("link", { name: "All" });
+  const activeChip = chipsNav.getByRole("link", { name: "Active" });
+  await expect(allChip).toHaveClass(/\bbtn\b/);
+  await expect(allChip).toHaveClass(/\bbtn-primary\b/);
+  await expect(allChip).not.toHaveClass(/\btab\b/);
+  await expect(activeChip).toHaveClass(/\bbtn-ghost\b/);
+  await expect(activeChip).not.toHaveClass(/\btab\b/);
+
+  await tabsNav.getByRole("link", { name: "Active" }).click();
   await expect(page).toHaveURL(/tab=active/);
-  await expect(tablist.locator('[aria-current="page"]')).toHaveCount(1);
-  await expect(tablist.getByRole("tab", { name: "Active" })).toHaveAttribute(
+  await expect(tabsNav.locator('a[aria-current="page"]')).toHaveCount(1);
+  await expect(tabsNav.getByRole("link", { name: "Active" })).toHaveAttribute(
     "aria-current",
     "page",
   );
+  await expect(chipsNav.locator('a[aria-current="page"]')).toHaveCount(1);
+  await expect(activeChip).toHaveAttribute("aria-current", "page");
+  await expect(activeChip).toHaveClass(/\bbtn-primary\b/);
 });
 
 test("ui kit: Segmented re-syncs radio checked state when parent rejects an option", async ({
@@ -215,15 +231,18 @@ test("ui kit: hovering a video tile plays the video visibly above the poster", a
   expect(hitCheck.isVideoHit).toBe(true);
 });
 
-test("ui kit: with no dialog open, raising a toast renders exactly one toast item in the document", async ({
+test("ui kit: with no dialog open, raising a toast renders exactly one toast item in the document without role=alert", async ({
   page,
 }) => {
   await page.goto("/dev/kit");
   await page.getByRole("button", { name: "Error toast" }).click();
-  await expect(
-    page.getByRole("alert").filter({ hasText: "Something went wrong" }),
-  ).toBeVisible();
-  await expect(page.locator('.toast-region [role="alert"]')).toHaveCount(1);
+  const errToast = page
+    .getByRole("status")
+    .filter({ hasText: "Something went wrong" });
+  await expect(errToast).toBeVisible();
+  await expect(errToast).toHaveClass(/\balert-error\b/);
+  await expect(page.locator('.toast-region [role="alert"]')).toHaveCount(0);
+  await expect(page.locator('.toast-region [role="status"]')).toHaveCount(1);
 });
 
 test("ui kit: Escape closes modal and lightbox once without reopening", async ({

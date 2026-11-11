@@ -212,6 +212,7 @@ test("shell: navigating to a new pathname resets #app-main scrollTop to 0", asyn
     a?.click();
   });
   await expect(page).toHaveURL(/\/dev\/kit\?tab=failed/);
+  await page.waitForTimeout(300);
   expect(await main.evaluate((el) => el.scrollTop)).toBe(50);
 
   await page.locator("#sidebar-jobs-summary").click();
@@ -232,7 +233,38 @@ test("shell: navigating to a new pathname resets #app-main scrollTop to 0", asyn
     a.remove();
   });
   await expect(page).toHaveURL(/\/jobs\?status=failed/);
+  await page.waitForTimeout(300);
   expect(await main.evaluate((el) => el.scrollTop)).toBe(50);
+});
+
+test("shell: clicking the second job row at desktop width keeps focus inside #job-list", async ({
+  page,
+  request,
+}) => {
+  const { jobs } = (await (await request.get("/api/jobs?limit=5")).json()) as {
+    jobs: { id: string }[];
+  };
+  test.skip(jobs.length < 2, "fewer than 2 jobs in this database");
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto("/jobs");
+  const rows = page.locator('#job-list a[href^="/jobs/"]');
+  await expect(rows.nth(1)).toBeVisible({ timeout: 10000 });
+  const secondHref = (await rows.nth(1).getAttribute("href")) ?? "";
+  const secondPath = secondHref.split("?")[0];
+  await rows.nth(1).click();
+  await expect(page).toHaveURL(new RegExp(secondPath));
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const list = document.getElementById("job-list");
+        return Boolean(
+          list &&
+          document.activeElement &&
+          list.contains(document.activeElement),
+        );
+      }),
+    )
+    .toBe(true);
 });
 
 test("shell: mobile Activity panel fits inside viewport and Escape returns focus to trigger", async ({

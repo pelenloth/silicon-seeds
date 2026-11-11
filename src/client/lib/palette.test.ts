@@ -44,13 +44,22 @@ describe("palette", () => {
       filterCommands(buildCommands(ctx().c), "DESERT").map((x) => x.label),
     ).toEqual(["Desert Dunes"]);
   });
-  test("commands run through the context", () => {
-    const { c, calls } = ctx();
+  test("commands run through the context and encode job ids", () => {
+    const { c, calls } = ctx({
+      jobs: [
+        { id: "j1", name: "Desert Dunes" },
+        { id: "j 2/a?b#c", name: "Night City" },
+      ],
+    });
     const cmds = buildCommands(c);
     cmds.find((x) => x.label === "Gallery")?.run();
     cmds.find((x) => x.label === "Night City")?.run();
     cmds.find((x) => x.label === "Theme: Dracula")?.run();
-    expect(calls).toEqual(["nav:/gallery", "nav:/jobs/j2", "theme:dracula"]);
+    expect(calls).toEqual([
+      "nav:/gallery",
+      "nav:/jobs/j%202%2Fa%3Fb%23c",
+      "theme:dracula",
+    ]);
   });
   test("quick create appears first for a typed prompt and survives filtering", () => {
     const made: string[] = [];

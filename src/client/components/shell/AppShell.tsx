@@ -102,17 +102,17 @@ export default function AppShell(props: ParentProps) {
     document.title = documentTitle(location.pathname, activeCount());
   });
 
+  let lastPathname = location.pathname;
   createEffect(
     on(
       () => location.pathname,
-      (pathname, prevPathname) => {
+      (pathname) => {
+        const prev = lastPathname;
+        lastPathname = pathname;
         setMobileNavOpen(false);
         if (mainRef) {
           mainRef.scrollTop = 0;
-          if (
-            prevPathname === undefined ||
-            firstSegment(pathname) !== firstSegment(prevPathname)
-          ) {
+          if (firstSegment(pathname) !== firstSegment(prev)) {
             mainRef.focus();
           }
         }

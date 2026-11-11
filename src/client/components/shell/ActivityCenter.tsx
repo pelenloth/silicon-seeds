@@ -35,7 +35,7 @@ function ActivityRow(props: { job: JobSummary; onClose: () => void }) {
     <div class="flex flex-col gap-1.5 rounded-field p-2 hover:bg-base-200/70">
       <div class="flex items-center gap-2.5">
         <A
-          href={`/jobs/${props.job.id}`}
+          href={`/jobs/${encodeURIComponent(props.job.id)}`}
           class="flex min-w-0 flex-1 items-center gap-2.5"
           onClick={() => props.onClose()}
         >

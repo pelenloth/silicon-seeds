@@ -9,11 +9,11 @@ test("jobs: list, search, filters and canonical URLs", async ({ page }) => {
   ).toBeVisible({ timeout: 10000 });
   await expect(page.locator("#job-list")).toBeVisible();
 
-  const filter = page.locator("#job-filter");
-  await expect(filter.getByRole("tab", { name: /^All/ })).toBeVisible();
-  await filter.getByRole("tab", { name: /^Failed/ }).click();
+  const filter = page.locator('nav[aria-label="Filter jobs"]');
+  await expect(filter.getByRole("link", { name: /^All/ })).toBeVisible();
+  await filter.getByRole("link", { name: /^Failed/ }).click();
   await expect(page).toHaveURL(/filter=failed/);
-  await filter.getByRole("tab", { name: /^All/ }).click();
+  await filter.getByRole("link", { name: /^All/ }).click();
   await expect(page).toHaveURL(/filter=all/);
 
   const rows = page.locator('#job-list a[href^="/jobs/"]');
@@ -53,7 +53,8 @@ test("jobs: detail header, tabs, step counts, timeline and legacy URL", async ({
     await expect(firstEvent).toHaveAttribute("open", "");
   }
 
-  await detail.getByRole("tab", { name: /^Status/ }).click();
+  const detailNav = detail.locator('nav[aria-label="Job sections"]');
+  await detailNav.getByRole("link", { name: /^Status/ }).click();
   await expect(page).toHaveURL(/tab=status/);
   await expect(detail.getByText("Details", { exact: true })).toBeVisible();
   await expect(detail.getByText("Not set")).toHaveCount(0);
@@ -66,7 +67,7 @@ test("jobs: detail header, tabs, step counts, timeline and legacy URL", async ({
     ).toBeVisible();
   }
 
-  await detail.getByRole("tab", { name: /^Media/ }).click();
+  await detailNav.getByRole("link", { name: /^Media/ }).click();
   await expect(page).toHaveURL(/tab=media/);
   const tiles = detail.locator('button[aria-label^="Open "]');
   if ((await tiles.count()) > 0) {
@@ -236,26 +237,25 @@ test("jobs: exactly one active tab in detail and one active filter in list", asy
     timeout: 10000,
   });
 
-  const detailTabs = detail.locator('[role="tablist"]');
-  const filterTabs = page.locator("#job-filter");
+  const detailTabs = detail.locator('nav[aria-label="Job sections"]');
 
   await expect(
-    detailTabs.locator('[role="tab"][aria-current="page"]'),
+    detail.locator('nav[aria-label="Job sections"] a[aria-current="page"]'),
   ).toHaveCount(1);
   await expect(
-    filterTabs.locator('[role="tab"][aria-current="page"]'),
+    page.locator('nav[aria-label="Filter jobs"] a[aria-current="page"]'),
   ).toHaveCount(1);
   await expect(
-    detailTabs.getByRole("tab", { name: /^Status/ }),
+    detailTabs.getByRole("link", { name: /^Status/ }),
   ).toHaveAttribute("aria-current", "page");
 
-  await detailTabs.getByRole("tab", { name: /^Events/ }).click();
+  await detailTabs.getByRole("link", { name: /^Events/ }).click();
   await expect(page).toHaveURL(/tab=events/);
   await expect(
-    detailTabs.locator('[role="tab"][aria-current="page"]'),
+    detail.locator('nav[aria-label="Job sections"] a[aria-current="page"]'),
   ).toHaveCount(1);
   await expect(
-    detailTabs.getByRole("tab", { name: /^Events/ }),
+    detailTabs.getByRole("link", { name: /^Events/ }),
   ).toHaveAttribute("aria-current", "page");
 });
 

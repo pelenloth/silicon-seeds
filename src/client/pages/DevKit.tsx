@@ -259,17 +259,52 @@ export default function DevKit() {
 
       <section class="panel p-4 flex flex-col gap-3">
         <span class="section-label">Tabs</span>
-        <div role="tablist" aria-label="Demo tabs" class="tabs tabs-border">
-          <TabLink href="/dev/kit?tab=all" active={activeTab() === "all"}>
+        <nav aria-label="Demo tabs" class="tabs tabs-border">
+          <TabLink
+            href="/dev/kit?tab=all"
+            active={activeTab() === "all"}
+            variant="tab"
+          >
             All
           </TabLink>
-          <TabLink href="/dev/kit?tab=active" active={activeTab() === "active"}>
+          <TabLink
+            href="/dev/kit?tab=active"
+            active={activeTab() === "active"}
+            variant="tab"
+          >
             Active
           </TabLink>
-          <TabLink href="/dev/kit?tab=failed" active={activeTab() === "failed"}>
+          <TabLink
+            href="/dev/kit?tab=failed"
+            active={activeTab() === "failed"}
+            variant="tab"
+          >
             Failed
           </TabLink>
-        </div>
+        </nav>
+        <nav aria-label="Demo chips" class="flex flex-wrap gap-1">
+          <TabLink
+            href="/dev/kit?tab=all"
+            active={activeTab() === "all"}
+            variant="chip"
+          >
+            All
+          </TabLink>
+          <TabLink
+            href="/dev/kit?tab=active"
+            active={activeTab() === "active"}
+            variant="chip"
+          >
+            Active
+          </TabLink>
+          <TabLink
+            href="/dev/kit?tab=failed"
+            active={activeTab() === "failed"}
+            variant="chip"
+          >
+            Failed
+          </TabLink>
+        </nav>
       </section>
 
       <section class="panel p-4 flex flex-col gap-3">

@@ -100,7 +100,7 @@ export function ToastRegion(props: ToastRegionProps) {
 
             return (
               <div
-                role={t.tone === "error" ? "alert" : "status"}
+                role="status"
                 class={`alert alert-soft ${ALERT[t.tone]} pointer-events-auto ${isYoung ? "fade-in" : ""} py-2 pr-2 text-sm shadow-lg`}
               >
                 <span class="max-w-xs">{t.message}</span>

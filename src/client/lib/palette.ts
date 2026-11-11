@@ -60,7 +60,7 @@ export function buildCommands(ctx: PaletteContext): Command[] {
       group: "Jobs",
       label: j.name,
       keywords: j.id,
-      run: () => ctx.navigate(`/jobs/${j.id}`),
+      run: () => ctx.navigate(`/jobs/${encodeURIComponent(j.id)}`),
     });
   }
   for (const t of ctx.themes) {

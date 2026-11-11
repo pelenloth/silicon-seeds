@@ -503,20 +503,21 @@ export function JobDetail(props: JobDetailProps) {
                       </button>
                     </div>
                   </Show>
-                  <div
-                    role="tablist"
+                  <nav
                     class="tabs tabs-border -mb-px mt-3"
                     aria-label="Job sections"
                   >
                     <TabLink
                       href={tabHref("status")}
                       active={props.tab === "status"}
+                      variant="tab"
                     >
                       Status
                     </TabLink>
                     <TabLink
                       href={tabHref("media")}
                       active={props.tab === "media"}
+                      variant="tab"
                     >
                       Media
                       <span class="badge badge-ghost badge-xs ml-1">
@@ -526,13 +527,14 @@ export function JobDetail(props: JobDetailProps) {
                     <TabLink
                       href={tabHref("events")}
                       active={props.tab === "events"}
+                      variant="tab"
                     >
                       Events
                       <span class="badge badge-ghost badge-xs ml-1">
                         {eventsStore.length}
                       </span>
                     </TabLink>
-                  </div>
+                  </nav>
                 </header>
                 <div class="page min-h-0 flex-1 overflow-y-auto scroll-thin">
                   <Switch>

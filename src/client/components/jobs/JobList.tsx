@@ -147,9 +147,8 @@ export function JobList(props: JobListProps) {
           />
         </label>
       </div>
-      <div
+      <nav
         id="job-filter"
-        role="tablist"
         aria-label="Filter jobs"
         class="scrollbar-hide flex gap-1 overflow-x-auto border-b border-base-300 px-3 py-2"
       >
@@ -160,14 +159,14 @@ export function JobList(props: JobListProps) {
               <TabLink
                 href={props.filterHref(f.key)}
                 active={active()}
-                class={`btn btn-xs ${active() ? "btn-primary" : "btn-ghost"}`}
+                variant="chip"
               >
                 {f.label} <span class="opacity-60">{props.counts[f.key]}</span>
               </TabLink>
             );
           }}
         </For>
-      </div>
+      </nav>
       <ul class="min-h-0 flex-1 overflow-y-auto scroll-thin p-2">
         <Show when={props.loading && !props.hasAnyJobs}>
           <For each={[0, 1, 2, 3, 4, 5, 6, 7]}>
