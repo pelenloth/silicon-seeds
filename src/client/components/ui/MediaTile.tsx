@@ -29,21 +29,16 @@ export function MediaTile(props: MediaTileProps) {
     hasExplicitSrc() || imgFallback() ? origSrc() : thumbSrc();
   const useVideoPoster = () => !hasExplicitSrc() && !posterFailed();
 
+  const itemKey = () =>
+    `${props.item.src ?? ""}|${props.item.subfolder ?? ""}|${props.item.filename}|${props.item.mediaType ?? ""}`;
+
   createEffect(
-    on(
-      () => [
-        props.item.src,
-        props.item.subfolder,
-        props.item.filename,
-        props.item.mediaType,
-      ],
-      () => {
-        setFailed(false);
-        setImgFallback(false);
-        setPosterFailed(false);
-        setPlaying(false);
-      },
-    ),
+    on(itemKey, () => {
+      setFailed(false);
+      setImgFallback(false);
+      setPosterFailed(false);
+      setPlaying(false);
+    }),
   );
 
   const onImageError = () => {
@@ -109,7 +104,7 @@ export function MediaTile(props: MediaTileProps) {
                 alt=""
                 loading="lazy"
                 decoding="async"
-                class="absolute inset-0 size-full object-cover"
+                class="absolute inset-0 z-0 size-full object-cover"
                 onError={() => setPosterFailed(true)}
               />
             </Show>
@@ -119,7 +114,7 @@ export function MediaTile(props: MediaTileProps) {
               loop
               playsinline
               preload={useVideoPoster() ? "none" : "metadata"}
-              class="size-full object-cover"
+              class="absolute inset-0 z-10 size-full object-cover transition-opacity duration-150"
               classList={{
                 "opacity-0": useVideoPoster() && !playing(),
                 "opacity-100": !useVideoPoster() || playing(),
@@ -130,7 +125,7 @@ export function MediaTile(props: MediaTileProps) {
               onError={() => setFailed(true)}
             />
             <Show when={useVideoPoster() && !playing()}>
-              <span class="pointer-events-none absolute inset-0 flex items-center justify-center">
+              <span class="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
                 <span class="flex size-9 items-center justify-center rounded-full bg-base-100/80">
                   <Icons.Play class="size-4" />
                 </span>
@@ -148,7 +143,7 @@ export function MediaTile(props: MediaTileProps) {
         </Switch>
       </Show>
       <Show when={props.item.mediaType !== "image"}>
-        <span class="badge badge-neutral badge-sm absolute left-2 top-2 capitalize">
+        <span class="badge badge-neutral badge-sm absolute left-2 top-2 z-20 capitalize">
           {props.item.mediaType}
         </span>
       </Show>

@@ -154,3 +154,54 @@ test("ui kit: Segmented re-syncs radio checked state when parent rejects an opti
   await expect(audioRadio).not.toBeChecked();
   await expect(allRadio).toBeChecked();
 });
+
+test("ui kit: hovering a video tile plays the video visibly above the poster", async ({
+  page,
+}) => {
+  const galleryRes = await page.request.get(
+    "/api/gallery/items?limit=12&type=video",
+  );
+  const galleryData = (await galleryRes.json()) as { items?: unknown[] };
+  test.skip(
+    !galleryData.items || galleryData.items.length === 0,
+    "No video items in gallery",
+  );
+
+  await page.goto("/dev/kit");
+  const tiles = page.getByTestId("kit-tiles");
+  const videoTile = tiles.locator("button:has(video)").first();
+  await expect(videoTile).toBeVisible();
+
+  await videoTile.hover();
+  const videoEl = videoTile.locator("video");
+
+  await expect
+    .poll(
+      async () =>
+        videoEl.evaluate(
+          (el: HTMLVideoElement) =>
+            !el.paused &&
+            el.currentTime > 0 &&
+            getComputedStyle(el).opacity === "1",
+        ),
+      { timeout: 10000 },
+    )
+    .toBe(true);
+
+  const hitCheck = await videoTile.evaluate((btn) => {
+    const rect = btn.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const hit = document.elementFromPoint(cx, cy);
+    const vid = btn.querySelector("video");
+    const opacity = vid ? getComputedStyle(vid).opacity : "0";
+    return {
+      isVideoHit: hit === vid,
+      isInsideButton: Boolean(hit && btn.contains(hit)),
+      opacity,
+    };
+  });
+
+  expect(hitCheck.opacity).toBe("1");
+  expect(hitCheck.isVideoHit).toBe(true);
+});

@@ -79,29 +79,49 @@ export default function DevKit() {
 
   const [galleryRes] = createResource(async () => {
     try {
-      const data = await apiGet<{ items: GalleryItem[] }>(
-        "/api/gallery/items?limit=12&type=image",
-      );
-      return data.items ?? [];
+      const [imgs, vids] = await Promise.all([
+        apiGet<{ items: GalleryItem[] }>(
+          "/api/gallery/items?limit=12&type=image",
+        ),
+        apiGet<{ items: GalleryItem[] }>(
+          "/api/gallery/items?limit=4&type=video",
+        ),
+      ]);
+      return {
+        images: imgs.items ?? [],
+        videos: vids.items ?? [],
+      };
     } catch {
-      return [];
+      return { images: [], videos: [] };
     }
   });
 
   const tiles = (): MediaItem[] => {
-    const raw = (galleryRes.latest ?? [])
+    const toMediaItem = (
+      i: GalleryItem,
+      fallbackType: "image" | "video",
+    ): MediaItem => ({
+      filename: i.filename,
+      subfolder: i.subfolder,
+      mediaType: i.mediaType ?? fallbackType,
+      created_at: i.created_at,
+      job_id: i.job_id,
+      event_id: i.event_id,
+      meta_id: i.meta_id,
+    });
+    const imgs = (galleryRes.latest?.images ?? [])
       .filter((i) => i.mediaType === "image" || !i.mediaType)
       .slice(0, 3)
-      .map((i): MediaItem => ({
-        filename: i.filename,
-        subfolder: i.subfolder,
-        mediaType: "image",
-        created_at: i.created_at,
-        job_id: i.job_id,
-        event_id: i.event_id,
-        meta_id: i.meta_id,
-      }));
-    const out = [...raw];
+      .map((i) => toMediaItem(i, "image"));
+    const firstVid = (galleryRes.latest?.videos ?? []).find(
+      (i) => i.mediaType === "video" || !i.mediaType,
+    );
+    const out: MediaItem[] = [];
+    if (firstVid) {
+      out.push(...imgs.slice(0, 2), toMediaItem(firstVid, "video"));
+    } else {
+      out.push(...imgs.slice(0, 3));
+    }
     while (out.length < 3) {
       out.push(FALLBACK_SVGS[out.length]);
     }
