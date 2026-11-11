@@ -189,3 +189,54 @@ test("shell: deep links are served to clients that do not ask for HTML", async (
   });
   expect(missing.status()).toBe(404);
 });
+
+test("shell: navigating to a new pathname resets #app-main scrollTop to 0", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 350 });
+  await page.goto("/dev/kit");
+  await expect(page.getByRole("heading", { name: "UI kit" })).toBeVisible({
+    timeout: 10000,
+  });
+
+  const main = page.locator("#app-main");
+  await main.evaluate((el) => {
+    el.scrollTop = 50;
+  });
+  expect(await main.evaluate((el) => el.scrollTop)).toBe(50);
+
+  await page.locator("#sidebar-jobs-summary").click();
+  await expect(page).toHaveURL(/\/jobs/);
+  expect(await main.evaluate((el) => el.scrollTop)).toBe(0);
+  await expect(main).toBeFocused();
+});
+
+test("shell: mobile Activity panel fits inside viewport and Escape returns focus to trigger", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/gallery");
+  const activityBtn = page.locator("#activity-button");
+  await expect(activityBtn).toBeVisible({ timeout: 10000 });
+
+  await activityBtn.click();
+  const region = page.getByRole("region", { name: "Activity" });
+  await expect(region).toBeVisible();
+
+  const box = (await region.boundingBox())!;
+  expect(box.x).toBeGreaterThanOrEqual(0);
+  expect(box.y).toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width).toBeLessThanOrEqual(390);
+  expect(box.y + box.height).toBeLessThanOrEqual(844);
+
+  await page.setViewportSize({ width: 320, height: 640 });
+  const boxSmall = (await region.boundingBox())!;
+  expect(boxSmall.x).toBeGreaterThanOrEqual(0);
+  expect(boxSmall.y).toBeGreaterThanOrEqual(0);
+  expect(boxSmall.x + boxSmall.width).toBeLessThanOrEqual(320);
+  expect(boxSmall.y + boxSmall.height).toBeLessThanOrEqual(640);
+
+  await page.keyboard.press("Escape");
+  await expect(region).toBeHidden();
+  await expect(activityBtn).toBeFocused();
+});

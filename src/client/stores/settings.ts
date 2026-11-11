@@ -12,24 +12,35 @@ const [defaultsSignal, setDefaultsSignal] =
 export const generationDefaults: () => GenerationDefaults = defaultsSignal;
 
 let cachedPromise: Promise<GenerationDefaults> | null = null;
+let generation = 0;
 
 export function loadDefaults(): Promise<GenerationDefaults> {
   if (cachedPromise) return cachedPromise;
-  cachedPromise = apiGet<Record<string, string>>("/api/settings")
+  const gen = ++generation;
+  const p = apiGet<Record<string, string>>("/api/settings")
     .then((map) => {
       const defs = toGenerationDefaults(map);
-      setDefaultsSignal(defs);
+      if (gen === generation) {
+        setDefaultsSignal(defs);
+      }
       return defs;
     })
     .catch(() => {
+      if (cachedPromise === p) {
+        cachedPromise = null;
+      }
       const defs = { ...FALLBACK_DEFAULTS };
-      setDefaultsSignal(defs);
+      if (gen === generation) {
+        setDefaultsSignal(defs);
+      }
       return defs;
     });
-  return cachedPromise;
+  cachedPromise = p;
+  return p;
 }
 
 export function invalidateDefaults(): void {
+  generation++;
   cachedPromise = null;
   void loadDefaults();
 }

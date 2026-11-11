@@ -1000,3 +1000,28 @@ export namespace Icons {
     </svg>
   );
 }
+
+export const KIND_ICONS: Record<
+  "image" | "video" | "audio" | "compose",
+  (props: IconProps) => ReturnType<typeof Icons.Image>
+> = {
+  image: Icons.Image,
+  video: Icons.Video,
+  audio: Icons.Audio,
+  compose: Icons.Compose,
+};
+
+export const ROUTE_ICONS: Record<
+  string,
+  (props: IconProps) => ReturnType<typeof Icons.Image>
+> = {
+  Home: Icons.Home,
+  Jobs: Icons.Jobs,
+  Gallery: Icons.Gallery,
+  Image: Icons.Image,
+  Video: Icons.Video,
+  Film: Icons.Film,
+  Audio: Icons.Audio,
+  Compose: Icons.Compose,
+  CogSettingsIcon: Icons.CogSettingsIcon,
+};

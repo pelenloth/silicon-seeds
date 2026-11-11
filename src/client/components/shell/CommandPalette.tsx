@@ -1,5 +1,12 @@
 import { useNavigate } from "@solidjs/router";
-import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  onCleanup,
+  Show,
+} from "solid-js";
 import {
   buildCommands,
   filterCommands,
@@ -46,21 +53,25 @@ export function CommandPalette() {
     releaseOverlay();
   });
 
-  const commands = (): Command[] =>
-    filterCommands(
+  const commands = createMemo<Command[]>(() => {
+    if (!paletteOpen()) return [];
+    const q = query();
+    return filterCommands(
       buildCommands({
-        query: query(),
+        query: q,
         routes: ROUTES,
         jobs: jobs(),
         themes: THEME_OPTIONS,
         navigate: (p) => navigate(p),
         setTheme: (id) => setThemePref(id as ThemePref),
       }),
-      query(),
+      q,
     );
+  });
 
-  const grouped = () => {
+  const grouped = createMemo(() => {
     const all = commands();
+    if (all.length === 0) return [];
     const out: {
       group: CommandGroup;
       items: { cmd: Command; index: number }[];
@@ -77,13 +88,18 @@ export function CommandPalette() {
       }
     }
     return out;
-  };
+  });
+
+  const clampedActive = createMemo(() => {
+    const len = commands().length;
+    if (len === 0) return 0;
+    return Math.max(0, Math.min(active(), len - 1));
+  });
 
   const activeId = () => {
     const len = commands().length;
     if (len === 0) return undefined;
-    const idx = Math.min(active(), len - 1);
-    return `cmd-${idx}`;
+    return `cmd-${clampedActive()}`;
   };
 
   const scrollActiveIntoView = (idx: number) => {
@@ -120,25 +136,25 @@ export function CommandPalette() {
   };
 
   const onKey = (e: KeyboardEvent) => {
+    if (e.isComposing) return;
     const list = commands();
     const len = list.length;
     if (e.key === "ArrowDown") {
       e.preventDefault();
       if (len === 0) return;
-      const next = (active() + 1) % len;
+      const next = (clampedActive() + 1) % len;
       setActive(next);
       scrollActiveIntoView(next);
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       if (len === 0) return;
-      const next = (active() - 1 + len) % len;
+      const next = (clampedActive() - 1 + len) % len;
       setActive(next);
       scrollActiveIntoView(next);
     } else if (e.key === "Enter") {
       e.preventDefault();
       if (len === 0) return;
-      const idx = Math.min(active(), len - 1);
-      runCommand(list[idx]);
+      runCommand(list[clampedActive()]);
     } else if (e.key === "Escape") {
       e.preventDefault();
       setPaletteOpen(false);
@@ -205,12 +221,16 @@ export function CommandPalette() {
                       <li
                         role="option"
                         id={`cmd-${entry.index}`}
-                        aria-selected={entry.index === active()}
+                        aria-selected={entry.index === clampedActive()}
                         class="cursor-pointer rounded-field px-3 py-2 text-sm"
                         classList={{
-                          "bg-base-200": entry.index === active(),
+                          "bg-base-200": entry.index === clampedActive(),
                         }}
-                        onMouseEnter={() => setActive(entry.index)}
+                        onMouseMove={() => {
+                          if (active() !== entry.index) {
+                            setActive(entry.index);
+                          }
+                        }}
                         onClick={() => runCommand(entry.cmd)}
                       >
                         {entry.cmd.label}

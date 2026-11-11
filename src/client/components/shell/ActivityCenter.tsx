@@ -1,31 +1,17 @@
 import { A, useLocation } from "@solidjs/router";
-import {
-  createEffect,
-  createSignal,
-  For,
-  on,
-  onCleanup,
-  Show,
-  type Component,
-} from "solid-js";
+import { createEffect, createSignal, For, on, onCleanup, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import { thumbUrl } from "../../lib/api-client";
-import { jobKindMeta, type JobKind, type JobSummary } from "../../lib/job-view";
+import { onDismiss } from "../../lib/dismiss";
+import { jobKindMeta, type JobSummary } from "../../lib/job-view";
 import {
   activeCount,
   jobs,
   recentFinished,
   runJobAction,
 } from "../../stores/jobs";
-import { Icons } from "../Icons";
+import { Icons, KIND_ICONS } from "../Icons";
 import { EmptyState } from "../ui/EmptyState";
-
-const KIND_ICONS: Record<JobKind, Component<{ class?: string }>> = {
-  image: Icons.Image,
-  video: Icons.Video,
-  audio: Icons.Audio,
-  compose: Icons.Compose,
-};
 
 function ActivityRow(props: { job: JobSummary; onClose: () => void }) {
   const [thumbFailed, setThumbFailed] = createSignal(false);
@@ -87,7 +73,7 @@ function ActivityRow(props: { job: JobSummary; onClose: () => void }) {
               <button
                 type="button"
                 class="btn btn-ghost btn-sm btn-square"
-                aria-label="Pause"
+                aria-label={`Pause ${props.job.name}`}
                 onClick={() => void runJobAction(props.job, "pause")}
               >
                 <Icons.Pause class="size-4" />
@@ -97,7 +83,7 @@ function ActivityRow(props: { job: JobSummary; onClose: () => void }) {
               <button
                 type="button"
                 class="btn btn-ghost btn-sm btn-square"
-                aria-label="Resume"
+                aria-label={`Resume ${props.job.name}`}
                 onClick={() => void runJobAction(props.job, "resume")}
               >
                 <Icons.Play class="size-4" />
@@ -106,7 +92,7 @@ function ActivityRow(props: { job: JobSummary; onClose: () => void }) {
             <button
               type="button"
               class="btn btn-ghost btn-sm btn-square text-error"
-              aria-label="Cancel"
+              aria-label={`Cancel ${props.job.name}`}
               onClick={() => void runJobAction(props.job, "cancel")}
             >
               <Icons.Stop class="size-4" />
@@ -129,6 +115,7 @@ export function ActivityCenter() {
   const [open, setOpen] = createSignal(false);
   const location = useLocation();
   let rootRef: HTMLDivElement | undefined;
+  let triggerRef: HTMLButtonElement | undefined;
 
   const toggle = () => setOpen(!open());
 
@@ -141,22 +128,16 @@ export function ActivityCenter() {
 
   createEffect(() => {
     if (!open()) return;
-    const onDocClick = (e: MouseEvent) => {
-      if (rootRef && !rootRef.contains(e.target as Node)) {
+    const cleanup = onDismiss(
+      () => rootRef,
+      (byKeyboard) => {
         setOpen(false);
-      }
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", onDocClick);
-    document.addEventListener("keydown", onKey);
-    onCleanup(() => {
-      document.removeEventListener("mousedown", onDocClick);
-      document.removeEventListener("keydown", onKey);
-    });
+        if (byKeyboard) {
+          triggerRef?.focus();
+        }
+      },
+    );
+    onCleanup(cleanup);
   });
 
   const runningJobs = () =>
@@ -185,6 +166,7 @@ export function ActivityCenter() {
   return (
     <div ref={rootRef} class="relative">
       <button
+        ref={triggerRef}
         id="activity-button"
         type="button"
         class="btn btn-ghost btn-sm gap-1"
@@ -209,7 +191,7 @@ export function ActivityCenter() {
         <div
           role="region"
           aria-label="Activity"
-          class="absolute right-0 top-full z-30 mt-2 w-[22rem] max-w-[calc(100vw-1.5rem)] rounded-box border border-base-300 bg-base-100 shadow-xl"
+          class="fixed inset-x-3 top-14 w-auto sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 sm:w-[22rem] sm:max-w-sm z-30 rounded-box border border-base-300 bg-base-100 shadow-xl"
         >
           <div class="max-h-[65vh] overflow-y-auto scroll-thin p-2">
             <Show

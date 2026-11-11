@@ -14,6 +14,8 @@ import {
   jobKindMeta,
   jobStatusMeta,
   jobToPrefill,
+  nextBackoffMs,
+  shouldApplyResponse,
   splitPrompt,
   summarizeEvents,
   type JobSummary,
@@ -367,5 +369,27 @@ describe("detectTransitions", () => {
       { id: "d", name: "D", from: "paused", to: "failed" },
     ]);
     expect(detectTransitions(new Map(), next)).toEqual([]);
+  });
+});
+
+describe("shouldApplyResponse", () => {
+  test("applies only when seq is strictly greater than lastApplied", () => {
+    expect(shouldApplyResponse(1, 0)).toBe(true);
+    expect(shouldApplyResponse(2, 1)).toBe(true);
+    expect(shouldApplyResponse(2, 2)).toBe(false);
+    expect(shouldApplyResponse(1, 2)).toBe(false);
+  });
+});
+
+describe("nextBackoffMs", () => {
+  test("exponential backoff starting at 1000ms, doubling, capped at 30000ms", () => {
+    expect(nextBackoffMs(0)).toBe(1000);
+    expect(nextBackoffMs(1)).toBe(2000);
+    expect(nextBackoffMs(2)).toBe(4000);
+    expect(nextBackoffMs(3)).toBe(8000);
+    expect(nextBackoffMs(4)).toBe(16000);
+    expect(nextBackoffMs(5)).toBe(30000);
+    expect(nextBackoffMs(10)).toBe(30000);
+    expect(nextBackoffMs(-1)).toBe(1000);
   });
 });

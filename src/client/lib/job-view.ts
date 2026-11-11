@@ -459,3 +459,12 @@ export function detectTransitions(
   }
   return out;
 }
+
+export function shouldApplyResponse(seq: number, lastApplied: number): boolean {
+  return seq > lastApplied;
+}
+
+export function nextBackoffMs(attempt: number): number {
+  const exp = Math.max(0, attempt);
+  return Math.min(30_000, 1000 * 2 ** exp);
+}

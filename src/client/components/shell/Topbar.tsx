@@ -11,6 +11,8 @@ export function Topbar() {
   return (
     <header class="flex h-14 shrink-0 items-center gap-2 border-b border-base-300 bg-base-100 px-3 lg:px-6">
       <button
+        id="mobile-nav-button"
+        type="button"
         class="btn btn-ghost btn-sm btn-square lg:hidden"
         aria-label="Open navigation"
         onClick={() => setMobileNavOpen(true)}

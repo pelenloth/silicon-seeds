@@ -1,21 +1,23 @@
-import { createSignal } from "solid-js";
-import { createStore } from "solid-js/store";
+import { createMemo, createRoot, createSignal } from "solid-js";
+import { createStore, reconcile } from "solid-js/store";
 import { ApiError, apiGet, apiSend } from "../lib/api-client";
 import {
   detectTransitions,
   filterJobs,
+  nextBackoffMs,
+  shouldApplyResponse,
   type JobAction,
   type JobSummary,
 } from "../lib/job-view";
 import { confirmDialog } from "./confirm";
 import { toast } from "./toast";
 
-const [jobsSignal, setJobsSignal] = createSignal<JobSummary[]>([]);
+const [jobsStore, setJobsStore] = createStore<JobSummary[]>([]);
 const [jobsLoadedSignal, setJobsLoadedSignal] = createSignal<boolean>(false);
 const [jobsErrorSignal, setJobsErrorSignal] = createSignal<string | null>(null);
 const [versions, setVersions] = createStore<Record<string, number>>({});
 
-export const jobs: () => JobSummary[] = jobsSignal;
+export const jobs: () => JobSummary[] = () => jobsStore;
 export const jobsLoaded: () => boolean = jobsLoadedSignal;
 export const jobsError: () => string | null = jobsErrorSignal;
 
@@ -23,15 +25,22 @@ export function jobVersion(id: string): number {
   return versions[id] ?? 0;
 }
 
-export const activeJobs: () => JobSummary[] = () =>
-  jobsSignal().filter((j) => j.status === "active" || j.status === "paused");
+const { activeJobsMemo, activeCountMemo } = createRoot(() => {
+  const activeJobsMemo = createMemo(() =>
+    jobsStore.filter((j) => j.status === "active" || j.status === "paused"),
+  );
+  const activeCountMemo = createMemo(
+    () => jobsStore.filter((j) => j.status === "active").length,
+  );
+  return { activeJobsMemo, activeCountMemo };
+});
 
-export const activeCount: () => number = () =>
-  jobsSignal().filter((j) => j.status === "active").length;
+export const activeJobs: () => JobSummary[] = activeJobsMemo;
+export const activeCount: () => number = activeCountMemo;
 
 export function recentFinished(n: number): JobSummary[] {
   return filterJobs(
-    jobsSignal().filter(
+    jobsStore.filter(
       (j) =>
         j.status === "complete" ||
         j.status === "failed" ||
@@ -43,10 +52,17 @@ export function recentFinished(n: number): JobSummary[] {
 
 const prevStatuses = new Map<string, string>();
 let hasLoadedOnce = false;
+let nextRequestSeq = 0;
+let lastAppliedSeq = 0;
 
 export async function refreshJobs(): Promise<void> {
+  const seq = ++nextRequestSeq;
   try {
     const data = await apiGet<{ jobs: JobSummary[] }>("/api/jobs");
+    if (!shouldApplyResponse(seq, lastAppliedSeq)) {
+      return;
+    }
+    lastAppliedSeq = seq;
     const list = data.jobs ?? [];
     if (hasLoadedOnce) {
       const transitions = detectTransitions(prevStatuses, list);
@@ -67,10 +83,13 @@ export async function refreshJobs(): Promise<void> {
     for (const j of list) {
       prevStatuses.set(j.id, j.status);
     }
-    setJobsSignal(list);
+    setJobsStore(reconcile(list, { key: "id", merge: true }));
     setJobsLoadedSignal(true);
     setJobsErrorSignal(null);
   } catch (err) {
+    if (!shouldApplyResponse(seq, lastAppliedSeq)) {
+      return;
+    }
     const msg = err instanceof Error ? err.message : "Failed to load jobs";
     setJobsErrorSignal(msg);
   }
@@ -97,6 +116,7 @@ export function startJobsStore(): void {
   if (typeof EventSource === "function") {
     let es: EventSource | null = null;
     let hadError = false;
+    let attempt = 0;
 
     const connect = () => {
       if (es) {
@@ -104,6 +124,10 @@ export function startJobsStore(): void {
         es = null;
       }
       es = new EventSource("/jobs/stream/all");
+      es.onopen = () => {
+        attempt = 0;
+        streamDown = false;
+      };
       es.addEventListener("job-update", (evt: MessageEvent) => {
         try {
           const parsed = JSON.parse(String(evt.data)) as { jobId?: unknown };
@@ -114,6 +138,7 @@ export function startJobsStore(): void {
         scheduleTrailingRefresh();
       });
       es.addEventListener("connected", () => {
+        attempt = 0;
         streamDown = false;
         if (hadError) {
           hadError = false;
@@ -127,7 +152,8 @@ export function startJobsStore(): void {
           es.close();
           es = null;
         }
-        setTimeout(connect, 2000);
+        const delay = nextBackoffMs(attempt++);
+        setTimeout(connect, delay);
       };
     };
 
@@ -162,46 +188,57 @@ const ACTION_VERB: Record<JobAction, string> = {
   delete: "Deleted",
 };
 
+const inFlightJobActions = new Set<string>();
+
 export async function runJobAction(
   job: { id: string; name: string },
   action: JobAction,
 ): Promise<boolean> {
-  if (action === "cancel") {
-    const ok = await confirmDialog({
-      title: "Cancel this job?",
-      body: "Finished outputs are kept.",
-      confirmLabel: "Cancel job",
-      tone: "danger",
-    });
-    if (!ok) return false;
-  } else if (action === "delete") {
-    const ok = await confirmDialog({
-      title: "Delete this job?",
-      body: "The job and its history are removed. Generated files stay on disk.",
-      confirmLabel: "Delete",
-      tone: "danger",
-    });
-    if (!ok) return false;
-  }
+  const key = `${job.id}:${action}`;
+  if (inFlightJobActions.has(key)) return false;
+  inFlightJobActions.add(key);
 
   try {
-    if (action === "delete") {
-      await apiSend("DELETE", `/api/jobs/${job.id}`);
-    } else {
-      await apiSend("POST", `/api/jobs/${job.id}/${action}`);
+    if (action === "cancel") {
+      const ok = await confirmDialog({
+        title: "Cancel this job?",
+        body: "Finished outputs are kept.",
+        confirmLabel: "Cancel job",
+        tone: "danger",
+      });
+      if (!ok) return false;
+    } else if (action === "delete") {
+      const ok = await confirmDialog({
+        title: "Delete this job?",
+        body: "The job and its history are removed. Generated files stay on disk.",
+        confirmLabel: "Delete",
+        tone: "danger",
+      });
+      if (!ok) return false;
     }
-    toast.success(`${ACTION_VERB[action]} “${job.name}”`);
-    await refreshJobs();
-    return true;
-  } catch (err) {
-    const msg =
-      err instanceof ApiError
-        ? err.message
-        : err instanceof Error
+
+    try {
+      if (action === "delete") {
+        await apiSend("DELETE", `/api/jobs/${job.id}`);
+      } else {
+        await apiSend("POST", `/api/jobs/${job.id}/${action}`);
+      }
+      toast.success(`${ACTION_VERB[action]} “${job.name}”`);
+      return true;
+    } catch (err) {
+      const msg =
+        err instanceof ApiError
           ? err.message
-          : "Action failed";
-    toast.error(msg);
-    return false;
+          : err instanceof Error
+            ? err.message
+            : "Action failed";
+      toast.error(msg);
+      return false;
+    } finally {
+      await refreshJobs();
+    }
+  } finally {
+    inFlightJobActions.delete(key);
   }
 }
 
