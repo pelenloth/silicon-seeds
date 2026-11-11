@@ -1045,6 +1045,7 @@ export namespace DB {
       type: "input" | "output" | "temp";
       event_created_at: string;
       job_id: string;
+      job_name: string | null;
     };
 
     type ListItemsOptions = {
@@ -1119,6 +1120,7 @@ export namespace DB {
           "events.status as event_status",
           "events.id as event_id",
           "jobs.id as job_id",
+          "jobs.name as job_name",
         ])
         .where("meta.type", "=", "output");
 
@@ -1192,6 +1194,7 @@ export namespace DB {
               type: row.meta_type,
               created_at: row.event_created_at,
               job_id: row.job_id,
+              job_name: row.job_name ?? null,
               mediaType,
             } as ListItemResult & {
               mediaType: "image" | "video" | "audio";

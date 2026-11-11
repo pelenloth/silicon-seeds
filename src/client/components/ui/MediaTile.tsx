@@ -1,5 +1,6 @@
 import { createEffect, createSignal, Match, on, Show, Switch } from "solid-js";
 import { mediaUrl, thumbUrl, type MediaItem } from "../../lib/api-client";
+import { mediaKindLabel, mediaTitle } from "../../lib/job-view";
 import { Icons } from "../Icons";
 
 export type MediaTileProps = {
@@ -28,6 +29,7 @@ export function MediaTile(props: MediaTileProps) {
   const imageSrc = () =>
     hasExplicitSrc() || imgFallback() ? origSrc() : thumbSrc();
   const useVideoPoster = () => !hasExplicitSrc() && !posterFailed();
+  const title = () => mediaTitle(props.item);
 
   const itemKey = () =>
     `${props.item.src ?? ""}|${props.item.subfolder ?? ""}|${props.item.filename}|${props.item.mediaType ?? ""}`;
@@ -68,7 +70,8 @@ export function MediaTile(props: MediaTileProps) {
   return (
     <button
       type="button"
-      aria-label={`Open ${props.item.filename}`}
+      aria-label={`Open ${title()}`}
+      title={title()}
       onClick={() => props.onOpen?.()}
       onPointerEnter={playVideo}
       onPointerLeave={stopVideo}
@@ -133,10 +136,13 @@ export function MediaTile(props: MediaTileProps) {
             </Show>
           </Match>
           <Match when={props.item.mediaType === "audio"}>
-            <div class="flex size-full flex-col items-center justify-center gap-2 bg-base-200 text-base-content/50">
-              <Icons.Audio />
-              <span class="max-w-[90%] truncate text-xs">
-                {props.item.filename}
+            <div class="flex size-full flex-col items-center justify-center gap-1.5 bg-base-200 px-3 text-base-content">
+              <Icons.Audio class="size-6 shrink-0 text-base-content/60" />
+              <span class="line-clamp-2 text-center text-sm font-medium leading-snug">
+                {title()}
+              </span>
+              <span class="text-xs text-base-content/50">
+                {mediaKindLabel(props.item)}
               </span>
             </div>
           </Match>

@@ -73,6 +73,7 @@ function toKeyedMediaItems(raw: readonly GalleryItem[]): KeyedMediaItem[] {
       meta_id: item.meta_id,
       event_id: item.event_id,
       job_id: item.job_id,
+      job_name: item.job_name,
       filename: item.filename,
       subfolder: item.subfolder,
       created_at: item.created_at,

@@ -35,4 +35,21 @@ describe("galleryEtag", () => {
     );
     expect(other).not.toBe(tag);
   });
+  test("changes when job_name changes on an item in the page", () => {
+    const before = galleryEtag({ limit: 20 }, [
+      { meta_id: "b", job_name: null },
+      { meta_id: "a", job_name: "Old Name" },
+    ]);
+    const afterFirst = galleryEtag({ limit: 20 }, [
+      { meta_id: "b", job_name: "Generated Name" },
+      { meta_id: "a", job_name: "Old Name" },
+    ]);
+    const afterSecond = galleryEtag({ limit: 20 }, [
+      { meta_id: "b", job_name: "Generated Name" },
+      { meta_id: "a", job_name: "New Name" },
+    ]);
+    expect(afterFirst).not.toBe(before);
+    expect(afterSecond).not.toBe(afterFirst);
+    expect(afterSecond).toMatch(/^"[\x21\x23-\x7e]*"$/);
+  });
 });

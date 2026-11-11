@@ -14,6 +14,8 @@ import {
   jobKindMeta,
   jobStatusMeta,
   jobToPrefill,
+  mediaKindLabel,
+  mediaTitle,
   nextBackoffMs,
   shouldApplyResponse,
   splitPrompt,
@@ -391,5 +393,86 @@ describe("nextBackoffMs", () => {
     expect(nextBackoffMs(5)).toBe(30000);
     expect(nextBackoffMs(10)).toBe(30000);
     expect(nextBackoffMs(-1)).toBe(1000);
+  });
+});
+
+describe("mediaTitle and mediaKindLabel", () => {
+  test("mediaTitle returns trimmed job_name when non-empty", () => {
+    expect(
+      mediaTitle({
+        filename: "01a1c5d1-d113-7000-b503-09218cc141ed_00001_.png",
+        mediaType: "image",
+        job_name: "  Neon Fox  ",
+      }),
+    ).toBe("Neon Fox");
+  });
+
+  test("mediaTitle falls back to filename stem when readable and not an ID token", () => {
+    expect(
+      mediaTitle({
+        filename: "demo-1.svg",
+        mediaType: "image",
+        job_name: null,
+      }),
+    ).toBe("demo-1");
+    expect(
+      mediaTitle({
+        filename: "sub/dir/sunset_beach_01.mp4",
+        mediaType: "video",
+        job_name: "   ",
+      }),
+    ).toBe("sunset_beach_01");
+  });
+
+  test("mediaTitle returns Untitled <kind> when filename remainder is only id-like tokens", () => {
+    expect(
+      mediaTitle({
+        filename: "01a1c5d1-d113-7000-b503-09218cc141ed_00001_.png",
+        mediaType: "image",
+      }),
+    ).toBe("Untitled image");
+    expect(
+      mediaTitle({
+        filename: "tts/01a1c55b-4b23-7000-a131-b84012345678.flac",
+        mediaType: "audio",
+        job_name: "",
+      }),
+    ).toBe("Untitled audio");
+    expect(
+      mediaTitle({
+        filename: "a1b2c3d4e5f60001_00002_.mp4",
+        mediaType: "video",
+      }),
+    ).toBe("Untitled video");
+    expect(
+      mediaTitle({
+        filename: "_00001_.png",
+        mediaType: "image",
+      }),
+    ).toBe("Untitled image");
+    expect(
+      mediaTitle({
+        filename: "1234567890.wav",
+        mediaType: "audio",
+      }),
+    ).toBe("Untitled audio");
+  });
+
+  test("mediaKindLabel distinguishes Voiceover, Audio, Video and Image", () => {
+    expect(mediaKindLabel({ mediaType: "audio", subfolder: "tts" })).toBe(
+      "Voiceover",
+    );
+    expect(mediaKindLabel({ mediaType: "audio", subfolder: "tts/2026" })).toBe(
+      "Voiceover",
+    );
+    expect(mediaKindLabel({ mediaType: "audio", subfolder: "/tts/2026" })).toBe(
+      "Voiceover",
+    );
+    expect(mediaKindLabel({ mediaType: "audio", subfolder: "music" })).toBe(
+      "Audio",
+    );
+    expect(mediaKindLabel({ mediaType: "audio", subfolder: "" })).toBe("Audio");
+    expect(mediaKindLabel({ mediaType: "video", subfolder: "" })).toBe("Video");
+    expect(mediaKindLabel({ mediaType: "image", subfolder: "" })).toBe("Image");
   });
 });

@@ -193,6 +193,7 @@ export type MediaItem = {
   src?: string;
   created_at?: string;
   job_id?: string;
+  job_name?: string | null;
   event_id?: string;
   meta_id?: string;
 };
@@ -205,6 +206,7 @@ export type GalleryItem = {
   type: "input" | "output" | "temp";
   created_at: string;
   job_id: string;
+  job_name?: string | null;
   mediaType: "image" | "video" | "audio" | null;
 };
 

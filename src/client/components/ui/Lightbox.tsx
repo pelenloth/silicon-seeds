@@ -9,6 +9,7 @@ import {
   type JSX,
 } from "solid-js";
 import { mediaUrl, type MediaItem } from "../../lib/api-client";
+import { mediaTitle } from "../../lib/job-view";
 import { registerOverlay, unregisterOverlay } from "../../stores/overlays";
 import { Icons } from "../Icons";
 import { ToastRegion } from "./Toaster";
@@ -133,8 +134,11 @@ export function Lightbox(props: LightboxProps) {
                 >
                   {(props.index ?? 0) + 1} / {props.items.length}
                 </span>
-                <span class="font-mono text-xs truncate">
-                  {item().filename}
+                <span
+                  class="truncate text-sm font-medium"
+                  title={item().filename}
+                >
+                  {mediaTitle(item())}
                 </span>
                 <div class="flex-1" />
                 {props.actions?.(item())}
@@ -168,7 +172,7 @@ export function Lightbox(props: LightboxProps) {
                     <Match when={item().mediaType === "image"}>
                       <img
                         src={src()}
-                        alt={item().filename}
+                        alt={mediaTitle(item())}
                         class="max-h-full max-w-full object-contain"
                         onError={() => setFailed(true)}
                       />

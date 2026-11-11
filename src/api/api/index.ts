@@ -253,6 +253,7 @@ app.get("/jobs/:jobId/media", async (c) => {
       "events.created_at as event_created_at",
       "events.id as event_id",
       "jobs.id as job_id",
+      "jobs.name as job_name",
     ])
     .where("meta.type", "=", "output")
     .where("jobs.id", "=", jobId);
@@ -279,6 +280,7 @@ app.get("/jobs/:jobId/media", async (c) => {
     type: string;
     created_at: string;
     job_id: string;
+    job_name: string | null;
     mediaType: "image" | "video" | "audio";
   }> = [];
   for (const row of results) {
@@ -299,6 +301,7 @@ app.get("/jobs/:jobId/media", async (c) => {
       type: row.meta_type,
       created_at: row.event_created_at,
       job_id: row.job_id,
+      job_name: row.job_name ?? null,
       mediaType,
     });
     if (items.length >= limitVal + offsetVal) break;

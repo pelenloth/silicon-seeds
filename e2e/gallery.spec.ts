@@ -25,12 +25,19 @@ test("gallery: filters, grid, lightbox, no autoplay", async ({ page }) => {
   );
   expect(playing).toBe(0);
 
+  const tiles = page.locator('#gallery-grid button[aria-label^="Open "]');
+
   await radio("audio").check();
   await expect(radio("audio")).toBeChecked();
+  await page.waitForTimeout(800);
+  if ((await tiles.count()) > 0) {
+    const label = await tiles.first().getAttribute("aria-label");
+    expect(label).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-/i);
+  }
+
   await radio("image").check();
   await expect(radio("image")).toBeChecked();
 
-  const tiles = page.locator('#gallery-grid button[aria-label^="Open "]');
   await page.waitForTimeout(800);
   if ((await tiles.count()) > 0) {
     await tiles.first().click();

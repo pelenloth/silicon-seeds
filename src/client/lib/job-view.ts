@@ -468,3 +468,62 @@ export function nextBackoffMs(attempt: number): number {
   const exp = Math.max(0, attempt);
   return Math.min(30_000, 1000 * 2 ** exp);
 }
+
+function isIdLikeStem(stem: string): boolean {
+  const trimmed = stem.trim();
+  if (!trimmed) return true;
+  const withoutCounters = trimmed.replace(/_+\d+_+/g, "");
+  const cleaned = withoutCounters.replace(/^[_-]+|[_-]+$/g, "").trim();
+  if (!cleaned) return true;
+  if (
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      cleaned,
+    )
+  ) {
+    return true;
+  }
+  const tokens = cleaned.split(/[_-]+/).filter(Boolean);
+  if (tokens.length === 0) return true;
+  return tokens.every((t) => /^\d+$/.test(t) || /^[0-9a-f]{6,}$/i.test(t));
+}
+
+export function mediaTitle(item: {
+  job_name?: string | null;
+  filename: string;
+  mediaType: MediaType;
+}): string {
+  const name = item.job_name?.trim();
+  if (name) return name;
+
+  const base = item.filename.split(/[\\/]/).pop() ?? "";
+  const dotIdx = base.lastIndexOf(".");
+  const stem = (dotIdx > 0 ? base.slice(0, dotIdx) : base).trim();
+
+  if (stem && !isIdLikeStem(stem)) {
+    return stem;
+  }
+
+  switch (item.mediaType) {
+    case "video":
+      return "Untitled video";
+    case "audio":
+      return "Untitled audio";
+    default:
+      return "Untitled image";
+  }
+}
+
+export function mediaKindLabel(item: {
+  mediaType: MediaType;
+  subfolder?: string | null;
+}): string {
+  if (item.mediaType === "audio") {
+    const sub = (item.subfolder ?? "").replace(/^\/+|\/+$/g, "").trim();
+    if (sub === "tts" || sub.startsWith("tts/")) {
+      return "Voiceover";
+    }
+    return "Audio";
+  }
+  if (item.mediaType === "video") return "Video";
+  return "Image";
+}

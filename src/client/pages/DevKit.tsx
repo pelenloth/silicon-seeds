@@ -109,6 +109,7 @@ export default function DevKit() {
       mediaType: i.mediaType ?? fallbackType,
       created_at: i.created_at,
       job_id: i.job_id,
+      job_name: i.job_name,
       event_id: i.event_id,
       meta_id: i.meta_id,
     });
