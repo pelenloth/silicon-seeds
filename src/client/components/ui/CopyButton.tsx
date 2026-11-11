@@ -30,10 +30,33 @@ export function CopyButton(props: CopyButtonProps) {
   const [copied, setCopied] = createSignal(false);
   const [announcement, setAnnouncement] = createSignal("");
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let rafId: number | undefined;
+  let disposed = false;
 
   onCleanup(() => {
+    disposed = true;
     if (timer !== undefined) clearTimeout(timer);
+    if (rafId !== undefined && typeof cancelAnimationFrame === "function") {
+      cancelAnimationFrame(rafId);
+    }
   });
+
+  const announce = (msg: string) => {
+    setAnnouncement("");
+    if (typeof requestAnimationFrame === "function") {
+      if (rafId !== undefined && typeof cancelAnimationFrame === "function") {
+        cancelAnimationFrame(rafId);
+      }
+      rafId = requestAnimationFrame(() => {
+        rafId = undefined;
+        if (!disposed) {
+          setAnnouncement(msg);
+        }
+      });
+    } else {
+      setAnnouncement(msg);
+    }
+  };
 
   const handleCopy = async () => {
     let ok = false;
@@ -48,21 +71,26 @@ export function CopyButton(props: CopyButtonProps) {
       ok = fallbackCopy(props.text);
     }
 
+    if (disposed) return;
     if (timer !== undefined) clearTimeout(timer);
 
     if (ok) {
       setCopied(true);
-      setAnnouncement("Copied");
+      announce("Copied");
       timer = setTimeout(() => {
-        setCopied(false);
-        setAnnouncement("");
+        if (!disposed) {
+          setCopied(false);
+          setAnnouncement("");
+        }
       }, 2000);
     } else {
       setCopied(false);
-      setAnnouncement("Copy failed");
+      announce("Copy failed");
       toast.error("Could not copy to the clipboard");
       timer = setTimeout(() => {
-        setAnnouncement("");
+        if (!disposed) {
+          setAnnouncement("");
+        }
       }, 2000);
     }
   };

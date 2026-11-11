@@ -62,18 +62,26 @@ export async function refreshJobs(): Promise<void> {
     if (!shouldApplyResponse(seq, lastAppliedSeq)) {
       return;
     }
-    lastAppliedSeq = seq;
-    const list = data.jobs ?? [];
+    const list = Array.isArray(data?.jobs) ? data.jobs : [];
+    if (data && data.jobs !== undefined && !Array.isArray(data.jobs)) {
+      throw new Error("Unexpected jobs payload");
+    }
     if (hasLoadedOnce) {
       const transitions = detectTransitions(prevStatuses, list);
       for (const t of transitions) {
         if (t.to === "complete") {
           toast.success(`${t.name} finished`, {
-            action: { label: "View", href: `/jobs/${t.id}` },
+            action: {
+              label: "View",
+              href: `/jobs/${encodeURIComponent(t.id)}`,
+            },
           });
         } else if (t.to === "failed") {
           toast.error(`${t.name} failed`, {
-            action: { label: "View", href: `/jobs/${t.id}` },
+            action: {
+              label: "View",
+              href: `/jobs/${encodeURIComponent(t.id)}`,
+            },
           });
         }
       }
@@ -86,6 +94,7 @@ export async function refreshJobs(): Promise<void> {
     setJobsStore(reconcile(list, { key: "id", merge: true }));
     setJobsLoadedSignal(true);
     setJobsErrorSignal(null);
+    lastAppliedSeq = seq;
   } catch (err) {
     if (!shouldApplyResponse(seq, lastAppliedSeq)) {
       return;
@@ -96,6 +105,7 @@ export async function refreshJobs(): Promise<void> {
 }
 
 let started = false;
+let currentStop: (() => void) | null = null;
 let streamDown = false;
 let trailingRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -107,18 +117,24 @@ function scheduleTrailingRefresh(): void {
   }, 400);
 }
 
-export function startJobsStore(): void {
-  if (started) return;
+export function startJobsStore(): () => void {
+  if (started && currentStop) return currentStop;
   started = true;
 
   void refreshJobs();
 
+  let es: EventSource | null = null;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let intervalTimer: ReturnType<typeof setInterval> | null = null;
+  let stopped = false;
+
   if (typeof EventSource === "function") {
-    let es: EventSource | null = null;
     let hadError = false;
     let attempt = 0;
 
     const connect = () => {
+      if (stopped) return;
+      reconnectTimer = null;
       if (es) {
         es.close();
         es = null;
@@ -152,8 +168,10 @@ export function startJobsStore(): void {
           es.close();
           es = null;
         }
+        if (stopped) return;
         const delay = nextBackoffMs(attempt++);
-        setTimeout(connect, delay);
+        if (reconnectTimer !== null) clearTimeout(reconnectTimer);
+        reconnectTimer = setTimeout(connect, delay);
       };
     };
 
@@ -161,23 +179,72 @@ export function startJobsStore(): void {
   }
 
   if (typeof setInterval === "function") {
-    const timer = setInterval(() => {
+    intervalTimer = setInterval(() => {
       if (streamDown && activeCount() > 0) {
         void refreshJobs();
       }
     }, 10_000);
-    if (typeof timer === "object" && timer !== null && "unref" in timer) {
-      (timer as { unref?: () => void }).unref?.();
+    if (
+      typeof intervalTimer === "object" &&
+      intervalTimer !== null &&
+      "unref" in intervalTimer
+    ) {
+      (intervalTimer as { unref?: () => void }).unref?.();
     }
   }
 
+  const onVisibilityChange = () => {
+    if (document.visibilityState === "visible") {
+      void refreshJobs();
+    }
+  };
+
+  const onWindowJobUpdate = (evt: Event) => {
+    const detail = (evt as CustomEvent<{ jobId?: unknown }>).detail;
+    if (detail && typeof detail.jobId === "string" && detail.jobId) {
+      setVersions(detail.jobId, (v) => (v ?? 0) + 1);
+    }
+    scheduleTrailingRefresh();
+  };
+
   if (typeof document !== "undefined") {
-    document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "visible") {
-        void refreshJobs();
-      }
-    });
+    document.addEventListener("visibilitychange", onVisibilityChange);
   }
+  if (typeof window !== "undefined") {
+    window.addEventListener("job-update", onWindowJobUpdate);
+  }
+
+  const stop = () => {
+    if (stopped) return;
+    stopped = true;
+    started = false;
+    currentStop = null;
+    if (reconnectTimer !== null) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    if (trailingRefreshTimer !== null) {
+      clearTimeout(trailingRefreshTimer);
+      trailingRefreshTimer = null;
+    }
+    if (intervalTimer !== null) {
+      clearInterval(intervalTimer);
+      intervalTimer = null;
+    }
+    if (typeof document !== "undefined") {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    }
+    if (typeof window !== "undefined") {
+      window.removeEventListener("job-update", onWindowJobUpdate);
+    }
+    if (es) {
+      es.close();
+      es = null;
+    }
+  };
+
+  currentStop = stop;
+  return stop;
 }
 
 const ACTION_VERB: Record<JobAction, string> = {
@@ -217,11 +284,12 @@ export async function runJobAction(
       if (!ok) return false;
     }
 
+    const encodedId = encodeURIComponent(job.id);
     try {
       if (action === "delete") {
-        await apiSend("DELETE", `/api/jobs/${job.id}`);
+        await apiSend("DELETE", `/api/jobs/${encodedId}`);
       } else {
-        await apiSend("POST", `/api/jobs/${job.id}/${action}`);
+        await apiSend("POST", `/api/jobs/${encodedId}/${action}`);
       }
       toast.success(`${ACTION_VERB[action]} “${job.name}”`);
       return true;
@@ -254,7 +322,10 @@ export async function regenerateEvent(
   if (!ok) return false;
 
   try {
-    await apiSend("POST", `/api/jobs/${jobId}/events/${eventId}/regenerate`);
+    await apiSend(
+      "POST",
+      `/api/jobs/${encodeURIComponent(jobId)}/events/${encodeURIComponent(eventId)}/regenerate`,
+    );
     toast.success("Regenerating…");
     await refreshJobs();
     return true;

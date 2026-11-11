@@ -17,10 +17,14 @@ import {
 } from "../../stores/shell";
 import { initTheme } from "../../stores/theme";
 import { ConfirmHost } from "../ui/ConfirmHost";
-import { Toaster } from "../ui/Toaster";
+import { ToastRegion } from "../ui/Toaster";
 import CommandPalette from "./CommandPalette";
 import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
+
+function firstSegment(pathname: string): string {
+  return pathname.split("/")[1] ?? "";
+}
 
 function ShellErrorFallback(props: {
   err: unknown;
@@ -35,10 +39,21 @@ function ShellErrorFallback(props: {
     ),
   );
 
-  const message = () =>
-    props.err instanceof Error
-      ? props.err.message
-      : String(props.err ?? "Unexpected error");
+  const message = () => {
+    try {
+      if (
+        props.err instanceof Error &&
+        typeof props.err.message === "string" &&
+        props.err.message
+      ) {
+        return props.err.message;
+      }
+      const str = String(props.err ?? "Unexpected error");
+      return str || "Unexpected error";
+    } catch {
+      return "Unexpected error";
+    }
+  };
 
   return (
     <div class="page max-w-xl mx-auto">
@@ -68,7 +83,7 @@ export default function AppShell(props: ParentProps) {
 
   onMount(() => {
     initTheme();
-    startJobsStore();
+    const stopJobs = startJobsStore();
     void loadDefaults();
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
@@ -77,7 +92,10 @@ export default function AppShell(props: ParentProps) {
       }
     };
     window.addEventListener("keydown", onKey);
-    onCleanup(() => window.removeEventListener("keydown", onKey));
+    onCleanup(() => {
+      stopJobs();
+      window.removeEventListener("keydown", onKey);
+    });
   });
 
   createEffect(() => {
@@ -87,11 +105,16 @@ export default function AppShell(props: ParentProps) {
   createEffect(
     on(
       () => location.pathname,
-      () => {
+      (pathname, prevPathname) => {
         setMobileNavOpen(false);
         if (mainRef) {
           mainRef.scrollTop = 0;
-          mainRef.focus();
+          if (
+            prevPathname === undefined ||
+            firstSegment(pathname) !== firstSegment(prevPathname)
+          ) {
+            mainRef.focus();
+          }
         }
       },
       { defer: true },
@@ -130,7 +153,7 @@ export default function AppShell(props: ParentProps) {
       </div>
       <CommandPalette />
       <ConfirmHost />
-      <Toaster />
+      <ToastRegion scope="root" />
     </div>
   );
 }

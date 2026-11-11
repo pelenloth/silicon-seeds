@@ -205,10 +205,34 @@ test("shell: navigating to a new pathname resets #app-main scrollTop to 0", asyn
   });
   expect(await main.evaluate((el) => el.scrollTop)).toBe(50);
 
+  await page.evaluate(() => {
+    const a = document.querySelector<HTMLAnchorElement>(
+      'a[href="/dev/kit?tab=failed"]',
+    );
+    a?.click();
+  });
+  await expect(page).toHaveURL(/\/dev\/kit\?tab=failed/);
+  expect(await main.evaluate((el) => el.scrollTop)).toBe(50);
+
   await page.locator("#sidebar-jobs-summary").click();
   await expect(page).toHaveURL(/\/jobs/);
-  expect(await main.evaluate((el) => el.scrollTop)).toBe(0);
+  await expect.poll(() => main.evaluate((el) => el.scrollTop)).toBe(0);
   await expect(main).toBeFocused();
+
+  await page.setViewportSize({ width: 900, height: 350 });
+  await page.goto("/jobs");
+  await main.evaluate((el) => {
+    const first = el.firstElementChild as HTMLElement | null;
+    if (first) first.style.minHeight = "1000px";
+    el.scrollTop = 50;
+    const a = document.createElement("a");
+    a.href = "/jobs?status=failed";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  });
+  await expect(page).toHaveURL(/\/jobs\?status=failed/);
+  expect(await main.evaluate((el) => el.scrollTop)).toBe(50);
 });
 
 test("shell: mobile Activity panel fits inside viewport and Escape returns focus to trigger", async ({

@@ -1,23 +1,15 @@
 import { A } from "@solidjs/router";
-import {
-  createEffect,
-  createSignal,
-  For,
-  on,
-  Show,
-  type Component,
-} from "solid-js";
+import { createEffect, createSignal, For, on, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import { thumbUrl } from "../../lib/api-client";
 import {
   formatRelativeTime,
   jobKindMeta,
   type countByStatus,
-  type JobKind,
   type JobSummary,
 } from "../../lib/job-view";
 import { nowTick } from "../../stores/shell";
-import { Icons } from "../Icons";
+import { Icons, KIND_ICONS } from "../Icons";
 import { EmptyState } from "../ui/EmptyState";
 import { StatusBadge } from "../ui/StatusBadge";
 
@@ -34,13 +26,6 @@ export type JobListProps = {
   error: string | null;
   onRetryLoad: () => void;
   hasAnyJobs: boolean;
-};
-
-const KIND_ICONS: Record<JobKind, Component<{ class?: string }>> = {
-  image: Icons.Image,
-  video: Icons.Video,
-  audio: Icons.Audio,
-  compose: Icons.Compose,
 };
 
 type FilterKey =

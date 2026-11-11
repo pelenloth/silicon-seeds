@@ -39,12 +39,13 @@ export function CommandPalette() {
   let inputRef!: HTMLInputElement;
   let listRef!: HTMLUListElement;
   let closingProgrammatically = false;
+  let currentOverlayId: number | null = null;
   const [overlayId, setOverlayId] = createSignal<number | null>(null);
 
   const releaseOverlay = () => {
-    const id = overlayId();
-    if (id !== null) {
-      unregisterOverlay(id);
+    if (currentOverlayId !== null) {
+      unregisterOverlay(currentOverlayId);
+      currentOverlayId = null;
       setOverlayId(null);
     }
   };
@@ -110,8 +111,9 @@ export function CommandPalette() {
   createEffect(() => {
     if (!dialogRef) return;
     if (paletteOpen()) {
-      if (overlayId() === null) {
-        setOverlayId(registerOverlay());
+      if (currentOverlayId === null) {
+        currentOverlayId = registerOverlay();
+        setOverlayId(currentOverlayId);
       }
       if (!dialogRef.open) {
         dialogRef.showModal();
@@ -136,7 +138,7 @@ export function CommandPalette() {
   };
 
   const onKey = (e: KeyboardEvent) => {
-    if (e.isComposing) return;
+    if (e.isComposing || e.keyCode === 229) return;
     const list = commands();
     const len = list.length;
     if (e.key === "ArrowDown") {

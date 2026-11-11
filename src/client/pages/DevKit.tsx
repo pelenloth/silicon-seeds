@@ -1,5 +1,5 @@
 import { useSearchParams } from "@solidjs/router";
-import { createResource, createSignal, For } from "solid-js";
+import { createResource, createSignal, For, Show } from "solid-js";
 import { Icons } from "../components/Icons";
 import { CopyButton } from "../components/ui/CopyButton";
 import { EmptyState } from "../components/ui/EmptyState";
@@ -71,11 +71,14 @@ export default function DevKit() {
   const activeTab = () => searchParams.tab ?? "all";
   const [confirmResult, setConfirmResult] = createSignal("idle");
   const [modalOpen, setModalOpen] = createSignal(false);
+  const [modalMounted, setModalMounted] = createSignal(true);
+  const [modalCloseCount, setModalCloseCount] = createSignal(0);
   const [segVal, setSegVal] = createSignal("all");
   const [lockedSegVal, setLockedSegVal] = createSignal("all");
   const [sliderVal, setSliderVal] = createSignal(4);
   const [selectVal, setSelectVal] = createSignal("720p");
   const [lightboxIdx, setLightboxIdx] = createSignal<number | null>(null);
+  const [lightboxCloseCount, setLightboxCloseCount] = createSignal(0);
 
   const [galleryRes] = createResource(async () => {
     try {
@@ -188,38 +191,69 @@ export default function DevKit() {
           <button
             type="button"
             class="btn btn-sm"
-            onClick={() => setModalOpen(true)}
+            onClick={() => {
+              setModalMounted(true);
+              setModalOpen(true);
+            }}
           >
             Open modal
           </button>
+          <span
+            data-testid="modal-close-count"
+            class="text-xs font-mono text-base-content/70"
+          >
+            {modalCloseCount()}
+          </span>
         </div>
-        <Modal
-          open={modalOpen()}
-          onClose={() => setModalOpen(false)}
-          title="Example modal"
-          actions={
-            <>
-              <button
-                type="button"
-                class="btn btn-sm"
-                onClick={() => toast.info("Toast above the modal")}
-              >
-                Toast from modal
-              </button>
-              <button
-                type="button"
-                class="btn btn-sm btn-primary"
-                onClick={() => setModalOpen(false)}
-              >
-                Done
-              </button>
-            </>
-          }
-        >
-          <p class="text-sm text-base-content/80">
-            Press Escape or click the backdrop to close.
-          </p>
-        </Modal>
+        <Show when={modalMounted()}>
+          <Modal
+            open={modalOpen()}
+            onClose={() => {
+              setModalCloseCount((c) => c + 1);
+              setModalOpen(false);
+            }}
+            title="Example modal"
+            actions={
+              <>
+                <button
+                  type="button"
+                  class="btn btn-sm"
+                  onClick={() => toast.info("Toast above the modal")}
+                >
+                  Toast from modal
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-sm"
+                  onClick={() => {
+                    void handleConfirm();
+                    toast.info("Toast on confirm");
+                  }}
+                >
+                  Confirm from modal
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-sm"
+                  onClick={() => setModalMounted(false)}
+                >
+                  Unmount modal
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-sm btn-primary"
+                  onClick={() => setModalOpen(false)}
+                >
+                  Done
+                </button>
+              </>
+            }
+          >
+            <p class="text-sm text-base-content/80">
+              Press Escape or click the backdrop to close.
+            </p>
+          </Modal>
+        </Show>
       </section>
 
       <section class="panel p-4 flex flex-col gap-3">
@@ -343,7 +377,15 @@ export default function DevKit() {
       </section>
 
       <section class="panel p-4 flex flex-col gap-3">
-        <span class="section-label">Media tiles & Lightbox</span>
+        <div class="flex items-center justify-between">
+          <span class="section-label">Media tiles & Lightbox</span>
+          <span
+            data-testid="lightbox-close-count"
+            class="text-xs font-mono text-base-content/70"
+          >
+            {lightboxCloseCount()}
+          </span>
+        </div>
         <div data-testid="kit-tiles" class="grid grid-cols-3 gap-3">
           <For each={tiles()}>
             {(item, i) => (
@@ -355,7 +397,10 @@ export default function DevKit() {
           items={tiles()}
           index={lightboxIdx()}
           onIndexChange={setLightboxIdx}
-          onClose={() => setLightboxIdx(null)}
+          onClose={() => {
+            setLightboxCloseCount((c) => c + 1);
+            setLightboxIdx(null);
+          }}
         />
       </section>
 

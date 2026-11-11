@@ -23,6 +23,8 @@ export type LightboxProps = {
 
 export function Lightbox(props: LightboxProps) {
   let ref!: HTMLDialogElement;
+  let closingProgrammatically = false;
+  let currentOverlayId: number | null = null;
   const [failed, setFailed] = createSignal(false);
   const [overlayId, setOverlayId] = createSignal<number | null>(null);
 
@@ -46,9 +48,9 @@ export function Lightbox(props: LightboxProps) {
   );
 
   const releaseOverlay = () => {
-    const id = overlayId();
-    if (id !== null) {
-      unregisterOverlay(id);
+    if (currentOverlayId !== null) {
+      unregisterOverlay(currentOverlayId);
+      currentOverlayId = null;
       setOverlayId(null);
     }
   };
@@ -60,8 +62,9 @@ export function Lightbox(props: LightboxProps) {
   createEffect(() => {
     if (!ref) return;
     if (isOpen()) {
-      if (overlayId() === null) {
-        setOverlayId(registerOverlay());
+      if (currentOverlayId === null) {
+        currentOverlayId = registerOverlay();
+        setOverlayId(currentOverlayId);
       }
       if (!ref.open) {
         ref.showModal();
@@ -69,6 +72,7 @@ export function Lightbox(props: LightboxProps) {
     } else {
       releaseOverlay();
       if (ref.open) {
+        closingProgrammatically = true;
         ref.close();
       }
     }
@@ -110,6 +114,10 @@ export function Lightbox(props: LightboxProps) {
       onKeyDown={handleKeyDown}
       onClose={() => {
         releaseOverlay();
+        if (closingProgrammatically) {
+          closingProgrammatically = false;
+          return;
+        }
         props.onClose();
       }}
     >

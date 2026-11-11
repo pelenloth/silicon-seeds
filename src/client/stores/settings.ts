@@ -13,6 +13,7 @@ export const generationDefaults: () => GenerationDefaults = defaultsSignal;
 
 let cachedPromise: Promise<GenerationDefaults> | null = null;
 let generation = 0;
+let hasLoadedOnce = false;
 
 export function loadDefaults(): Promise<GenerationDefaults> {
   if (cachedPromise) return cachedPromise;
@@ -21,6 +22,7 @@ export function loadDefaults(): Promise<GenerationDefaults> {
     .then((map) => {
       const defs = toGenerationDefaults(map);
       if (gen === generation) {
+        hasLoadedOnce = true;
         setDefaultsSignal(defs);
       }
       return defs;
@@ -29,11 +31,14 @@ export function loadDefaults(): Promise<GenerationDefaults> {
       if (cachedPromise === p) {
         cachedPromise = null;
       }
-      const defs = { ...FALLBACK_DEFAULTS };
-      if (gen === generation) {
-        setDefaultsSignal(defs);
+      if (!hasLoadedOnce) {
+        const defs = { ...FALLBACK_DEFAULTS };
+        if (gen === generation) {
+          setDefaultsSignal(defs);
+        }
+        return defs;
       }
-      return defs;
+      return defaultsSignal();
     });
   cachedPromise = p;
   return p;

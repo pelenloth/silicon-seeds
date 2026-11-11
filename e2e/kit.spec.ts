@@ -205,3 +205,137 @@ test("ui kit: hovering a video tile plays the video visibly above the poster", a
   expect(hitCheck.opacity).toBe("1");
   expect(hitCheck.isVideoHit).toBe(true);
 });
+
+test("ui kit: with no dialog open, raising a toast renders exactly one toast item in the document", async ({
+  page,
+}) => {
+  await page.goto("/dev/kit");
+  await page.getByRole("button", { name: "Error toast" }).click();
+  await expect(
+    page.getByRole("alert").filter({ hasText: "Something went wrong" }),
+  ).toBeVisible();
+  await expect(page.locator('.toast-region [role="alert"]')).toHaveCount(1);
+});
+
+test("ui kit: Escape closes modal and lightbox once without reopening", async ({
+  page,
+}) => {
+  await page.goto("/dev/kit");
+
+  await page.getByRole("button", { name: "Open modal" }).click();
+  const modal = page.getByRole("dialog", { name: "Example modal" });
+  await expect(modal).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(modal).toBeHidden();
+  await expect(page.getByTestId("modal-close-count")).toHaveText("1");
+
+  await page.getByTestId("kit-tiles").getByRole("button").first().click();
+  const lightbox = page.getByRole("dialog", { name: "Media viewer" });
+  await expect(lightbox).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(lightbox).toBeHidden();
+  await expect(page.getByTestId("lightbox-close-count")).toHaveText("1");
+});
+
+test("ui kit: keyboard toast dismiss moves focus to next toast or back inside open dialog", async ({
+  page,
+}) => {
+  await page.goto("/dev/kit");
+  await page.getByRole("button", { name: "Open modal" }).click();
+  const modal = page.getByRole("dialog", { name: "Example modal" });
+  await expect(modal).toBeVisible();
+
+  const trigger = modal.getByRole("button", { name: "Toast from modal" });
+  await trigger.click();
+  const toastStatus = modal
+    .getByRole("status")
+    .filter({ hasText: "Toast above the modal" });
+  await expect(toastStatus).toBeVisible();
+
+  const dismissBtn = toastStatus.getByRole("button", {
+    name: "Dismiss notification",
+  });
+  await dismissBtn.focus();
+  await page.keyboard.press("Enter");
+  await expect(toastStatus).toBeHidden();
+
+  const activeInsideModal = await modal.evaluate((d) =>
+    Boolean(
+      document.activeElement &&
+      document.activeElement !== document.body &&
+      d.contains(document.activeElement),
+    ),
+  );
+  expect(activeInsideModal).toBe(true);
+});
+
+test("ui kit: confirm dialog opened on top of modal scopes toast to top-most dialog and preserves it in lower dialog on close", async ({
+  page,
+}) => {
+  await page.goto("/dev/kit");
+  await page.getByRole("button", { name: "Open modal" }).click();
+  const modal = page.getByRole("dialog", { name: "Example modal" });
+  await expect(modal).toBeVisible();
+
+  await modal.getByRole("button", { name: "Confirm from modal" }).click();
+  const confirm = page.getByRole("dialog", { name: "Delete this?" });
+  await expect(confirm).toBeVisible();
+
+  const topToast = confirm
+    .getByRole("status")
+    .filter({ hasText: "Toast on confirm" });
+  await expect(topToast).toBeVisible();
+
+  const isTopClickable = await topToast.evaluate((toastEl) => {
+    const rect = toastEl.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const hit = document.elementFromPoint(cx, cy);
+    return Boolean(hit && toastEl.contains(hit));
+  });
+  expect(isTopClickable).toBe(true);
+
+  await confirm.getByRole("button", { name: "Cancel" }).click();
+  await expect(confirm).toBeHidden();
+  await expect(modal).toBeVisible();
+
+  const lowerToast = modal
+    .getByRole("status")
+    .filter({ hasText: "Toast on confirm" });
+  await expect(lowerToast).toBeVisible();
+  await lowerToast
+    .getByRole("button", { name: "Dismiss notification" })
+    .click();
+  await expect(lowerToast).toBeHidden();
+});
+
+test("ui kit: modal removed from DOM while open releases overlay so toast moves to root region and page is interactive", async ({
+  page,
+}) => {
+  await page.goto("/dev/kit");
+  await page.getByRole("button", { name: "Open modal" }).click();
+  const modal = page.getByRole("dialog", { name: "Example modal" });
+  await expect(modal).toBeVisible();
+
+  await modal.getByRole("button", { name: "Toast from modal" }).click();
+  await expect(
+    modal.getByRole("status").filter({ hasText: "Toast above the modal" }),
+  ).toBeVisible();
+
+  await modal.getByRole("button", { name: "Unmount modal" }).click();
+  await expect(modal).toHaveCount(0);
+
+  const rootToast = page
+    .locator('[data-toast-scope="root"]')
+    .getByRole("status")
+    .filter({ hasText: "Toast above the modal" });
+  await expect(rootToast).toBeVisible();
+
+  await page.getByRole("button", { name: "Success toast" }).click();
+  await expect(
+    page
+      .locator('[data-toast-scope="root"]')
+      .getByRole("status")
+      .filter({ hasText: "Saved" }),
+  ).toBeVisible();
+});

@@ -22,12 +22,13 @@ export function Modal(props: ModalProps) {
   const titleId = createUniqueId();
   let ref!: HTMLDialogElement;
   let closingProgrammatically = false;
+  let currentOverlayId: number | null = null;
   const [overlayId, setOverlayId] = createSignal<number | null>(null);
 
   const releaseOverlay = () => {
-    const id = overlayId();
-    if (id !== null) {
-      unregisterOverlay(id);
+    if (currentOverlayId !== null) {
+      unregisterOverlay(currentOverlayId);
+      currentOverlayId = null;
       setOverlayId(null);
     }
   };
@@ -39,8 +40,9 @@ export function Modal(props: ModalProps) {
   createEffect(() => {
     if (!ref) return;
     if (props.open) {
-      if (overlayId() === null) {
-        setOverlayId(registerOverlay());
+      if (currentOverlayId === null) {
+        currentOverlayId = registerOverlay();
+        setOverlayId(currentOverlayId);
       }
       if (!ref.open) {
         ref.showModal();
