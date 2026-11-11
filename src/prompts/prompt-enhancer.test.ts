@@ -3,7 +3,7 @@ import {
   buildEnhancePrompt,
   buildInspirePrompt,
   resolveMessage,
-} from "./prompt-enhancer";
+} from "./enhance-prompts";
 describe("prompt-enhancer builders", () => {
   test("enhance includes original + kind hint", () => {
     const out = buildEnhancePrompt("a cat", "image_prompt", undefined);

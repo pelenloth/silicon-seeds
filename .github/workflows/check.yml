@@ -37,6 +37,19 @@ jobs:
           bun-version: "1.3.9"
       - run: bun install --frozen-lockfile
       - run: bunx tsc --noEmit
+      - run: bunx tsc -p src/client --noEmit
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.9"
+      - run: bun install --frozen-lockfile
+      - run: bun run test:unit
+        env:
+          LLM_MODEL: test
+          EMBEDDING_MODEL: test
   build:
     runs-on: ubuntu-latest
     steps:

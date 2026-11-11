@@ -46,9 +46,10 @@ Set `HOST=0.0.0.0` only on trusted networks, app has no auth.
 # Checks
 
 ```bash
-bun run test      # tsc --noEmit + eslint (no services needed)
-bun run lint      # eslint only
-bun run test:e2e  # Playwright, needs app + ComfyUI + LM Studio running
+bun run test       # tsc (server) + tsc (client) + eslint (no services needed)
+bun run test:unit  # bun test src (pure logic, no services needed)
+bun run lint       # eslint only
+bun run test:e2e   # Playwright, needs app + ComfyUI + LM Studio running
 ```
 
 # Documentation
