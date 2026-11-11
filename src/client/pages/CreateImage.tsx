@@ -10,6 +10,7 @@ import { Field } from "../components/ui/Field";
 import { SelectField } from "../components/ui/SelectField";
 import { SliderField } from "../components/ui/SliderField";
 import { IMAGE_MODELS, labelOf, RESOLUTIONS } from "../lib/defaults";
+import { plural } from "../lib/job-view";
 
 export default function CreateImage() {
   const f = useCreateForm({
@@ -27,7 +28,7 @@ export default function CreateImage() {
   let formEl: HTMLFormElement | undefined;
   const n = () => Number(f.values.batch_size) || 1;
   const summary = () =>
-    `${n()} image${n() === 1 ? "" : "s"} · ${labelOf(RESOLUTIONS, f.values.resolution)}${f.values.style_preset !== "none" ? ` · ${f.values.style_preset}` : ""}`;
+    `${plural(n(), "image")} · ${labelOf(RESOLUTIONS, f.values.resolution)}${f.values.style_preset !== "none" ? ` · ${f.values.style_preset}` : ""}`;
 
   return (
     <StudioLayout
@@ -96,7 +97,7 @@ export default function CreateImage() {
                   max={16}
                   value={n()}
                   onInput={(v) => f.set("batch_size", String(v))}
-                  format={(v) => `${v} image${v === 1 ? "" : "s"}`}
+                  format={(v) => plural(v, "image")}
                 />
               </div>
             </div>
@@ -128,6 +129,8 @@ export default function CreateImage() {
           kind="image"
           emptyTitle="Your images appear here"
           emptyHint="Describe an image and press Generate."
+          pending={f.submitting()}
+          pendingCount={n()}
           onGenerateAgain={() => formEl?.requestSubmit()}
         />
       }

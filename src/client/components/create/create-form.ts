@@ -15,7 +15,7 @@ import {
   saveDraft,
   takePrefill,
 } from "../../lib/form-state";
-import { refreshJobs } from "../../stores/jobs";
+import { jobs, refreshJobs } from "../../stores/jobs";
 import { generationDefaults, loadDefaults } from "../../stores/settings";
 import { toast } from "../../stores/toast";
 import type { LoraSpec } from "../LoraSelector";
@@ -259,8 +259,11 @@ export function useCreateForm<T extends Record<string, string>>(
         { job_id: newJobId, show_progress: undefined, prompt: undefined },
         { replace: true },
       );
-      void refreshJobs();
-      toast.success("Queued", {
+      await refreshJobs();
+      const jobName = jobs()
+        .find((j) => j.id === newJobId)
+        ?.name?.trim();
+      toast.success(jobName ? `Queued “${jobName}”` : "Queued", {
         action: {
           label: "View job",
           href: `/jobs/${encodeURIComponent(newJobId)}`,

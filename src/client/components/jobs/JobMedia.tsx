@@ -5,8 +5,11 @@ import { MediaTile } from "../ui/MediaTile";
 
 export type JobMediaProps = {
   media: MediaItem[];
-  total?: number;
+  hasMore?: boolean;
   loaded: boolean;
+  error?: string | null;
+  refetchError?: boolean;
+  onRetry?: () => void;
   onOpen: (item: MediaItem) => void;
   onShowAll?: () => void;
 };
@@ -20,8 +23,6 @@ const GROUPS: { type: MediaType; label: string }[] = [
 export function JobMedia(props: JobMediaProps) {
   const byType = (type: MediaType): MediaItem[] =>
     props.media.filter((item) => item.mediaType === type);
-
-  const totalCount = () => Math.max(props.total ?? 0, props.media.length);
 
   return (
     <Show
@@ -37,18 +38,57 @@ export function JobMedia(props: JobMediaProps) {
       <Show
         when={props.media.length > 0}
         fallback={
-          <EmptyState
-            title="No media yet"
-            description="Outputs appear here as the job runs."
-          />
+          <Show
+            when={props.error}
+            fallback={
+              <EmptyState
+                title="No media yet"
+                description="Outputs appear here as the job runs."
+              />
+            }
+          >
+            {(errMsg) => (
+              <div role="alert" class="alert alert-error alert-soft">
+                <span class="flex-1 text-sm">{errMsg()}</span>
+                <Show when={props.onRetry}>
+                  {(retry) => (
+                    <button
+                      type="button"
+                      class="btn btn-xs"
+                      onClick={() => retry()()}
+                    >
+                      Try again
+                    </button>
+                  )}
+                </Show>
+              </div>
+            )}
+          </Show>
         }
       >
         <div class="flex flex-col gap-6">
-          <Show when={totalCount() > props.media.length}>
+          <Show when={props.refetchError}>
+            <div
+              role="status"
+              class="flex items-center justify-between gap-2 rounded-field bg-base-200 px-3 py-1.5 text-xs text-base-content/80"
+            >
+              <span>Could not refresh.</span>
+              <Show when={props.onRetry}>
+                {(retry) => (
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-xs"
+                    onClick={() => retry()()}
+                  >
+                    Try again
+                  </button>
+                )}
+              </Show>
+            </div>
+          </Show>
+          <Show when={props.hasMore}>
             <div class="flex items-center justify-between rounded-box border border-base-300 bg-base-100 px-3 py-2 text-xs text-base-content/70">
-              <span>
-                Showing {props.media.length} of {totalCount()}
-              </span>
+              <span>Showing the first {props.media.length}</span>
               <Show when={props.onShowAll}>
                 {(showAll) => (
                   <button

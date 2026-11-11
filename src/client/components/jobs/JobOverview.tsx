@@ -4,8 +4,11 @@ import type { MediaItem } from "../../lib/api-client";
 import {
   eventLabel,
   formatDuration,
+  isCancelledEvent,
   jobDurationMs,
   jobKindMeta,
+  jobStatusMeta,
+  plural,
   splitPrompt,
   summarizeEvents,
   type JobEvent,
@@ -19,6 +22,7 @@ export type JobOverviewProps = {
   job: JobSummary;
   events: JobEvent[];
   media: MediaItem[];
+  mediaHasMore?: boolean;
   mediaHref: string;
   onOpenMedia: (item: MediaItem) => void;
 };
@@ -56,7 +60,8 @@ export function JobOverview(props: JobOverviewProps) {
   const totalSteps = () =>
     props.events.length > 0 ? summary().total : props.job.progress.total;
 
-  const failedEvent = () => props.events.find((e) => e.status === "failed");
+  const failedEvent = () =>
+    props.events.find((e) => e.status === "failed" && !isCancelledEvent(e));
 
   const failedStepName = () => {
     const evt = failedEvent();
@@ -128,20 +133,16 @@ export function JobOverview(props: JobOverviewProps) {
     const k = summary().byKind;
     const chips: string[] = [];
     if (k.image > 0) {
-      chips.push(`${k.image} ${k.image === 1 ? "image" : "images"}`);
+      chips.push(plural(k.image, "image"));
     }
     if (k.video > 0) {
-      chips.push(`${k.video} ${k.video === 1 ? "video clip" : "video clips"}`);
+      chips.push(plural(k.video, "video clip"));
     }
     if (k.transition > 0) {
-      chips.push(
-        `${k.transition} ${k.transition === 1 ? "transition" : "transitions"}`,
-      );
+      chips.push(plural(k.transition, "transition"));
     }
     if (k.audio > 0) {
-      chips.push(
-        `${k.audio} ${k.audio === 1 ? "audio track" : "audio tracks"}`,
-      );
+      chips.push(plural(k.audio, "audio track"));
     }
     if (k.text > 0) {
       chips.push(`${k.text} script`);
@@ -150,6 +151,14 @@ export function JobOverview(props: JobOverviewProps) {
       chips.push(`${k.composition} final cut`);
     }
     return chips;
+  };
+
+  const currentProgressLabel = () => {
+    const label = summary().currentLabel;
+    if (label) return label;
+    const meta = jobStatusMeta(props.job.status, props.job.progress);
+    if (meta.label === "Finishing") return "Finishing";
+    return "Waiting in queue";
   };
 
   return (
@@ -166,9 +175,9 @@ export function JobOverview(props: JobOverviewProps) {
           />
           <div class="flex items-center justify-between text-xs text-base-content/70">
             <span>
-              {completeSteps()} of {totalSteps()} steps
+              {completeSteps()} of {plural(totalSteps(), "step")}
             </span>
-            <span>{summary().currentLabel ?? "Waiting in queue"}</span>
+            <span>{currentProgressLabel()}</span>
           </div>
         </div>
       </Show>
@@ -212,6 +221,7 @@ export function JobOverview(props: JobOverviewProps) {
               }}
             >
               View all {props.media.length}
+              {props.mediaHasMore ? "+" : ""}
             </a>
           </div>
           <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">

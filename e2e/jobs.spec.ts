@@ -8,6 +8,8 @@ test("jobs: list, search, filters and canonical URLs", async ({ page }) => {
     page.getByRole("heading", { level: 1, name: "Jobs" }),
   ).toBeVisible({ timeout: 10000 });
   await expect(page.locator("#job-list")).toBeVisible();
+  await expect(page.locator("#job-list").getByText(/New Job/i)).toHaveCount(0);
+  await expect(page.locator("#new-menu-button")).toBeVisible();
 
   const filter = page.locator('nav[aria-label="Filter jobs"]');
   await expect(filter.getByRole("link", { name: /^All/ })).toBeVisible();
@@ -307,9 +309,145 @@ test("jobs: live refresh keeps open timeline details DOM node attached and open"
   }, targetJob!.id);
   await refetchResp;
 
-  await expect(firstDetails).toHaveAttribute("open", "");
-  const isSameNode = await firstDetails.evaluate(
-    (el) => el.isConnected && (el as HTMLElement).dataset.mark === "1",
+  await expect
+    .poll(() =>
+      firstDetails.evaluate(
+        (el) =>
+          el.isConnected &&
+          el.hasAttribute("open") &&
+          (el as HTMLElement).dataset.mark === "1",
+      ),
+    )
+    .toBe(true);
+});
+
+test("jobs: stale detail response from earlier job does not overwrite newer job", async ({
+  page,
+  request,
+}) => {
+  const { jobs } = (await (await request.get("/api/jobs?limit=5")).json()) as {
+    jobs: Job[];
+  };
+  test.skip(jobs.length < 2, "fewer than 2 jobs in this database");
+  const jobA = jobs[0];
+  const jobB = jobs[1];
+  const detailA = await (await request.get(`/api/jobs/${jobA.id}`)).json();
+
+  const urlPatternA = `**/api/jobs/${encodeURIComponent(jobA.id)}`;
+  await page.route(urlPatternA, async (route) => {
+    await new Promise((r) => setTimeout(r, 600));
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(detailA),
+    });
+  });
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`/jobs/${jobA.id}`);
+  const rowB = page.locator(
+    `#job-list a[href^="/jobs/${encodeURIComponent(jobB.id)}"]`,
   );
-  expect(isSameNode).toBe(true);
+  await expect(rowB).toBeVisible({ timeout: 10000 });
+  await rowB.click();
+  await expect(page).toHaveURL(
+    new RegExp(`/jobs/${encodeURIComponent(jobB.id)}`),
+  );
+  await page.waitForTimeout(900);
+  await expect(
+    page.locator("#job-detail").getByRole("heading", { level: 2 }),
+  ).toHaveText(jobB.name);
+  await page.unroute(urlPatternA);
+});
+
+test("jobs: media cap shows Showing the first N and Show all requests limit=1000", async ({
+  page,
+  request,
+}) => {
+  const { jobs } = (await (await request.get("/api/jobs?limit=5")).json()) as {
+    jobs: Job[];
+  };
+  test.skip(jobs.length === 0, "no jobs in this database");
+  const job = jobs[0];
+
+  const stubItems = [1, 2, 3].map((n) => ({
+    meta_id: `m${n}`,
+    event_id: `e${n}`,
+    filename: `demo-${n}.svg`,
+    subfolder: "",
+    type: "output",
+    created_at: new Date().toISOString(),
+    job_id: job.id,
+    job_name: job.name,
+    mediaType: "image",
+  }));
+
+  const requestedLimits: string[] = [];
+  const mediaPattern = `**/api/jobs/${encodeURIComponent(job.id)}/media**`;
+  await page.route(mediaPattern, async (route) => {
+    const url = new URL(route.request().url());
+    const lim = url.searchParams.get("limit") ?? "";
+    requestedLimits.push(lim);
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: stubItems,
+        total: 4,
+        hasMore: lim !== "1000",
+      }),
+    });
+  });
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`/jobs/${job.id}?tab=media`);
+  const detail = page.locator("#job-detail");
+  await expect(detail.getByText("Showing the first 3")).toBeVisible({
+    timeout: 10000,
+  });
+  await expect(detail.getByText("3+ outputs")).toBeVisible();
+  await expect(
+    detail
+      .locator('nav[aria-label="Job sections"]')
+      .getByRole("link", { name: /Media/ }),
+  ).toContainText("3+");
+
+  const showAllBtn = detail.getByRole("button", { name: "Show all" });
+  await expect(showAllBtn).toBeVisible();
+  await showAllBtn.click();
+  await expect.poll(() => requestedLimits.includes("1000")).toBe(true);
+  await expect(detail.getByText("Showing the first 3")).toHaveCount(0);
+  await page.unroute(mediaPattern);
+});
+
+test("jobs: media load error shows inline Try again in Media tab instead of No media yet", async ({
+  page,
+  request,
+}) => {
+  const { jobs } = (await (await request.get("/api/jobs?limit=5")).json()) as {
+    jobs: Job[];
+  };
+  test.skip(jobs.length === 0, "no jobs in this database");
+  const job = jobs[0];
+
+  const mediaPattern = `**/api/jobs/${encodeURIComponent(job.id)}/media**`;
+  await page.route(mediaPattern, (route) =>
+    route.fulfill({
+      status: 500,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "Media fetch exploded" }),
+    }),
+  );
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`/jobs/${job.id}?tab=media`);
+  const detail = page.locator("#job-detail");
+  await expect(detail.getByRole("heading", { level: 2 })).toHaveText(job.name, {
+    timeout: 10000,
+  });
+  await expect(detail.getByText("No media yet")).toHaveCount(0);
+  await expect(detail.getByText("Media fetch exploded")).toBeVisible();
+  const retryBtn = detail.getByRole("button", { name: "Try again" });
+  await expect(retryBtn).toBeVisible();
+  await page.unroute(mediaPattern);
 });

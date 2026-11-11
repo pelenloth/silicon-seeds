@@ -11,7 +11,12 @@ import {
   Switch,
 } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
-import { ApiError, apiGet, type MediaItem } from "../../lib/api-client";
+import {
+  ApiError,
+  apiGet,
+  type JobMediaResponse,
+  type MediaItem,
+} from "../../lib/api-client";
 import { setPrefill } from "../../lib/form-state";
 import {
   availableJobActions,
@@ -21,6 +26,7 @@ import {
   jobDurationMs,
   jobKindMeta,
   jobToPrefill,
+  plural,
   type JobAction,
   type JobEvent,
   type JobSummary,
@@ -63,6 +69,15 @@ function isMobileViewport(): boolean {
   return false;
 }
 
+function shouldMoveMobileFocus(): boolean {
+  if (!isMobileViewport() || typeof document === "undefined") return false;
+  const active = document.activeElement;
+  if (!active || active === document.body) return true;
+  const listEl = document.getElementById("job-list");
+  const detailEl = document.getElementById("job-detail");
+  return Boolean(listEl?.contains(active) || detailEl?.contains(active));
+}
+
 const ACTION_META: Record<JobAction, { label: string; cls: string }> = {
   pause: { label: "Pause", cls: "btn btn-sm" },
   resume: { label: "Resume", cls: "btn btn-sm btn-primary" },
@@ -74,6 +89,7 @@ const ACTION_META: Record<JobAction, { label: string; cls: string }> = {
 export function JobDetail(props: JobDetailProps) {
   const navigate = useNavigate();
   let headingRef: HTMLHeadingElement | undefined;
+  let fallbackFocusRef: HTMLElement | undefined;
   const [actionPending, setActionPending] = createSignal(false);
   const [lightboxKey, setLightboxKey] = createSignal<string | null>(null);
 
@@ -81,8 +97,10 @@ export function JobDetail(props: JobDetailProps) {
   const [eventsStore, setEventsStore] = createStore<JobEvent[]>([]);
   const [mediaStore, setMediaStore] = createStore<KeyedMediaItem[]>([]);
   const [mediaLoaded, setMediaLoaded] = createSignal(false);
-  const [mediaTotal, setMediaTotal] = createSignal(0);
+  const [mediaHasMore, setMediaHasMore] = createSignal(false);
   const [mediaLimit, setMediaLimit] = createSignal(100);
+  const [mediaLoadError, setMediaLoadError] = createSignal<string | null>(null);
+  const [mediaRefetchError, setMediaRefetchError] = createSignal(false);
 
   const [detailLoading, setDetailLoading] = createSignal(true);
   const [notFound, setNotFound] = createSignal(false);
@@ -109,6 +127,20 @@ export function JobDetail(props: JobDetailProps) {
     clearDebounce();
   });
 
+  const focusMobileTarget = (
+    targetId: string,
+    getEl: () => HTMLElement | undefined,
+  ) => {
+    if (focusedForJobId !== targetId && shouldMoveMobileFocus()) {
+      focusedForJobId = targetId;
+      queueMicrotask(() => {
+        if (shouldMoveMobileFocus()) {
+          getEl()?.focus();
+        }
+      });
+    }
+  };
+
   const fetchDetail = async (targetId: string) => {
     const seq = ++detailSeq;
     if (!jobData()) {
@@ -129,24 +161,24 @@ export function JobDetail(props: JobDetailProps) {
       setRefetchError(false);
       setDetailLoading(false);
 
-      if (focusedForJobId !== targetId && isMobileViewport()) {
-        focusedForJobId = targetId;
-        queueMicrotask(() => headingRef?.focus());
-      }
+      focusMobileTarget(targetId, () => headingRef);
     } catch (err) {
       if (disposed || targetId !== props.id || seq <= lastAppliedDetailSeq) {
         return;
       }
+      lastAppliedDetailSeq = seq;
       setDetailLoading(false);
       if (jobData()) {
         setRefetchError(true);
       } else if (err instanceof ApiError && err.status === 404) {
         setNotFound(true);
         setLoadError(null);
+        focusMobileTarget(targetId, () => fallbackFocusRef);
       } else {
         setNotFound(false);
         const msg = err instanceof Error ? err.message : "Failed to load job";
         setLoadError(msg);
+        focusMobileTarget(targetId, () => fallbackFocusRef);
       }
     }
   };
@@ -155,7 +187,7 @@ export function JobDetail(props: JobDetailProps) {
     const seq = ++mediaSeq;
     const lim = customLimit ?? mediaLimit();
     try {
-      const data = await apiGet<{ items: MediaItem[]; total?: number }>(
+      const data = await apiGet<JobMediaResponse>(
         `/api/jobs/${encodeURIComponent(targetId)}/media?limit=${lim}`,
       );
       if (disposed || targetId !== props.id || seq <= lastAppliedMediaSeq) {
@@ -167,15 +199,20 @@ export function JobDetail(props: JobDetailProps) {
         id: mediaItemKey(it),
       }));
       setMediaStore(reconcile(nextItems, { key: "id", merge: true }));
-      setMediaTotal(
-        typeof data.total === "number"
-          ? Math.max(data.total, nextItems.length)
-          : nextItems.length,
-      );
+      setMediaHasMore(Boolean(data.hasMore));
+      setMediaLoadError(null);
+      setMediaRefetchError(false);
       setMediaLoaded(true);
-    } catch {
+    } catch (err) {
       if (disposed || targetId !== props.id || seq <= lastAppliedMediaSeq) {
         return;
+      }
+      lastAppliedMediaSeq = seq;
+      if (mediaStore.length > 0) {
+        setMediaRefetchError(true);
+      } else {
+        const msg = err instanceof Error ? err.message : "Failed to load media";
+        setMediaLoadError(msg);
       }
       setMediaLoaded(true);
     }
@@ -194,17 +231,28 @@ export function JobDetail(props: JobDetailProps) {
       (currentId) => {
         clearDebounce();
         focusedForJobId = null;
+        lastAppliedDetailSeq = detailSeq;
+        lastAppliedMediaSeq = mediaSeq;
         setJobData(undefined);
         setEventsStore(reconcile([], { key: "id", merge: true }));
         setMediaStore(reconcile([], { key: "id", merge: true }));
         setMediaLoaded(false);
-        setMediaTotal(0);
+        setMediaHasMore(false);
         setMediaLimit(100);
+        setMediaLoadError(null);
+        setMediaRefetchError(false);
         setNotFound(false);
         setLoadError(null);
         setRefetchError(false);
         setDetailLoading(true);
         setLightboxKey(null);
+        if (shouldMoveMobileFocus()) {
+          queueMicrotask(() => {
+            if (shouldMoveMobileFocus()) {
+              fallbackFocusRef?.focus();
+            }
+          });
+        }
         void fetchDetail(currentId);
         void fetchMedia(currentId, 100);
       },
@@ -257,9 +305,8 @@ export function JobDetail(props: JobDetailProps) {
   };
 
   const handleShowAllMedia = () => {
-    const nextLim = Math.max(mediaTotal(), mediaStore.length + 100, 500);
-    setMediaLimit(nextLim);
-    void fetchMedia(props.id, nextLim);
+    setMediaLimit(1000);
+    void fetchMedia(props.id, 1000);
   };
 
   const tabHref = (t: "status" | "media" | "events") =>
@@ -309,8 +356,12 @@ export function JobDetail(props: JobDetailProps) {
     return evt ? canRegenerate(evt.type) : false;
   };
 
-  const BackToJobs = () => (
-    <A href={backHref()} class="btn btn-ghost btn-xs mb-2 self-start lg:hidden">
+  const BackToJobs = (backProps: { ref?: (el: HTMLAnchorElement) => void }) => (
+    <A
+      ref={backProps.ref}
+      href={backHref()}
+      class="btn btn-ghost btn-xs mb-2 self-start lg:hidden"
+    >
       <Icons.ChevronLeft class="size-4" />
       Jobs
     </A>
@@ -322,7 +373,7 @@ export function JobDetail(props: JobDetailProps) {
         when={!notFound()}
         fallback={
           <div class="page flex flex-1 flex-col">
-            <BackToJobs />
+            <BackToJobs ref={(el) => (fallbackFocusRef = el)} />
             <div class="flex flex-1 items-center justify-center">
               <EmptyState
                 title="Job not found"
@@ -345,7 +396,7 @@ export function JobDetail(props: JobDetailProps) {
                 <Show when={detailLoading()}>
                   <>
                     <header class="shrink-0 border-b border-base-300 bg-base-100 px-4 pt-4 pb-3 lg:px-6">
-                      <BackToJobs />
+                      <BackToJobs ref={(el) => (fallbackFocusRef = el)} />
                       <div class="skeleton h-6 w-48" />
                       <div class="skeleton mt-2 h-4 w-64" />
                     </header>
@@ -359,7 +410,7 @@ export function JobDetail(props: JobDetailProps) {
             >
               {(errMsg) => (
                 <div class="page flex flex-col">
-                  <BackToJobs />
+                  <BackToJobs ref={(el) => (fallbackFocusRef = el)} />
                   <div role="alert" class="alert alert-error alert-soft">
                     <span class="flex-1 text-sm">{errMsg()}</span>
                     <button
@@ -393,6 +444,10 @@ export function JobDetail(props: JobDetailProps) {
               );
               return d && d !== "0s" ? d : null;
             };
+            const outputsText = () =>
+              mediaHasMore()
+                ? `${mediaStore.length}+ outputs`
+                : plural(mediaStore.length, "output");
 
             return (
               <>
@@ -410,7 +465,7 @@ export function JobDetail(props: JobDetailProps) {
                         </h2>
                         <span
                           aria-live="polite"
-                          class="inline-flex items-center gap-2"
+                          class="inline-flex items-center"
                         >
                           <StatusBadge
                             kind="job"
@@ -418,13 +473,13 @@ export function JobDetail(props: JobDetailProps) {
                             progress={currentJob().progress}
                             size="md"
                           />
-                          <Show when={currentJob().progress.total > 0}>
-                            <span class="text-xs text-base-content/60 tabular-nums">
-                              {currentJob().progress.complete}/
-                              {currentJob().progress.total}
-                            </span>
-                          </Show>
                         </span>
+                        <Show when={currentJob().progress.total > 0}>
+                          <span class="text-xs text-base-content/60 tabular-nums">
+                            {currentJob().progress.complete}/
+                            {currentJob().progress.total}
+                          </span>
+                        </Show>
                       </div>
                       <p class="mt-1 text-xs text-base-content/60">
                         {jobKindMeta(currentJob().kind).label} ·{" "}
@@ -448,7 +503,7 @@ export function JobDetail(props: JobDetailProps) {
                           )}
                         </Show>
                         {" · "}
-                        {mediaStore.length} outputs
+                        {outputsText()}
                       </p>
                     </div>
                     <div class="flex flex-wrap items-center gap-2">
@@ -522,6 +577,7 @@ export function JobDetail(props: JobDetailProps) {
                       Media
                       <span class="badge badge-ghost badge-xs ml-1">
                         {mediaStore.length}
+                        {mediaHasMore() ? "+" : ""}
                       </span>
                     </TabLink>
                     <TabLink
@@ -543,6 +599,7 @@ export function JobDetail(props: JobDetailProps) {
                         job={currentJob()}
                         events={eventsStore}
                         media={mediaStore}
+                        mediaHasMore={mediaHasMore()}
                         mediaHref={tabHref("media")}
                         onOpenMedia={openLightboxForItem}
                       />
@@ -550,8 +607,11 @@ export function JobDetail(props: JobDetailProps) {
                     <Match when={props.tab === "media"}>
                       <JobMedia
                         media={mediaStore}
-                        total={mediaTotal()}
+                        hasMore={mediaHasMore()}
                         loaded={mediaLoaded()}
+                        error={mediaLoadError()}
+                        refetchError={mediaRefetchError()}
+                        onRetry={() => void fetchMedia(props.id)}
                         onOpen={openLightboxForItem}
                         onShowAll={handleShowAllMedia}
                       />
@@ -559,6 +619,7 @@ export function JobDetail(props: JobDetailProps) {
                     <Match when={props.tab === "events"}>
                       <JobTimeline
                         events={eventsStore}
+                        jobStatus={currentJob().status}
                         actionPending={actionPending()}
                         onRegenerate={(evtId) => void handleRegenerate(evtId)}
                       />

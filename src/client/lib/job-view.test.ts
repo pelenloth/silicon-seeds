@@ -4,12 +4,14 @@ import {
   canRegenerate,
   countByStatus,
   detectTransitions,
+  eventDisplayStatus,
   eventKind,
   eventLabel,
   eventStatusMeta,
   filterJobs,
   formatDuration,
   formatRelativeTime,
+  isCancelledEvent,
   jobDurationMs,
   jobKindMeta,
   jobStatusMeta,
@@ -17,7 +19,9 @@ import {
   mediaKindLabel,
   mediaTitle,
   nextBackoffMs,
+  plural,
   shouldApplyResponse,
+  shouldShowNewMedia,
   splitPrompt,
   summarizeEvents,
   type JobSummary,
@@ -60,13 +64,17 @@ describe("status meta (B7)", () => {
       label: "Queued",
       tone: "neutral",
     });
+    expect(jobStatusMeta("active", { ...P0, total: 1, complete: 1 })).toEqual({
+      label: "Finishing",
+      tone: "info",
+    });
     expect(jobStatusMeta("active")).toEqual({
       label: "Queued",
       tone: "neutral",
     });
     expect(jobStatusMeta("weird")).toEqual({ label: "Weird", tone: "neutral" });
   });
-  test("event statuses are four distinct states", () => {
+  test("event statuses include cancelled", () => {
     expect(eventStatusMeta("pending")).toEqual({
       label: "Pending",
       tone: "neutral",
@@ -82,6 +90,10 @@ describe("status meta (B7)", () => {
     expect(eventStatusMeta("failed")).toEqual({
       label: "Failed",
       tone: "error",
+    });
+    expect(eventStatusMeta("cancelled")).toEqual({
+      label: "Cancelled",
+      tone: "neutral",
     });
   });
 });
@@ -521,5 +533,74 @@ describe("mediaTitle and mediaKindLabel", () => {
     expect(mediaKindLabel({ mediaType: "audio", subfolder: "" })).toBe("Audio");
     expect(mediaKindLabel({ mediaType: "video", subfolder: "" })).toBe("Video");
     expect(mediaKindLabel({ mediaType: "image", subfolder: "" })).toBe("Image");
+  });
+});
+
+describe("cancelled events, plural and shouldShowNewMedia", () => {
+  test("isCancelledEvent and eventDisplayStatus distinguish user-cancelled steps from real failures", () => {
+    const cancelledEvt = {
+      status: "failed",
+      error: "job cancelled by user",
+    };
+    const failedEvt = {
+      status: "failed",
+      error: "CUDA out of memory",
+    };
+    const doneEvt = {
+      status: "complete",
+      error: null,
+    };
+
+    expect(isCancelledEvent(cancelledEvt)).toBe(true);
+    expect(isCancelledEvent(failedEvt)).toBe(false);
+    expect(isCancelledEvent(doneEvt)).toBe(false);
+
+    expect(eventDisplayStatus(cancelledEvt)).toBe("cancelled");
+    expect(eventDisplayStatus(failedEvt, "cancelled")).toBe("cancelled");
+    expect(eventDisplayStatus(failedEvt, "failed")).toBe("failed");
+    expect(eventDisplayStatus(doneEvt, "cancelled")).toBe("complete");
+
+    const s = summarizeEvents([
+      { type: "new_image_prompt", status: "complete" },
+      {
+        type: "new_image_prompt",
+        status: "failed",
+        error: "job cancelled by user",
+      },
+      {
+        type: "new_image_prompt",
+        status: "failed",
+        error: "job cancelled by user",
+      },
+      {
+        type: "new_image_prompt",
+        status: "failed",
+        error: "job cancelled by user",
+      },
+    ]);
+    expect(s.total).toBe(4);
+    expect(s.complete).toBe(1);
+    expect(s.failed).toBe(0);
+  });
+
+  test("plural formats singular and plural counts", () => {
+    expect(plural(1, "output")).toBe("1 output");
+    expect(plural(0, "output")).toBe("0 outputs");
+    expect(plural(4, "output")).toBe("4 outputs");
+    expect(plural(1, "image")).toBe("1 image");
+    expect(plural(3, "image")).toBe("3 images");
+    expect(plural(1, "item")).toBe("1 item");
+    expect(plural(20, "item")).toBe("20 items");
+    expect(plural(1, "step")).toBe("1 step");
+    expect(plural(2, "step")).toBe("2 steps");
+  });
+
+  test("shouldShowNewMedia returns true only when prevCompleted is a number and nextCompleted rises", () => {
+    expect(shouldShowNewMedia(null, 0)).toBe(false);
+    expect(shouldShowNewMedia(null, 5)).toBe(false);
+    expect(shouldShowNewMedia(5, 5)).toBe(false);
+    expect(shouldShowNewMedia(5, 4)).toBe(false);
+    expect(shouldShowNewMedia(0, 1)).toBe(true);
+    expect(shouldShowNewMedia(5, 6)).toBe(true);
   });
 });

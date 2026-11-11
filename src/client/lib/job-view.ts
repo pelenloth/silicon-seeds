@@ -76,10 +76,42 @@ export function jobStatusMeta(
       if (progress && progress.running > 0) {
         return { label: "Running", tone: "info" };
       }
+      if (
+        progress &&
+        progress.running === 0 &&
+        progress.pending === 0 &&
+        progress.total > 0 &&
+        progress.complete === progress.total
+      ) {
+        return { label: "Finishing", tone: "info" };
+      }
       return { label: "Queued", tone: "neutral" };
     default:
       return { label: capitalize(status), tone: "neutral" };
   }
+}
+
+export function isCancelledEvent(event: {
+  status: string;
+  error?: string | null;
+}): boolean {
+  return (
+    event.status === "failed" &&
+    (event.error ?? "").trim().toLowerCase() === "job cancelled by user"
+  );
+}
+
+export function eventDisplayStatus(
+  event: { status: string; error?: string | null },
+  jobStatus?: string,
+): string {
+  if (
+    isCancelledEvent(event) ||
+    (jobStatus === "cancelled" && event.status === "failed")
+  ) {
+    return "cancelled";
+  }
+  return event.status;
 }
 
 export function eventStatusMeta(status: string): { label: string; tone: Tone } {
@@ -92,6 +124,8 @@ export function eventStatusMeta(status: string): { label: string; tone: Tone } {
       return { label: "Done", tone: "success" };
     case "failed":
       return { label: "Failed", tone: "error" };
+    case "cancelled":
+      return { label: "Cancelled", tone: "neutral" };
     default:
       return { label: capitalize(status), tone: "neutral" };
   }
@@ -151,7 +185,12 @@ export function canRegenerate(type: string): boolean {
 }
 
 export function summarizeEvents(
-  events: readonly { type: string; mode?: string; status: string }[],
+  events: readonly {
+    type: string;
+    mode?: string;
+    status: string;
+    error?: string | null;
+  }[],
 ): {
   total: number;
   complete: number;
@@ -186,7 +225,7 @@ export function summarizeEvents(
     } else if (e.status === "pending") {
       pending++;
       if (!pendingEvent) pendingEvent = e;
-    } else if (e.status === "failed") {
+    } else if (e.status === "failed" && !isCancelledEvent(e)) {
       failed++;
     }
     byKind[eventKind(e.type)]++;
@@ -528,4 +567,19 @@ export function mediaKindLabel(item: {
   }
   if (item.mediaType === "video") return "Video";
   return "Image";
+}
+
+export function plural(
+  n: number,
+  singular: string,
+  pluralWord = `${singular}s`,
+): string {
+  return `${n} ${n === 1 ? singular : pluralWord}`;
+}
+
+export function shouldShowNewMedia(
+  prevCompleted: number | null,
+  nextCompleted: number,
+): boolean {
+  return typeof prevCompleted === "number" && nextCompleted > prevCompleted;
 }

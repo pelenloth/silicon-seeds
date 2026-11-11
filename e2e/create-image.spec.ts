@@ -90,3 +90,39 @@ test("create image: single column on a phone", async ({ page }) => {
     ),
   ).toBe(true);
 });
+
+test("create image: result panel shows Starting your job while create request is in flight and restores on error", async ({
+  page,
+}) => {
+  await page.route("**/api/jobs/images", async (route) => {
+    await new Promise((r) => setTimeout(r, 1500));
+    await route.fulfill({
+      status: 400,
+      contentType: "application/json",
+      body: JSON.stringify({
+        error: "Validation failed in stub",
+        fields: { prompt: "Validation failed in stub" },
+      }),
+    });
+  });
+
+  await page.goto("/create/image");
+  const prompt = page.locator('textarea[name="prompt"]');
+  await expect(prompt).toBeVisible({ timeout: 10000 });
+  await prompt.fill("stubbed prompt for pending test");
+  await page.locator('input[name="batch_size"][type="range"]').fill("3");
+
+  const panel = page.locator("#result-panel");
+  await page.locator("#submit-btn").click();
+  await expect(panel.getByText("Starting your job")).toBeVisible();
+  await expect(
+    panel.getByText("Naming and queueing. This can take a few seconds."),
+  ).toBeVisible();
+  await expect(panel.locator(".skeleton")).toHaveCount(3);
+
+  await expect(panel.getByText("Starting your job")).toHaveCount(0, {
+    timeout: 5000,
+  });
+  await expect(panel.getByText("Your images appear here")).toBeVisible();
+  await page.unroute("**/api/jobs/images");
+});

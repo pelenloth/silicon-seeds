@@ -15,7 +15,10 @@ import { CREATE_KINDS, type CreateKind } from "../../lib/create-job";
 import {
   eventKind,
   formatDuration,
+  isCancelledEvent,
   jobDurationMs,
+  jobStatusMeta,
+  plural,
   summarizeEvents,
   type EventKind,
   type JobAction,
@@ -36,6 +39,8 @@ export type ResultPanelProps = {
   kind: CreateKind;
   emptyTitle: string;
   emptyHint: string;
+  pending?: boolean;
+  pendingCount?: number;
   onGenerateAgain?: () => void;
 };
 
@@ -229,7 +234,10 @@ export function ResultPanel(props: ResultPanelProps) {
 
   const failedError = () => {
     const evt = eventsStore.find(
-      (e) => e.status === "failed" && e.error?.trim(),
+      (e) =>
+        e.status === "failed" &&
+        !isCancelledEvent(e) &&
+        Boolean(e.error?.trim()),
     );
     return evt?.error?.trim() || "Generation failed";
   };
@@ -239,15 +247,18 @@ export function ResultPanel(props: ResultPanelProps) {
     if (!j) return "";
     switch (j.status) {
       case "active": {
+        const currentLabel = summarizeEvents(eventsStore).currentLabel;
+        const meta = jobStatusMeta(j.status, j.progress);
         const label =
-          summarizeEvents(eventsStore).currentLabel ?? "Waiting in queue";
+          currentLabel ??
+          (meta.label === "Finishing" ? "Finishing" : "Waiting in queue");
         return `${j.progress.complete} of ${j.progress.total} · ${label}`;
       }
       case "complete": {
         const dur = formatDuration(
           jobDurationMs(j.created_at, eventsStore, j.status, nowTick()),
         );
-        return `${mediaStore.length} output${mediaStore.length === 1 ? "" : "s"} · ${dur}`;
+        return `${plural(mediaStore.length, "output")} · ${dur}`;
       }
       case "failed":
         return failedError();
@@ -281,6 +292,8 @@ export function ResultPanel(props: ResultPanelProps) {
   const videoItems = () => mediaStore.filter((m) => m.mediaType === "video");
   const audioItems = () => mediaStore.filter((m) => m.mediaType === "audio");
 
+  const pendingTileCount = () => Math.max(1, props.pendingCount ?? 1);
+
   return (
     <section
       id="result-panel"
@@ -288,328 +301,359 @@ export function ResultPanel(props: ResultPanelProps) {
       aria-live="polite"
     >
       <Show
-        when={job()}
+        when={!props.pending}
         fallback={
-          <Show
-            when={props.jobId && loadError()}
-            fallback={
-              <Show
-                when={props.jobId && detailLoading()}
-                fallback={
-                  <EmptyState
-                    class="flex-1"
-                    icon={kindIcon()}
-                    title={props.emptyTitle}
-                    description={props.emptyHint}
-                  />
-                }
+          <>
+            <header class="flex items-center justify-between gap-2 border-b border-base-300 px-4 py-3">
+              <div class="min-w-0">
+                <p class="truncate text-sm font-semibold">Starting your job</p>
+                <p class="text-xs text-base-content/60">
+                  Naming and queueing. This can take a few seconds.
+                </p>
+              </div>
+            </header>
+            <progress class="progress progress-primary h-1 w-full rounded-none" />
+            <div class="min-h-0 flex-1 overflow-y-auto scroll-thin p-4">
+              <div
+                class={`grid gap-2 ${pendingTileCount() === 1 ? "grid-cols-1" : "grid-cols-2"}`}
               >
-                <div class="flex flex-1 flex-col gap-3 p-4">
-                  <div class="skeleton h-5 w-48" />
-                  <div class="skeleton aspect-video w-full rounded-box" />
-                </div>
-              </Show>
-            }
-          >
-            {(errMsg) => (
+                <For
+                  each={Array.from({ length: pendingTileCount() }, (_, i) => i)}
+                >
+                  {() => <div class="skeleton aspect-video rounded-box" />}
+                </For>
+              </div>
+            </div>
+          </>
+        }
+      >
+        <Show
+          when={job()}
+          fallback={
+            <Show
+              when={Boolean(props.jobId && loadError())}
+              fallback={
+                <Show
+                  when={props.jobId && detailLoading()}
+                  fallback={
+                    <EmptyState
+                      class="flex-1"
+                      icon={kindIcon()}
+                      title={props.emptyTitle}
+                      description={props.emptyHint}
+                    />
+                  }
+                >
+                  <div class="flex flex-1 flex-col gap-3 p-4">
+                    <div class="skeleton h-5 w-48" />
+                    <div class="skeleton aspect-video w-full rounded-box" />
+                  </div>
+                </Show>
+              }
+            >
               <div class="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
                 <p class="text-sm text-error" role="alert">
-                  {errMsg()}
+                  {loadError()}
                 </p>
                 <button type="button" class="btn btn-xs" onClick={refetchAll}>
                   Try again
                 </button>
               </div>
-            )}
-          </Show>
-        }
-      >
-        {(currentJob) => {
-          const skeletonImageCount = () =>
-            currentJob().status === "active"
-              ? Math.max(currentJob().progress.total - imageItems().length, 0)
-              : 0;
-          const totalImageTiles = () =>
-            imageItems().length + skeletonImageCount();
+            </Show>
+          }
+        >
+          {(currentJob) => {
+            const skeletonImageCount = () =>
+              currentJob().status === "active"
+                ? Math.max(currentJob().progress.total - imageItems().length, 0)
+                : 0;
+            const totalImageTiles = () =>
+              imageItems().length + skeletonImageCount();
 
-          return (
-            <>
-              <header class="flex items-center justify-between gap-2 border-b border-base-300 px-4 py-3">
-                <div class="min-w-0">
-                  <p class="truncate text-sm font-semibold">
-                    {currentJob().name}
-                  </p>
-                  <p class="text-xs text-base-content/60">{statusLine()}</p>
-                </div>
-                <StatusBadge
-                  kind="job"
-                  status={currentJob().status}
-                  progress={currentJob().progress}
-                  size="md"
-                />
-              </header>
-              <Show when={refetchError()}>
-                <div
-                  role="status"
-                  class="mx-4 mt-2 flex items-center justify-between gap-2 rounded-field bg-base-200 px-3 py-1.5 text-xs text-base-content/80"
-                >
-                  <span>Could not refresh.</span>
-                  <button
-                    type="button"
-                    class="btn btn-ghost btn-xs"
-                    onClick={refetchAll}
+            return (
+              <>
+                <header class="flex items-center justify-between gap-2 border-b border-base-300 px-4 py-3">
+                  <div class="min-w-0">
+                    <p class="truncate text-sm font-semibold">
+                      {currentJob().name}
+                    </p>
+                    <p class="text-xs text-base-content/60">{statusLine()}</p>
+                  </div>
+                  <StatusBadge
+                    kind="job"
+                    status={currentJob().status}
+                    progress={currentJob().progress}
+                    size="md"
+                  />
+                </header>
+                <Show when={refetchError()}>
+                  <div
+                    role="status"
+                    class="mx-4 mt-2 flex items-center justify-between gap-2 rounded-field bg-base-200 px-3 py-1.5 text-xs text-base-content/80"
                   >
-                    Try again
-                  </button>
-                </div>
-              </Show>
-              <Show when={currentJob().status === "active"}>
-                <progress
-                  class="progress progress-primary h-1 w-full rounded-none"
-                  value={currentJob().progress.complete}
-                  max={Math.max(currentJob().progress.total, 1)}
-                />
-              </Show>
-              <div class="min-h-0 flex-1 overflow-y-auto scroll-thin p-4">
-                <Show
-                  when={
-                    !(
-                      currentJob().status === "failed" &&
-                      mediaStore.length === 0
-                    )
-                  }
-                  fallback={
-                    <EmptyState
-                      title="Generation failed"
-                      description={failedError()}
-                    />
-                  }
-                >
-                  <Switch>
-                    <Match when={props.kind === "image"}>
-                      <div
-                        class={`grid gap-2 ${totalImageTiles() === 1 ? "grid-cols-1" : "grid-cols-2"}`}
-                      >
-                        <For each={imageItems()}>
-                          {(item) => (
-                            <MediaTile
-                              item={item}
-                              aspect="video"
-                              onOpen={() => openLightboxForItem(item)}
-                            />
-                          )}
-                        </For>
-                        <For
-                          each={Array.from(
-                            { length: skeletonImageCount() },
-                            (_, i) => i,
-                          )}
-                        >
-                          {() => (
-                            <div class="skeleton aspect-video rounded-box" />
-                          )}
-                        </For>
-                      </div>
-                    </Match>
-                    <Match
-                      when={
-                        props.kind === "video" || props.kind === "text-to-video"
-                      }
+                    <span>Could not refresh.</span>
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-xs"
+                      onClick={refetchAll}
                     >
-                      <div class="flex flex-col gap-4">
-                        <Show
-                          when={videoItems()[videoItems().length - 1]}
-                          fallback={
-                            <div class="skeleton aspect-video w-full rounded-box" />
-                          }
+                      Try again
+                    </button>
+                  </div>
+                </Show>
+                <Show when={currentJob().status === "active"}>
+                  <progress
+                    class="progress progress-primary h-1 w-full rounded-none"
+                    value={currentJob().progress.complete}
+                    max={Math.max(currentJob().progress.total, 1)}
+                  />
+                </Show>
+                <div class="min-h-0 flex-1 overflow-y-auto scroll-thin p-4">
+                  <Show
+                    when={
+                      !(
+                        currentJob().status === "failed" &&
+                        mediaStore.length === 0
+                      )
+                    }
+                    fallback={
+                      <EmptyState
+                        title="Generation failed"
+                        description={failedError()}
+                      />
+                    }
+                  >
+                    <Switch>
+                      <Match when={props.kind === "image"}>
+                        <div
+                          class={`grid gap-2 ${totalImageTiles() === 1 ? "grid-cols-1" : "grid-cols-2"}`}
                         >
-                          {(newestVideo) => (
-                            <MediaTile
-                              item={newestVideo()}
-                              aspect="video"
-                              onOpen={() => openLightboxForItem(newestVideo())}
-                            />
-                          )}
-                        </Show>
-                        <Show
-                          when={
-                            props.kind === "video" && imageItems().length > 0
-                          }
-                        >
-                          <div class="space-y-2">
-                            <div class="section-label">
-                              Intermediate image (used for I2V)
-                            </div>
-                            <div class="max-w-xs">
+                          <For each={imageItems()}>
+                            {(item) => (
                               <MediaTile
-                                item={imageItems()[0]}
+                                item={item}
                                 aspect="video"
-                                onOpen={() =>
-                                  openLightboxForItem(imageItems()[0])
-                                }
+                                onOpen={() => openLightboxForItem(item)}
                               />
-                            </div>
-                          </div>
-                        </Show>
-                      </div>
-                    </Match>
-                    <Match when={props.kind === "audio"}>
-                      <div class="flex flex-col gap-2">
-                        <For each={audioItems()}>
-                          {(item) => (
-                            <div class="panel p-3">
-                              <div class="flex items-center justify-between gap-2">
-                                <p class="truncate font-mono text-xs">
-                                  {item.filename}
-                                </p>
-                                <button
-                                  type="button"
-                                  class="btn btn-ghost btn-xs"
-                                  onClick={() => openLightboxForItem(item)}
-                                >
-                                  Open
-                                </button>
-                              </div>
-                              <audio
-                                controls
-                                preload="none"
-                                src={mediaUrl(item)}
-                                class="mt-2 w-full"
-                              />
-                            </div>
-                          )}
-                        </For>
-                        <Show
-                          when={
-                            currentJob().status === "active" &&
-                            audioItems().length === 0
-                          }
-                        >
-                          <div class="skeleton h-14 w-full rounded-box" />
-                        </Show>
-                      </div>
-                    </Match>
-                    <Match when={props.kind === "compose"}>
-                      <div class="flex flex-col gap-4">
-                        <ul class="divide-y divide-base-300 rounded-box border border-base-300">
+                            )}
+                          </For>
                           <For
-                            each={COMPOSE_STEPS.filter(
-                              (s) =>
-                                summarizeEvents(eventsStore).byKind[s.kind] > 0,
+                            each={Array.from(
+                              { length: skeletonImageCount() },
+                              (_, i) => i,
                             )}
                           >
-                            {(step) => {
-                              const stepEvents = () =>
-                                eventsStore.filter(
-                                  (e) => eventKind(e.type) === step.kind,
-                                );
-                              const allComplete = () =>
-                                stepEvents().length > 0 &&
-                                stepEvents().every(
-                                  (e) => e.status === "complete",
-                                );
-                              const anyRunning = () =>
-                                stepEvents().some(
-                                  (e) => e.status === "running",
-                                );
-                              return (
-                                <li class="flex items-center justify-between gap-2 px-3 py-2 text-sm">
-                                  <span>{step.label}</span>
-                                  <span class="flex items-center gap-2 text-xs text-base-content/60 tabular-nums">
-                                    <span>{stepEvents().length}</span>
-                                    <Show
-                                      when={allComplete()}
-                                      fallback={
-                                        <Show when={anyRunning()}>
-                                          <span class="loading loading-spinner loading-xs text-primary" />
-                                        </Show>
-                                      }
-                                    >
-                                      <Icons.Check class="size-4 text-success" />
-                                    </Show>
-                                  </span>
-                                </li>
-                              );
-                            }}
+                            {() => (
+                              <div class="skeleton aspect-video rounded-box" />
+                            )}
                           </For>
-                        </ul>
-                        <Show
-                          when={
-                            currentJob().status === "complete" &&
-                            videoItems()[videoItems().length - 1]
-                          }
-                        >
-                          {(finalCut) => (
-                            <MediaTile
-                              item={finalCut()}
-                              aspect="video"
-                              onOpen={() => openLightboxForItem(finalCut())}
-                            />
-                          )}
-                        </Show>
-                      </div>
-                    </Match>
-                  </Switch>
-                </Show>
-              </div>
-              <footer class="flex flex-wrap items-center justify-end gap-2 border-t border-base-300 px-4 py-3">
-                <Show
-                  when={
-                    currentJob().status === "active" ||
-                    currentJob().status === "paused"
-                  }
-                >
-                  <button
-                    type="button"
-                    class="btn btn-sm btn-ghost text-error"
-                    disabled={actionPending()}
-                    onClick={() => void handleAction("cancel")}
+                        </div>
+                      </Match>
+                      <Match
+                        when={
+                          props.kind === "video" ||
+                          props.kind === "text-to-video"
+                        }
+                      >
+                        <div class="flex flex-col gap-4">
+                          <Show
+                            when={videoItems()[videoItems().length - 1]}
+                            fallback={
+                              <div class="skeleton aspect-video w-full rounded-box" />
+                            }
+                          >
+                            {(newestVideo) => (
+                              <MediaTile
+                                item={newestVideo()}
+                                aspect="video"
+                                onOpen={() =>
+                                  openLightboxForItem(newestVideo())
+                                }
+                              />
+                            )}
+                          </Show>
+                          <Show
+                            when={
+                              props.kind === "video" && imageItems().length > 0
+                            }
+                          >
+                            <div class="space-y-2">
+                              <div class="section-label">
+                                Intermediate image (used for I2V)
+                              </div>
+                              <div class="max-w-xs">
+                                <MediaTile
+                                  item={imageItems()[0]}
+                                  aspect="video"
+                                  onOpen={() =>
+                                    openLightboxForItem(imageItems()[0])
+                                  }
+                                />
+                              </div>
+                            </div>
+                          </Show>
+                        </div>
+                      </Match>
+                      <Match when={props.kind === "audio"}>
+                        <div class="flex flex-col gap-2">
+                          <For each={audioItems()}>
+                            {(item) => (
+                              <div class="panel p-3">
+                                <div class="flex items-center justify-between gap-2">
+                                  <p class="truncate font-mono text-xs">
+                                    {item.filename}
+                                  </p>
+                                  <button
+                                    type="button"
+                                    class="btn btn-ghost btn-xs"
+                                    onClick={() => openLightboxForItem(item)}
+                                  >
+                                    Open
+                                  </button>
+                                </div>
+                                <audio
+                                  controls
+                                  preload="none"
+                                  src={mediaUrl(item)}
+                                  class="mt-2 w-full"
+                                />
+                              </div>
+                            )}
+                          </For>
+                          <Show
+                            when={
+                              currentJob().status === "active" &&
+                              audioItems().length === 0
+                            }
+                          >
+                            <div class="skeleton h-14 w-full rounded-box" />
+                          </Show>
+                        </div>
+                      </Match>
+                      <Match when={props.kind === "compose"}>
+                        <div class="flex flex-col gap-4">
+                          <ul class="divide-y divide-base-300 rounded-box border border-base-300">
+                            <For
+                              each={COMPOSE_STEPS.filter(
+                                (s) =>
+                                  summarizeEvents(eventsStore).byKind[s.kind] >
+                                  0,
+                              )}
+                            >
+                              {(step) => {
+                                const stepEvents = () =>
+                                  eventsStore.filter(
+                                    (e) => eventKind(e.type) === step.kind,
+                                  );
+                                const allComplete = () =>
+                                  stepEvents().length > 0 &&
+                                  stepEvents().every(
+                                    (e) => e.status === "complete",
+                                  );
+                                const anyRunning = () =>
+                                  stepEvents().some(
+                                    (e) => e.status === "running",
+                                  );
+                                return (
+                                  <li class="flex items-center justify-between gap-2 px-3 py-2 text-sm">
+                                    <span>{step.label}</span>
+                                    <span class="flex items-center gap-2 text-xs text-base-content/60 tabular-nums">
+                                      <span>{stepEvents().length}</span>
+                                      <Show
+                                        when={allComplete()}
+                                        fallback={
+                                          <Show when={anyRunning()}>
+                                            <span class="loading loading-spinner loading-xs text-primary" />
+                                          </Show>
+                                        }
+                                      >
+                                        <Icons.Check class="size-4 text-success" />
+                                      </Show>
+                                    </span>
+                                  </li>
+                                );
+                              }}
+                            </For>
+                          </ul>
+                          <Show
+                            when={
+                              currentJob().status === "complete" &&
+                              videoItems()[videoItems().length - 1]
+                            }
+                          >
+                            {(finalCut) => (
+                              <MediaTile
+                                item={finalCut()}
+                                aspect="video"
+                                onOpen={() => openLightboxForItem(finalCut())}
+                              />
+                            )}
+                          </Show>
+                        </div>
+                      </Match>
+                    </Switch>
+                  </Show>
+                </div>
+                <footer class="flex flex-wrap items-center justify-end gap-2 border-t border-base-300 px-4 py-3">
+                  <Show
+                    when={
+                      currentJob().status === "active" ||
+                      currentJob().status === "paused"
+                    }
                   >
-                    Cancel
-                  </button>
-                </Show>
-                <Show when={currentJob().status === "failed"}>
-                  <button
-                    type="button"
-                    class="btn btn-sm"
-                    disabled={actionPending()}
-                    onClick={() => void handleAction("retry")}
+                    <button
+                      type="button"
+                      class="btn btn-sm btn-ghost text-error"
+                      disabled={actionPending()}
+                      onClick={() => void handleAction("cancel")}
+                    >
+                      Cancel
+                    </button>
+                  </Show>
+                  <Show when={currentJob().status === "failed"}>
+                    <button
+                      type="button"
+                      class="btn btn-sm"
+                      disabled={actionPending()}
+                      onClick={() => void handleAction("retry")}
+                    >
+                      Retry
+                    </button>
+                  </Show>
+                  <Show
+                    when={
+                      currentJob().status === "complete" &&
+                      props.onGenerateAgain
+                    }
                   >
-                    Retry
-                  </button>
-                </Show>
-                <Show
-                  when={
-                    currentJob().status === "complete" && props.onGenerateAgain
-                  }
-                >
-                  <button
-                    type="button"
-                    class="btn btn-sm btn-ghost"
-                    onClick={() => props.onGenerateAgain?.()}
+                    <button
+                      type="button"
+                      class="btn btn-sm btn-ghost"
+                      onClick={() => props.onGenerateAgain?.()}
+                    >
+                      Generate again
+                    </button>
+                  </Show>
+                  <A
+                    class="btn btn-sm btn-primary"
+                    href={`/jobs/${encodeURIComponent(currentJob().id)}`}
                   >
-                    Generate again
-                  </button>
-                </Show>
-                <A
-                  class="btn btn-sm btn-primary"
-                  href={`/jobs/${encodeURIComponent(currentJob().id)}`}
-                >
-                  Open job
-                </A>
-              </footer>
-              <Lightbox
-                items={mediaStore}
-                index={lightboxIndex()}
-                onIndexChange={(nextIdx) => {
-                  const item = mediaStore[nextIdx];
-                  setLightboxKey(item ? mediaItemKey(item) : null);
-                }}
-                onClose={() => setLightboxKey(null)}
-              />
-            </>
-          );
-        }}
+                    Open job
+                  </A>
+                </footer>
+                <Lightbox
+                  items={mediaStore}
+                  index={lightboxIndex()}
+                  onIndexChange={(nextIdx) => {
+                    const item = mediaStore[nextIdx];
+                    setLightboxKey(item ? mediaItemKey(item) : null);
+                  }}
+                  onClose={() => setLightboxKey(null)}
+                />
+              </>
+            );
+          }}
+        </Show>
       </Show>
     </section>
   );

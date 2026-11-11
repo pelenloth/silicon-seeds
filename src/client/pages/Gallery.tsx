@@ -20,12 +20,18 @@ import {
   ApiError,
   apiGet,
   type GalleryItem,
+  type GalleryPageResponse,
   type MediaItem,
   type MediaType,
 } from "../lib/api-client";
 import { setPrefill } from "../lib/form-state";
-import { jobToPrefill, type JobSummary } from "../lib/job-view";
-import { jobs } from "../stores/jobs";
+import {
+  jobToPrefill,
+  plural,
+  shouldShowNewMedia,
+  type JobSummary,
+} from "../lib/job-view";
+import { jobs, jobsLoaded } from "../stores/jobs";
 import { toast } from "../stores/toast";
 
 type FilterType = "all" | MediaType;
@@ -97,8 +103,10 @@ export default function Gallery() {
   const [items, setItems] = createStore<KeyedMediaItem[]>([]);
   const [loading, setLoading] = createSignal(true);
   const [error, setError] = createSignal<string | null>(null);
+  const [reloadError, setReloadError] = createSignal(false);
   const [hasMore, setHasMore] = createSignal(true);
   const [hasNew, setHasNew] = createSignal(false);
+  const [loadedAnnouncement, setLoadedAnnouncement] = createSignal("");
   const [lightboxKey, setLightboxKey] = createSignal<string | null>(null);
   const [reusePending, setReusePending] = createSignal(false);
 
@@ -159,10 +167,16 @@ export default function Gallery() {
       batch(() => {
         setItems([]);
         setError(null);
+        setReloadError(false);
         setHasMore(true);
         setLoading(true);
       });
       cursorValue = undefined;
+    } else if (mode === "reload") {
+      batch(() => {
+        setReloadError(false);
+        setLoading(true);
+      });
     } else {
       batch(() => {
         setError(null);
@@ -177,7 +191,7 @@ export default function Gallery() {
 
     let shouldRearm = false;
     try {
-      const data = await apiGet<{ items: GalleryItem[] }>(
+      const data = await apiGet<GalleryPageResponse>(
         `/api/gallery/items?${q.toString()}`,
         { signal: controller.signal },
       );
@@ -187,9 +201,34 @@ export default function Gallery() {
 
       const raw = Array.isArray(data?.items) ? data.items : [];
       const nextKeyed = toKeyedMediaItems(raw);
+      const hasNextCursorField =
+        data !== null &&
+        typeof data === "object" &&
+        "next_cursor" in data &&
+        data.next_cursor !== undefined;
+
+      if (
+        hasNextCursorField &&
+        mode === "append" &&
+        data.next_cursor !== null &&
+        data.next_cursor === c
+      ) {
+        batch(() => {
+          setHasMore(false);
+          setError("Could not load more.");
+          setLoading(false);
+        });
+        return;
+      }
+
       const lastMetaId =
         raw.length > 0 ? raw[raw.length - 1]?.meta_id : undefined;
-      const more = raw.length >= 20 && Boolean(lastMetaId);
+      const more = hasNextCursorField
+        ? data.next_cursor !== null && Boolean(data.next_cursor)
+        : raw.length >= 20 && Boolean(lastMetaId);
+      const nextCursor = hasNextCursorField
+        ? (data.next_cursor ?? undefined)
+        : lastMetaId;
 
       batch(() => {
         if (mode === "append") {
@@ -216,14 +255,16 @@ export default function Gallery() {
           setItems(reconcile(deduped, { key: "id", merge: true }));
         }
 
-        if (lastMetaId) {
-          cursorValue = lastMetaId;
+        if (nextCursor) {
+          cursorValue = nextCursor;
         } else if (mode !== "append") {
           cursorValue = undefined;
         }
         setHasMore(more);
         setError(null);
+        setReloadError(false);
         setLoading(false);
+        setLoadedAnnouncement(`Loaded ${plural(items.length, "item")}`);
       });
       shouldRearm = more;
     } catch (err) {
@@ -242,7 +283,11 @@ export default function Gallery() {
             ? err.message
             : "Failed to load media";
       batch(() => {
-        setError(msg);
+        if (mode === "reload" && items.length > 0) {
+          setReloadError(true);
+        } else {
+          setError(msg);
+        }
         setLoading(false);
       });
     } finally {
@@ -269,21 +314,22 @@ export default function Gallery() {
     () => jobs().filter((j) => j.status === "complete").length,
   );
 
-  createEffect(
-    on(
-      completedJobsCount,
-      (next, prev) => {
-        if (typeof prev === "number" && next > prev) {
-          setHasNew(true);
-        }
-      },
-      { defer: true },
-    ),
-  );
+  let prevCompletedCount: number | null = jobsLoaded()
+    ? completedJobsCount()
+    : null;
+
+  createEffect(() => {
+    const loaded = jobsLoaded();
+    const count = completedJobsCount();
+    if (!loaded) return;
+    if (shouldShowNewMedia(prevCompletedCount, count)) {
+      setHasNew(true);
+    }
+    prevCompletedCount = count;
+  });
 
   const reloadFromTop = () => {
     setHasNew(false);
-    cursorValue = undefined;
     const main = document.getElementById("app-main");
     if (main) {
       main.scrollTop = 0;
@@ -299,7 +345,8 @@ export default function Gallery() {
             entries.some((e) => e.isIntersecting) &&
             hasMore() &&
             !loading() &&
-            !error()
+            !error() &&
+            !reloadError()
           ) {
             void fetchPage("append");
           }
@@ -383,7 +430,25 @@ export default function Gallery() {
           </button>
         </Show>
       </div>
-      <div id="gallery-grid" class="page" aria-live="polite">
+      <div role="status" class="sr-only">
+        {loadedAnnouncement()}
+      </div>
+      <div id="gallery-grid" class="page">
+        <Show when={reloadError() && items.length > 0}>
+          <div
+            role="status"
+            class="mb-4 flex items-center justify-between gap-2 rounded-field bg-base-200 px-3 py-1.5 text-xs text-base-content/80"
+          >
+            <span>Could not refresh.</span>
+            <button
+              type="button"
+              class="btn btn-ghost btn-xs"
+              onClick={reloadFromTop}
+            >
+              Try again
+            </button>
+          </div>
+        </Show>
         <Show when={loading() && items.length === 0}>
           <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
             <For each={SKELETON_INDICES}>
@@ -391,19 +456,17 @@ export default function Gallery() {
             </For>
           </div>
         </Show>
-        <Show when={error() && items.length === 0}>
-          {(errMsg) => (
-            <div role="alert" class="alert alert-error alert-soft">
-              <span class="flex-1 text-sm">{errMsg()}</span>
-              <button
-                type="button"
-                class="btn btn-xs"
-                onClick={() => void fetchPage("reset")}
-              >
-                Try again
-              </button>
-            </div>
-          )}
+        <Show when={Boolean(error()) && items.length === 0}>
+          <div role="alert" class="alert alert-error alert-soft">
+            <span class="flex-1 text-sm">{error()}</span>
+            <button
+              type="button"
+              class="btn btn-xs"
+              onClick={() => void fetchPage("reset")}
+            >
+              Try again
+            </button>
+          </div>
         </Show>
         <Show when={!loading() && !error() && items.length === 0}>
           <EmptyState

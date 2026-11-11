@@ -1,6 +1,7 @@
 import { For, Match, Show, Switch } from "solid-js";
 import {
   canRegenerate,
+  eventDisplayStatus,
   eventLabel,
   formatRelativeTime,
   type JobEvent,
@@ -13,6 +14,7 @@ import { StatusBadge } from "../ui/StatusBadge";
 
 export type JobTimelineProps = {
   events: JobEvent[];
+  jobStatus?: string;
   actionPending?: boolean;
   onRegenerate: (eventId: string) => void;
 };
@@ -31,8 +33,14 @@ export function JobTimeline(props: JobTimelineProps) {
       <ol class="flex max-w-4xl flex-col gap-2">
         <For each={props.events}>
           {(e) => {
+            const displayStatus = () => eventDisplayStatus(e, props.jobStatus);
             const hasDetails = () =>
-              Boolean(e.prompt || e.text || e.lyrics || e.error);
+              Boolean(
+                e.prompt ||
+                e.text ||
+                e.lyrics ||
+                (e.error && displayStatus() !== "cancelled"),
+              );
             const stepName = () =>
               `${eventLabel(e.type, e.mode)}${e.index != null ? ` #${e.index + 1}` : ""}`;
             return (
@@ -44,16 +52,19 @@ export function JobTimeline(props: JobTimelineProps) {
                         <Icons.Clock class="size-4 text-base-content/40" />
                       }
                     >
-                      <Match when={e.status === "pending"}>
+                      <Match when={displayStatus() === "pending"}>
                         <Icons.Clock class="size-4 text-base-content/40" />
                       </Match>
-                      <Match when={e.status === "running"}>
+                      <Match when={displayStatus() === "running"}>
                         <span class="loading loading-spinner loading-xs text-info" />
                       </Match>
-                      <Match when={e.status === "complete"}>
+                      <Match when={displayStatus() === "complete"}>
                         <Icons.Check class="size-4 text-success" />
                       </Match>
-                      <Match when={e.status === "failed"}>
+                      <Match when={displayStatus() === "cancelled"}>
+                        <Icons.Stop class="size-4 text-base-content/50" />
+                      </Match>
+                      <Match when={displayStatus() === "failed"}>
                         <Icons.ExclamationCircle class="size-4 text-error" />
                       </Match>
                     </Switch>
@@ -66,7 +77,7 @@ export function JobTimeline(props: JobTimelineProps) {
                     <span class="ml-auto text-xs text-base-content/50">
                       {formatRelativeTime(e.created_at, nowTick())}
                     </span>
-                    <StatusBadge kind="event" status={e.status} />
+                    <StatusBadge kind="event" status={displayStatus()} />
                     <Icons.ChevronDown class="size-4 transition-transform group-open:rotate-180" />
                   </summary>
                   <div class="space-y-3 border-t border-base-300 px-3 py-3">
@@ -118,12 +129,12 @@ export function JobTimeline(props: JobTimelineProps) {
                         </div>
                       )}
                     </Show>
-                    <Show when={e.error}>
-                      {(val) => (
-                        <p class="text-sm text-error" role="alert">
-                          {val()}
-                        </p>
-                      )}
+                    <Show
+                      when={displayStatus() !== "cancelled" && Boolean(e.error)}
+                    >
+                      <p class="text-sm text-error" role="alert">
+                        {e.error}
+                      </p>
                     </Show>
                     <Show when={!hasDetails()}>
                       <p class="text-xs text-base-content/50">
