@@ -146,10 +146,6 @@ export function JobList(props: JobListProps) {
             onInput={(e) => props.onQuery(e.currentTarget.value)}
           />
         </label>
-        <A href="/" class="btn btn-primary btn-sm" aria-label="New Job">
-          <Icons.Plus class="size-4" />
-          <span class="hidden xl:inline">New Job</span>
-        </A>
       </div>
       <div
         id="job-filter"

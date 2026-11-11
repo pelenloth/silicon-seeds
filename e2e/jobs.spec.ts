@@ -8,10 +8,6 @@ test("jobs: list, search, filters and canonical URLs", async ({ page }) => {
     page.getByRole("heading", { level: 1, name: "Jobs" }),
   ).toBeVisible({ timeout: 10000 });
   await expect(page.locator("#job-list")).toBeVisible();
-  await expect(page.getByRole("link", { name: /new job/i })).toHaveAttribute(
-    "href",
-    "/",
-  );
 
   const filter = page.locator("#job-filter");
   await expect(filter.getByRole("tab", { name: /^All/ })).toBeVisible();
