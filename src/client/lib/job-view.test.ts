@@ -3,6 +3,7 @@ import {
   availableJobActions,
   canRegenerate,
   countByStatus,
+  detectTransitions,
   eventKind,
   eventLabel,
   eventStatusMeta,
@@ -341,5 +342,30 @@ describe("reuse settings", () => {
     expect(out.route).toBe("/create/text-to-video");
     expect(out.values.style_guide).toBe("ink");
     expect(out.values.prompt).toBe("waves");
+  });
+});
+
+describe("detectTransitions", () => {
+  test("only jobs seen running in this session that just finished or failed", () => {
+    const prev = new Map([
+      ["a", "active"],
+      ["b", "active"],
+      ["c", "complete"],
+      ["d", "paused"],
+      ["f", "active"],
+    ]);
+    const next = [
+      { id: "a", name: "A", status: "complete" },
+      { id: "b", name: "B", status: "active" },
+      { id: "c", name: "C", status: "complete" },
+      { id: "d", name: "D", status: "failed" },
+      { id: "e", name: "E", status: "complete" },
+      { id: "f", name: "F", status: "cancelled" },
+    ];
+    expect(detectTransitions(prev, next)).toEqual([
+      { id: "a", name: "A", from: "active", to: "complete" },
+      { id: "d", name: "D", from: "paused", to: "failed" },
+    ]);
+    expect(detectTransitions(new Map(), next)).toEqual([]);
   });
 });

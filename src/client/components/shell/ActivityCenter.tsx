@@ -1,0 +1,242 @@
+import { A, useLocation } from "@solidjs/router";
+import {
+  createEffect,
+  createSignal,
+  For,
+  on,
+  onCleanup,
+  Show,
+  type Component,
+} from "solid-js";
+import { Dynamic } from "solid-js/web";
+import { getAssetPath } from "../../lib/api-client";
+import { jobKindMeta, type JobKind, type JobSummary } from "../../lib/job-view";
+import {
+  activeCount,
+  jobs,
+  recentFinished,
+  runJobAction,
+} from "../../stores/jobs";
+import { Icons } from "../Icons";
+import { EmptyState } from "../ui/EmptyState";
+
+const KIND_ICONS: Record<JobKind, Component<{ class?: string }>> = {
+  image: Icons.Image,
+  video: Icons.Video,
+  audio: Icons.Audio,
+  compose: Icons.Compose,
+};
+
+function ActivityRow(props: { job: JobSummary; onClose: () => void }) {
+  const isRunning = () =>
+    props.job.status === "active" && props.job.progress.running > 0;
+  const isActive = () => props.job.status === "active";
+  const isPaused = () => props.job.status === "paused";
+  const thumbUrl = () =>
+    props.job.thumb
+      ? getAssetPath(props.job.thumb.subfolder, props.job.thumb.filename)
+      : null;
+
+  return (
+    <div class="flex flex-col gap-1.5 rounded-field p-2 hover:bg-base-200/70">
+      <div class="flex items-center gap-2.5">
+        <A
+          href={`/jobs/${props.job.id}`}
+          class="flex min-w-0 flex-1 items-center gap-2.5"
+          onClick={() => props.onClose()}
+        >
+          <div class="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-field bg-base-200 text-base-content/70">
+            <Show
+              when={
+                thumbUrl() && props.job.thumb?.mediaType === "image"
+                  ? thumbUrl()
+                  : null
+              }
+              fallback={
+                <Dynamic
+                  component={KIND_ICONS[props.job.kind]}
+                  class="size-5"
+                />
+              }
+            >
+              {(src) => (
+                <img
+                  src={src()}
+                  alt=""
+                  class="size-full object-cover"
+                  loading="lazy"
+                />
+              )}
+            </Show>
+          </div>
+          <div class="min-w-0 flex-1">
+            <div class="truncate text-sm font-medium">{props.job.name}</div>
+            <div class="text-xs text-base-content/60">
+              {`${jobKindMeta(props.job.kind).label} · ${props.job.progress.complete}/${props.job.progress.total}`}
+            </div>
+          </div>
+        </A>
+        <Show when={isActive() || isPaused()}>
+          <div class="flex shrink-0 items-center gap-1">
+            <Show when={isActive()}>
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm btn-square"
+                aria-label="Pause"
+                onClick={() => void runJobAction(props.job, "pause")}
+              >
+                <Icons.Pause class="size-4" />
+              </button>
+            </Show>
+            <Show when={isPaused()}>
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm btn-square"
+                aria-label="Resume"
+                onClick={() => void runJobAction(props.job, "resume")}
+              >
+                <Icons.Play class="size-4" />
+              </button>
+            </Show>
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm btn-square text-error"
+              aria-label="Cancel"
+              onClick={() => void runJobAction(props.job, "cancel")}
+            >
+              <Icons.Stop class="size-4" />
+            </button>
+          </div>
+        </Show>
+      </div>
+      <Show when={isRunning()}>
+        <progress
+          class="progress progress-primary h-1 w-full"
+          value={props.job.progress.complete}
+          max={Math.max(1, props.job.progress.total)}
+        />
+      </Show>
+    </div>
+  );
+}
+
+export function ActivityCenter() {
+  const [open, setOpen] = createSignal(false);
+  const location = useLocation();
+  let rootRef: HTMLDivElement | undefined;
+
+  const toggle = () => setOpen(!open());
+
+  createEffect(
+    on(
+      () => location.pathname,
+      () => setOpen(false),
+    ),
+  );
+
+  createEffect(() => {
+    if (!open()) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (rootRef && !rootRef.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onKey);
+    onCleanup(() => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onKey);
+    });
+  });
+
+  const runningJobs = () =>
+    jobs().filter((j) => j.status === "active" && j.progress.running > 0);
+  const queuedJobs = () =>
+    jobs().filter((j) => j.status === "active" && j.progress.running === 0);
+  const pausedJobs = () => jobs().filter((j) => j.status === "paused");
+  const finishedJobs = () => recentFinished(5);
+  const hasAny = () =>
+    runningJobs().length > 0 ||
+    queuedJobs().length > 0 ||
+    pausedJobs().length > 0 ||
+    finishedJobs().length > 0;
+
+  const renderSection = (title: string, list: () => JobSummary[]) => (
+    <Show when={list().length > 0}>
+      <div class="flex flex-col gap-1">
+        <div class="section-label px-2 pt-1">{title}</div>
+        <For each={list()}>
+          {(job) => <ActivityRow job={job} onClose={() => setOpen(false)} />}
+        </For>
+      </div>
+    </Show>
+  );
+
+  return (
+    <div ref={rootRef} class="relative">
+      <button
+        id="activity-button"
+        type="button"
+        class="btn btn-ghost btn-sm gap-1"
+        aria-haspopup="true"
+        aria-expanded={open()}
+        aria-label={
+          activeCount() ? `Activity, ${activeCount()} running` : "Activity"
+        }
+        onClick={toggle}
+      >
+        <Show
+          when={activeCount() > 0}
+          fallback={<Icons.Activity class="size-5" />}
+        >
+          <span class="loading loading-spinner loading-xs text-primary" />
+          <span class="text-xs font-semibold tabular-nums">
+            {activeCount()}
+          </span>
+        </Show>
+      </button>
+      <Show when={open()}>
+        <div
+          role="region"
+          aria-label="Activity"
+          class="absolute right-0 top-full z-30 mt-2 w-[22rem] max-w-[calc(100vw-1.5rem)] rounded-box border border-base-300 bg-base-100 shadow-xl"
+        >
+          <div class="max-h-[65vh] overflow-y-auto scroll-thin p-2">
+            <Show
+              when={hasAny()}
+              fallback={
+                <EmptyState
+                  title="Nothing running"
+                  description="Jobs you start show up here."
+                />
+              }
+            >
+              <div class="flex flex-col gap-2">
+                {renderSection("Running", runningJobs)}
+                {renderSection("Queued", queuedJobs)}
+                {renderSection("Paused", pausedJobs)}
+                {renderSection("Recently finished", finishedJobs)}
+              </div>
+            </Show>
+          </div>
+          <div class="border-t border-base-300 p-2 text-right">
+            <A
+              href="/jobs"
+              class="btn btn-ghost btn-xs"
+              onClick={() => setOpen(false)}
+            >
+              All jobs
+            </A>
+          </div>
+        </div>
+      </Show>
+    </div>
+  );
+}
+
+export default ActivityCenter;

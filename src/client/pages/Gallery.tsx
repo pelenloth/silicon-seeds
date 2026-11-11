@@ -161,7 +161,6 @@ export default function Gallery() {
       id="gallery-content"
     >
       <div class="flex items-center gap-6 px-6 py-4 bg-base-100 border-b border-base-300 sticky top-0 z-10">
-        <h1 class="text-xl font-bold">Gallery</h1>
         <div
           class="flex items-center gap-4"
           role="radiogroup"

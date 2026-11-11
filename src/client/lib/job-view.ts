@@ -435,3 +435,27 @@ export function jobToPrefill(job: JobSummary): {
     values.style_preset || hasLoras ? "/create/video" : "/create/text-to-video";
   return { route, values };
 }
+
+export type JobTransition = {
+  id: string;
+  name: string;
+  from: string;
+  to: "complete" | "failed";
+};
+
+export function detectTransitions(
+  prev: ReadonlyMap<string, string>,
+  next: readonly { id: string; name: string; status: string }[],
+): JobTransition[] {
+  const out: JobTransition[] = [];
+  for (const j of next) {
+    const from = prev.get(j.id);
+    if (
+      (from === "active" || from === "paused") &&
+      (j.status === "complete" || j.status === "failed")
+    ) {
+      out.push({ id: j.id, name: j.name, from, to: j.status });
+    }
+  }
+  return out;
+}

@@ -1,170 +1,66 @@
-import { Navigate, Router, Route } from "@solidjs/router";
-import { lazy, Suspense } from "solid-js";
-import Layout from "./components/Layout";
+import { Navigate, Route, Router } from "@solidjs/router";
+import { lazy, Suspense, type Component } from "solid-js";
+import AppShell from "./components/shell/AppShell";
 
-const Jobs = lazy(() => import("./pages/Jobs"));
-const Gallery = lazy(() => import("./pages/Gallery"));
-const Compose = lazy(() => import("./pages/Compose"));
-const CreateImage = lazy(() => import("./pages/CreateImage"));
-const CreateAudio = lazy(() => import("./pages/CreateAudio"));
-const CreateVideo = lazy(() => import("./pages/CreateVideo"));
-const CreateTextToVideo = lazy(() => import("./pages/CreateTextToVideo"));
-const Settings = lazy(() => import("./pages/Settings"));
-const DevKit = lazy(() => import("./pages/DevKit"));
+function lazyPage(loader: () => Promise<{ default: Component }>) {
+  const Page = lazy(loader);
+  return () => (
+    <Suspense
+      fallback={
+        <div class="flex justify-center py-16">
+          <span class="loading loading-spinner" />
+        </div>
+      }
+    >
+      <Page />
+    </Suspense>
+  );
+}
+
+const Jobs = lazyPage(() => import("./pages/Jobs"));
 
 export default function App() {
   return (
-    <Router root={Layout}>
+    <Router root={AppShell}>
       <Route path="/" component={() => <Navigate href="/jobs" />} />
-      <Route path="/dashboard" component={() => <Navigate href="/jobs" />} />
-      <Route
-        path="/jobs"
-        component={() => (
-          <Suspense
-            fallback={
-              <div class="flex justify-center py-16">
-                <span class="loading loading-spinner" />
-              </div>
-            }
-          >
-            <Jobs />
-          </Suspense>
-        )}
-      />
-
-      <Route
-        path="/jobs/:jobId"
-        component={() => (
-          <Suspense
-            fallback={
-              <div class="flex justify-center py-16">
-                <span class="loading loading-spinner" />
-              </div>
-            }
-          >
-            <Jobs />
-          </Suspense>
-        )}
-      />
-
+      <Route path="/dashboard" component={() => <Navigate href="/" />} />
+      <Route path="/jobs" component={Jobs} />
+      <Route path="/jobs/:jobId" component={Jobs} />
       <Route
         path="/gallery"
-        component={() => (
-          <Suspense
-            fallback={
-              <div class="flex justify-center py-16">
-                <span class="loading loading-spinner" />
-              </div>
-            }
-          >
-            <Gallery />
-          </Suspense>
-        )}
+        component={lazyPage(() => import("./pages/Gallery"))}
       />
-
       <Route
         path="/compose"
-        component={() => (
-          <Suspense
-            fallback={
-              <div class="flex justify-center py-16">
-                <span class="loading loading-spinner" />
-              </div>
-            }
-          >
-            <Compose />
-          </Suspense>
-        )}
+        component={lazyPage(() => import("./pages/Compose"))}
       />
-
       <Route
         path="/create/image"
-        component={() => (
-          <Suspense
-            fallback={
-              <div class="flex justify-center py-16">
-                <span class="loading loading-spinner" />
-              </div>
-            }
-          >
-            <CreateImage />
-          </Suspense>
-        )}
+        component={lazyPage(() => import("./pages/CreateImage"))}
       />
-
       <Route
         path="/create/audio"
-        component={() => (
-          <Suspense
-            fallback={
-              <div class="flex justify-center py-16">
-                <span class="loading loading-spinner" />
-              </div>
-            }
-          >
-            <CreateAudio />
-          </Suspense>
-        )}
+        component={lazyPage(() => import("./pages/CreateAudio"))}
       />
-
       <Route
         path="/create/video"
-        component={() => (
-          <Suspense
-            fallback={
-              <div class="flex justify-center py-16">
-                <span class="loading loading-spinner" />
-              </div>
-            }
-          >
-            <CreateVideo />
-          </Suspense>
-        )}
+        component={lazyPage(() => import("./pages/CreateVideo"))}
       />
-
       <Route
         path="/create/text-to-video"
-        component={() => (
-          <Suspense
-            fallback={
-              <div class="flex justify-center py-16">
-                <span class="loading loading-spinner" />
-              </div>
-            }
-          >
-            <CreateTextToVideo />
-          </Suspense>
-        )}
+        component={lazyPage(() => import("./pages/CreateTextToVideo"))}
       />
-
       <Route
         path="/settings"
-        component={() => (
-          <Suspense
-            fallback={
-              <div class="flex justify-center py-16">
-                <span class="loading loading-spinner" />
-              </div>
-            }
-          >
-            <Settings />
-          </Suspense>
-        )}
+        component={lazyPage(() => import("./pages/Settings"))}
       />
-
       <Route
         path="/dev/kit"
-        component={() => (
-          <Suspense
-            fallback={
-              <div class="flex justify-center py-16">
-                <span class="loading loading-spinner" />
-              </div>
-            }
-          >
-            <DevKit />
-          </Suspense>
-        )}
+        component={lazyPage(() => import("./pages/DevKit"))}
+      />
+      <Route
+        path="*404"
+        component={lazyPage(() => import("./pages/NotFound"))}
       />
     </Router>
   );
