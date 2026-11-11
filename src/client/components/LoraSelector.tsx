@@ -16,13 +16,17 @@ type LoraRow = {
 export function LoraSelector(props: {
   value: LoraSpec[];
   onChange: (v: LoraSpec[]) => void;
+  error?: string;
 }) {
   const [loras, setLoras] = createSignal<LoraRow[]>([]);
+  const [loading, setLoading] = createSignal(true);
   const [loadError, setLoadError] = createSignal(false);
   const [selectedName, setSelectedName] = createSignal("");
+  const [alreadyAdded, setAlreadyAdded] = createSignal(false);
   let disposed = false;
 
   const fetchLoras = async () => {
+    setLoading(true);
     setLoadError(false);
     try {
       const data = await apiGet<{ loras?: LoraRow[] }>("/api/loras");
@@ -34,6 +38,8 @@ export function LoraSelector(props: {
     } catch {
       if (disposed) return;
       setLoadError(true);
+    } finally {
+      if (!disposed) setLoading(false);
     }
   };
 
@@ -45,16 +51,27 @@ export function LoraSelector(props: {
     disposed = true;
   });
 
+  const isDuplicateSelected = () => {
+    const name = selectedName();
+    return Boolean(name && props.value.some((v) => v.name === name));
+  };
+
   const add = () => {
     const name = selectedName();
     if (!name) return;
-    if (props.value.some((v) => v.name === name)) return;
+    if (props.value.some((v) => v.name === name)) {
+      setAlreadyAdded(true);
+      return;
+    }
+    setAlreadyAdded(false);
     props.onChange([...props.value, { name, strength: 0.7 }]);
     setSelectedName("");
   };
 
-  const remove = (idx: number) =>
+  const remove = (idx: number) => {
+    setAlreadyAdded(false);
     props.onChange(props.value.filter((_, i) => i !== idx));
+  };
 
   const updateStrength = (idx: number, s: number) => {
     const copy = [...props.value];
@@ -89,18 +106,45 @@ export function LoraSelector(props: {
         <select
           class="select select-sm flex-1"
           aria-label="Select LoRA"
+          disabled={loading()}
           value={selectedName()}
-          onChange={(e) => setSelectedName(e.currentTarget.value)}
+          onChange={(e) => {
+            const val = e.currentTarget.value;
+            setSelectedName(val);
+            setAlreadyAdded(
+              Boolean(val && props.value.some((v) => v.name === val)),
+            );
+          }}
         >
-          <option value="">Select LoRA</option>
+          <option value="">
+            {loading() ? "Loading LoRAs…" : "Select LoRA"}
+          </option>
           <For each={loras()}>
             {(l) => <option value={l.comfyui_name}>{l.display_name}</option>}
           </For>
         </select>
-        <button type="button" class="btn btn-primary btn-sm" onClick={add}>
+        <button
+          type="button"
+          class="btn btn-primary btn-sm"
+          disabled={!selectedName() || loading()}
+          onClick={add}
+        >
+          <Show when={loading()}>
+            <span class="loading loading-spinner loading-xs" />
+          </Show>
           Add
         </button>
       </div>
+      <Show when={alreadyAdded() || isDuplicateSelected()}>
+        <p class="text-xs text-warning" role="status">
+          Already added
+        </p>
+      </Show>
+      <Show when={props.error}>
+        <p class="text-xs text-error" role="alert">
+          {props.error}
+        </p>
+      </Show>
       <Show when={loadError()}>
         <p class="text-xs text-base-content/60">
           Could not load LoRAs.{" "}

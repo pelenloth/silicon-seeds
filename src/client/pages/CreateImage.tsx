@@ -24,6 +24,25 @@ export default function CreateImage() {
       image_model: d.image_model,
     }),
     required: [{ field: "prompt", message: "Prompt is required" }],
+    maxLengths: [{ field: "style_guide", max: 2000, label: "Style guide" }],
+    ranges: [
+      {
+        field: "batch_size",
+        min: 1,
+        max: 16,
+        integer: true,
+        label: "Images",
+      },
+    ],
+    labels: {
+      prompt: "Prompt",
+      style_guide: "Style guide",
+      style_preset: "Style preset",
+      resolution: "Resolution",
+      batch_size: "Images",
+      image_model: "Model",
+      loras: "LoRAs",
+    },
   });
   let formEl: HTMLFormElement | undefined;
   const n = () => Number(f.values.batch_size) || 1;
@@ -32,6 +51,9 @@ export default function CreateImage() {
 
   return (
     <StudioLayout
+      formRef={(el) => {
+        formEl = el;
+      }}
       onSubmit={(form) => {
         formEl = form;
         void f.submit(form);
@@ -54,7 +76,9 @@ export default function CreateImage() {
           <CollapsibleSection
             title="Style guide"
             hint="optional"
-            open={f.values.style_guide.length > 0}
+            open={
+              f.values.style_guide.length > 0 || Boolean(f.errors().style_guide)
+            }
           >
             <PromptField
               bare
@@ -73,7 +97,11 @@ export default function CreateImage() {
           </CollapsibleSection>
           <Section title="Settings">
             <div class="grid gap-3 sm:grid-cols-2">
-              <Field label="Style preset" for="ci-preset">
+              <Field
+                label="Style preset"
+                for="ci-preset"
+                error={f.errors().style_preset}
+              >
                 <StylePresetSelect
                   id="ci-preset"
                   name="style_preset"
@@ -88,6 +116,7 @@ export default function CreateImage() {
                 value={f.values.resolution}
                 onChange={(v) => f.set("resolution", v)}
                 options={RESOLUTIONS}
+                error={f.errors().resolution}
               />
               <div class="sm:col-span-2">
                 <SliderField
@@ -98,20 +127,33 @@ export default function CreateImage() {
                   value={n()}
                   onInput={(v) => f.set("batch_size", String(v))}
                   format={(v) => plural(v, "image")}
+                  error={f.errors().batch_size}
                 />
               </div>
             </div>
           </Section>
-          <CollapsibleSection title="LoRAs" count={f.loras().length}>
-            <LoraSelector value={f.loras()} onChange={f.setLoras} />
+          <CollapsibleSection
+            title="LoRAs"
+            count={f.loras().length}
+            open={Boolean(f.errors().loras)}
+          >
+            <LoraSelector
+              value={f.loras()}
+              onChange={f.setLoras}
+              error={f.errors().loras}
+            />
           </CollapsibleSection>
-          <CollapsibleSection title="Advanced">
+          <CollapsibleSection
+            title="Advanced"
+            open={Boolean(f.errors().image_model)}
+          >
             <SelectField
               label="Model"
               name="image_model"
               value={f.values.image_model}
               onChange={(v) => f.set("image_model", v)}
               options={IMAGE_MODELS}
+              error={f.errors().image_model}
             />
           </CollapsibleSection>
           <SubmitBar

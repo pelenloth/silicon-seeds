@@ -136,7 +136,7 @@ export default function AppShell(props: ParentProps) {
           ref={mainRef}
           id="app-main"
           tabindex="-1"
-          class="min-h-0 flex-1 overflow-y-auto scroll-thin focus:outline-none"
+          class="min-h-0 flex-1 overflow-y-auto scroll-pb-24 scroll-thin focus:outline-none"
         >
           <ErrorBoundary
             fallback={(err, reset) => (

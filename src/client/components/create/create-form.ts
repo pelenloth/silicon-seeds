@@ -4,14 +4,19 @@ import { createStore } from "solid-js/store";
 import { ApiError } from "../../lib/api-client";
 import {
   CREATE_KINDS,
+  mapServerErrors,
   submitCreateJob,
+  validateCreateFields,
   type CreateKind,
+  type MaxLengthRule,
+  type NumericRangeRule,
+  type RequiredRule,
 } from "../../lib/create-job";
 import type { GenerationDefaults } from "../../lib/defaults";
 import {
   clearDraft,
   loadDraft,
-  mergeInitial,
+  resolveInitialValues,
   saveDraft,
   takePrefill,
 } from "../../lib/form-state";
@@ -23,7 +28,10 @@ import type { LoraSpec } from "../LoraSelector";
 export type CreateFormOptions<T extends Record<string, string>> = {
   kind: CreateKind;
   fallback: (d: GenerationDefaults) => T;
-  required?: readonly { field: keyof T & string; message: string }[];
+  required?: readonly RequiredRule<keyof T & string>[];
+  maxLengths?: readonly MaxLengthRule<keyof T & string>[];
+  ranges?: readonly NumericRangeRule<keyof T & string>[];
+  labels?: Readonly<Record<string, string>>;
   beforeSubmit?: (fd: FormData) => void;
 };
 
@@ -57,6 +65,42 @@ function parseLoras(raw: string | undefined): LoraSpec[] {
   }
 }
 
+function findAndFocusControl(
+  form: HTMLFormElement,
+  field: string | null,
+): void {
+  if (!field) return;
+  let el: HTMLElement | null = null;
+  if (field === "loras" || field.startsWith("loras.")) {
+    el =
+      form.querySelector<HTMLElement>(
+        'input[aria-label^="Strength for "], select[aria-label="Select LoRA"]',
+      ) ?? null;
+  } else {
+    const named = form.elements.namedItem(field);
+    if (named instanceof HTMLElement) {
+      el = named;
+    } else if (
+      named &&
+      "length" in named &&
+      named.length > 0 &&
+      named[0] instanceof HTMLElement
+    ) {
+      el = named[0];
+    }
+  }
+  if (!el) return;
+  const details = el.closest("details");
+  if (details && !details.open) {
+    details.open = true;
+  }
+  queueMicrotask(() => {
+    if (typeof el?.focus === "function") {
+      el.focus();
+    }
+  });
+}
+
 export function useCreateForm<T extends Record<string, string>>(
   opts: CreateFormOptions<T>,
 ): {
@@ -87,26 +131,38 @@ export function useCreateForm<T extends Record<string, string>>(
       ? { [firstTextField]: promptParam }
       : null;
 
+  const touched = new Set<string>();
   const provided = new Set<string>();
-  for (const layer of [draft, prefill, queryPrompt]) {
+
+  if (draft) {
+    for (const [k, v] of Object.entries(draft)) {
+      if (typeof v === "string" && Object.hasOwn(initialFallback, k)) {
+        touched.add(k);
+      }
+    }
+  }
+  for (const layer of [prefill, queryPrompt]) {
     if (!layer) continue;
     for (const [k, v] of Object.entries(layer)) {
       if (typeof v === "string" && Object.hasOwn(initialFallback, k)) {
         provided.add(k);
+        touched.add(k);
       }
     }
   }
 
-  const touched = new Set<string>();
+  let lorasTouched = Boolean(prefill?.loras !== undefined || draft?.loras);
 
-  const initialValues = mergeInitial(
-    initialFallback,
+  const initialValues = resolveInitialValues({
+    base: initialFallback,
+    defaults: initialFallback,
     draft,
     prefill,
-    queryPrompt,
-  );
+    query: queryPrompt,
+  });
+
   const [values, setValues] = createStore<T>(initialValues);
-  const [loras, setLoras] = createSignal<LoraSpec[]>(
+  const [loras, setLorasSignal] = createSignal<LoraSpec[]>(
     parseLoras(prefill?.loras ?? draft?.loras),
   );
   const [errors, setErrors] = createSignal<Record<string, string>>({});
@@ -132,18 +188,6 @@ export function useCreateForm<T extends Record<string, string>>(
     applyDefaultsIfUntouched(d);
   });
 
-  const isAllDefault = (
-    snap: Record<string, string>,
-    currentLoras: LoraSpec[],
-  ): boolean => {
-    if (currentLoras.length > 0) return false;
-    const def = opts.fallback(generationDefaults());
-    for (const [k, v] of Object.entries(def)) {
-      if ((snap[k] ?? "") !== v) return false;
-    }
-    return true;
-  };
-
   let draftTimer: ReturnType<typeof setTimeout> | null = null;
   let pendingSnapshot: {
     snap: Record<string, string>;
@@ -162,13 +206,19 @@ export function useCreateForm<T extends Record<string, string>>(
     if (!pendingSnapshot) return;
     const { snap, loras: currentLoras } = pendingSnapshot;
     pendingSnapshot = null;
-    if (isAllDefault(snap, currentLoras)) {
+    const sparse: Record<string, string> = {};
+    for (const k of touched) {
+      if (Object.hasOwn(snap, k)) {
+        sparse[k] = snap[k];
+      }
+    }
+    if (lorasTouched && currentLoras.length > 0) {
+      sparse.loras = JSON.stringify(currentLoras);
+    }
+    if (Object.keys(sparse).length === 0) {
       clearDraft(route);
     } else {
-      saveDraft(route, {
-        ...snap,
-        loras: JSON.stringify(currentLoras),
-      });
+      saveDraft(route, sparse);
     }
   };
 
@@ -203,17 +253,34 @@ export function useCreateForm<T extends Record<string, string>>(
     }
   };
 
+  const setLoras = (v: LoraSpec[]) => {
+    lorasTouched = v.length > 0;
+    setLorasSignal(v);
+    if (errors().loras) {
+      setErrors((prev) => {
+        const next = { ...prev };
+        for (const k of Object.keys(next)) {
+          if (k === "loras" || k.startsWith("loras.")) {
+            delete next[k];
+          }
+        }
+        return next;
+      });
+    }
+  };
+
   const reset = () => {
     clearDraftTimer();
     pendingSnapshot = null;
     clearDraft(route);
     touched.clear();
     provided.clear();
+    lorasTouched = false;
     const def = opts.fallback(generationDefaults());
     for (const [k, v] of Object.entries(def)) {
       setValues(k as any, v as any);
     }
-    setLoras([]);
+    setLorasSignal([]);
     setErrors({});
     setFormError(null);
   };
@@ -225,24 +292,16 @@ export function useCreateForm<T extends Record<string, string>>(
     setErrors({});
     setFormError(null);
 
-    if (opts.required) {
-      const nextErrors: Record<string, string> = {};
-      let firstInvalid: string | null = null;
-      for (const req of opts.required) {
-        const val = values[req.field] ?? "";
-        if (!val.trim()) {
-          nextErrors[req.field] = req.message;
-          if (!firstInvalid) firstInvalid = req.field;
-        }
-      }
-      if (firstInvalid) {
-        setErrors(nextErrors);
-        const el = form.elements.namedItem(firstInvalid);
-        if (el && typeof (el as HTMLElement).focus === "function") {
-          (el as HTMLElement).focus();
-        }
-        return;
-      }
+    const validation = validateCreateFields(values, {
+      required: opts.required,
+      maxLengths: opts.maxLengths,
+      ranges: opts.ranges,
+      loras: loras(),
+    });
+    if (validation.firstInvalid) {
+      setErrors(validation.errors);
+      findAndFocusControl(form, validation.firstInvalid);
+      return;
     }
 
     const fd = new FormData(form);
@@ -255,10 +314,12 @@ export function useCreateForm<T extends Record<string, string>>(
     setSubmitting(true);
     try {
       const { jobId: newJobId } = await submitCreateJob(opts.kind, fd);
-      setSearch(
-        { job_id: newJobId, show_progress: undefined, prompt: undefined },
-        { replace: true },
-      );
+      if (!disposed) {
+        setSearch(
+          { job_id: newJobId, show_progress: undefined, prompt: undefined },
+          { replace: true },
+        );
+      }
       await refreshJobs();
       const jobName = jobs()
         .find((j) => j.id === newJobId)
@@ -270,17 +331,26 @@ export function useCreateForm<T extends Record<string, string>>(
         },
       });
     } catch (e) {
+      if (disposed) return;
       if (e instanceof ApiError) {
-        const fieldErrors = e.fields ?? {};
-        setErrors(fieldErrors);
-        const fieldMessages = Object.values(fieldErrors);
-        setFormError(fieldMessages.includes(e.message) ? null : e.message);
+        const knownFields = [...Object.keys(initialFallback), "loras"];
+        const mapped = mapServerErrors(e.message, e.fields, {
+          knownFields,
+          labels: opts.labels,
+        });
+        setErrors(mapped.fieldErrors);
+        setFormError(mapped.formError);
+        if (mapped.firstField) {
+          findAndFocusControl(form, mapped.firstField);
+        }
       } else {
         setFormError(e instanceof Error ? e.message : "Submission failed");
       }
     } finally {
       inFlight = false;
-      setSubmitting(false);
+      if (!disposed) {
+        setSubmitting(false);
+      }
     }
   };
 

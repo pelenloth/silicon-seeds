@@ -34,6 +34,19 @@ describe("mediaUrl", () => {
     });
     expect(url).toBe("data:image/png;base64,AAAA");
   });
+
+  test("encodes # and ? in subfolder and filename segments so URLs do not break", () => {
+    expect(getAssetPath("sub/dir/", "track #1?final.mp3")).toBe(
+      "/assets/sub/dir/track%20%231%3Ffinal.mp3",
+    );
+    expect(
+      mediaUrl({
+        subfolder: "audio#1",
+        filename: "song?v=2.flac",
+        mediaType: "audio",
+      }),
+    ).toBe("/assets/audio%231/song%3Fv%3D2.flac");
+  });
 });
 
 describe("parseApiError", () => {

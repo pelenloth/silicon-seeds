@@ -41,7 +41,7 @@ export function CollapsibleSection(props: CollapsibleSectionProps) {
       open={open()}
       onToggle={(e) => setOpen(e.currentTarget.open)}
     >
-      <summary class="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-semibold">
+      <summary class="flex cursor-pointer list-none items-center gap-2 rounded-box px-4 py-3 text-sm font-semibold focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary">
         <span>{props.title}</span>
         <Show when={props.count}>
           <span class="badge badge-primary badge-xs">{props.count}</span>

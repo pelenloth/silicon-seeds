@@ -3,6 +3,7 @@ import {
   clearDraft,
   loadDraft,
   mergeInitial,
+  resolveInitialValues,
   saveDraft,
   setPrefill,
   takePrefill,
@@ -67,5 +68,67 @@ describe("form-state", () => {
       { prompt: "a fox", extra: "nope", fps: undefined },
     );
     expect(out).toEqual({ prompt: "a fox", resolution: "480p", fps: "16" });
+  });
+  test("resolveInitialValues: precedence base < defaults < draft < prefill < query", () => {
+    const base = {
+      prompt: "",
+      resolution: "480p",
+      image_model: "m1",
+      style_preset: "none",
+      batch_size: "1",
+    };
+    const defaults = {
+      resolution: "1080p",
+      image_model: "m2",
+      style_preset: "watercolor",
+    };
+    const draft = {
+      prompt: "from draft",
+      image_model: "m3",
+      unknown_key: "ignored",
+    };
+    const prefill = {
+      prompt: "from prefill",
+      style_preset: "noir",
+    };
+    const query = {
+      prompt: "from query",
+    };
+    expect(
+      resolveInitialValues({ base, defaults, draft, prefill, query }),
+    ).toEqual({
+      prompt: "from query",
+      resolution: "1080p",
+      image_model: "m3",
+      style_preset: "noir",
+      batch_size: "1",
+    });
+  });
+  test("resolveInitialValues: draft with only a prompt + newer default resolution -> new resolution wins", () => {
+    const base = {
+      prompt: "",
+      resolution: "720p",
+      image_model: "z-image-turbo",
+      style_preset: "none",
+      batch_size: "1",
+    };
+    const defaults = {
+      resolution: "1080p",
+      image_model: "z-image-turbo",
+      style_preset: "none",
+    };
+    const draft = { prompt: "only prompt was touched" };
+    const out = resolveInitialValues({ base, defaults, draft });
+    expect(out.prompt).toBe("only prompt was touched");
+    expect(out.resolution).toBe("1080p");
+  });
+  test("resolveInitialValues: unknown keys in a stored draft are ignored", () => {
+    const base = { prompt: "", resolution: "720p" };
+    const out = resolveInitialValues({
+      base,
+      draft: { prompt: "ok", bogus: "123", __proto__: "bad" },
+    });
+    expect(out).toEqual({ prompt: "ok", resolution: "720p" });
+    expect(Object.keys(out)).toEqual(["prompt", "resolution"]);
   });
 });

@@ -10,7 +10,10 @@ export type SubmitBarProps = {
 
 export function SubmitBar(props: SubmitBarProps) {
   return (
-    <div class="sticky bottom-0 z-10 -mx-4 -mb-4 border-t border-base-300 bg-base-200/90 px-4 py-3 backdrop-blur lg:-mx-6 lg:-mb-6 lg:px-6">
+    <div
+      id="submit-bar"
+      class="sticky bottom-0 z-10 -mx-4 -mb-4 border-t border-base-300 bg-base-200/90 px-4 py-3 backdrop-blur lg:-mx-6 lg:-mb-6 lg:px-6 xl:mr-0"
+    >
       <Show when={props.formError}>
         <div
           role="alert"

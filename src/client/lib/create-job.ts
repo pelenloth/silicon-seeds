@@ -104,16 +104,202 @@ export function toFormData(values: Record<string, string>): FormData {
   return fd;
 }
 
+export type RequiredRule<K extends string = string> = {
+  field: K;
+  message: string;
+};
+
+export type MaxLengthRule<K extends string = string> = {
+  field: K;
+  max: number;
+  label?: string;
+};
+
+export type NumericRangeRule<K extends string = string> = {
+  field: K;
+  min: number;
+  max: number;
+  integer?: boolean;
+  label?: string;
+};
+
+export type CreateValidationRules<K extends string = string> = {
+  required?: readonly RequiredRule<K>[];
+  maxLengths?: readonly MaxLengthRule<K>[];
+  ranges?: readonly NumericRangeRule<K>[];
+  loras?: readonly { name: string; strength: number }[];
+};
+
+export function validateCreateFields<T extends Record<string, string>>(
+  values: T,
+  rules: CreateValidationRules<keyof T & string>,
+): { errors: Record<string, string>; firstInvalid: string | null } {
+  const errors: Record<string, string> = {};
+  let firstInvalid: string | null = null;
+  const mark = (field: string, msg: string) => {
+    if (!Object.hasOwn(errors, field)) {
+      errors[field] = msg;
+      if (!firstInvalid) firstInvalid = field;
+    }
+  };
+
+  if (rules.required) {
+    for (const req of rules.required) {
+      const val = values[req.field] ?? "";
+      if (!val.trim()) {
+        mark(req.field, req.message);
+      }
+    }
+  }
+
+  if (rules.maxLengths) {
+    for (const ml of rules.maxLengths) {
+      const val = values[ml.field] ?? "";
+      if (val.length > ml.max) {
+        const label = ml.label ?? ml.field;
+        mark(ml.field, `${label} must be at most ${ml.max} characters`);
+      }
+    }
+  }
+
+  if (rules.ranges) {
+    for (const rng of rules.ranges) {
+      const raw = (values[rng.field] ?? "").trim();
+      if (!raw) continue;
+      const num = Number(raw);
+      const label = rng.label ?? rng.field;
+      if (
+        !Number.isFinite(num) ||
+        num < rng.min ||
+        num > rng.max ||
+        (rng.integer && !Number.isInteger(num))
+      ) {
+        mark(rng.field, `${label} must be between ${rng.min} and ${rng.max}`);
+      }
+    }
+  }
+
+  if (rules.loras) {
+    for (let i = 0; i < rules.loras.length; i++) {
+      const item = rules.loras[i];
+      if (
+        !item ||
+        typeof item.strength !== "number" ||
+        !Number.isFinite(item.strength) ||
+        item.strength < 0.1 ||
+        item.strength > 2
+      ) {
+        mark(
+          `loras.${i}.strength`,
+          "LoRA strength must be between 0.1 and 2.0",
+        );
+        mark("loras", "LoRA strength must be between 0.1 and 2.0");
+      }
+    }
+  }
+
+  return { errors, firstInvalid };
+}
+
+function humanizeFieldKey(key: string): string {
+  if (/^loras\.\d+\.strength$/.test(key) || key.startsWith("loras.")) {
+    return "LoRAs";
+  }
+  const clean = key.replace(/_/g, " ").trim();
+  if (!clean) return "Field";
+  return clean.charAt(0).toUpperCase() + clean.slice(1);
+}
+
+export function mapServerErrors(
+  message: string,
+  fields: Record<string, string> | undefined,
+  opts: {
+    knownFields: readonly string[];
+    labels?: Readonly<Record<string, string>>;
+  },
+): {
+  fieldErrors: Record<string, string>;
+  formError: string | null;
+  firstField: string | null;
+} {
+  const known = new Set(opts.knownFields);
+  const labels = opts.labels ?? {};
+  const fieldErrors: Record<string, string> = {};
+  const unownedParts: string[] = [];
+  let firstField: string | null = null;
+
+  if (fields && Object.keys(fields).length > 0) {
+    for (const [rawKey, msg] of Object.entries(fields)) {
+      if (!msg) continue;
+      const isLoraPath =
+        rawKey === "loras" ||
+        rawKey.startsWith("loras.") ||
+        /^loras\[\d+\]/.test(rawKey);
+      if (isLoraPath && known.has("loras")) {
+        fieldErrors[rawKey] = msg;
+        if (!Object.hasOwn(fieldErrors, "loras")) {
+          fieldErrors.loras = msg;
+        }
+        if (!firstField) firstField = "loras";
+      } else if (known.has(rawKey)) {
+        fieldErrors[rawKey] = msg;
+        if (!firstField) firstField = rawKey;
+      } else {
+        const label = labels[rawKey] ?? humanizeFieldKey(rawKey);
+        unownedParts.push(`${label}: ${msg}`);
+      }
+    }
+  }
+
+  if (unownedParts.length > 0) {
+    return {
+      fieldErrors,
+      formError: unownedParts.join(" · "),
+      firstField,
+    };
+  }
+
+  const ownedMessages = Object.values(fieldErrors);
+  const formError =
+    ownedMessages.length > 0 && ownedMessages.includes(message)
+      ? null
+      : Object.keys(fieldErrors).length > 0
+        ? null
+        : message;
+
+  return {
+    fieldErrors,
+    formError,
+    firstField,
+  };
+}
+
+export const CREATE_REQUEST_TIMEOUT_MS = 120_000;
+export const CREATE_TIMEOUT_MESSAGE =
+  "The server did not answer. Check Jobs before trying again.";
+
 export async function submitCreateJob(
   kind: CreateKind,
   body: FormData | Record<string, string>,
+  opts?: { timeoutMs?: number },
 ): Promise<{ jobId: string }> {
   const fd = body instanceof FormData ? body : toFormData(body);
-  const res = await apiSend<{ jobId?: string }>(
-    "POST",
-    CREATE_KINDS[kind].endpoint,
-    fd,
-  );
+  const timeoutMs = opts?.timeoutMs ?? CREATE_REQUEST_TIMEOUT_MS;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new ApiError(504, CREATE_TIMEOUT_MESSAGE));
+    }, timeoutMs);
+  });
+  let res: { jobId?: string } | undefined;
+  try {
+    res = await Promise.race([
+      apiSend<{ jobId?: string }>("POST", CREATE_KINDS[kind].endpoint, fd),
+      timeoutPromise,
+    ]);
+  } finally {
+    if (timer !== null) clearTimeout(timer);
+  }
   if (!res || typeof res.jobId !== "string" || !res.jobId) {
     throw new ApiError(500, "The server did not return a job id");
   }

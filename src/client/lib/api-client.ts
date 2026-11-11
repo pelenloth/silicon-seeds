@@ -244,9 +244,14 @@ export type EventRow = {
 };
 
 export function getAssetPath(subfolder: string, filename: string): string {
-  const clean = subfolder.endsWith("/") ? subfolder.slice(0, -1) : subfolder;
-  if (!clean || clean.trim() === "") return `/assets/${filename}`;
-  return `/assets/${clean}/${filename}`;
+  const segments = [
+    ...subfolder
+      .split("/")
+      .map((s) => s.trim())
+      .filter(Boolean),
+    filename,
+  ];
+  return `/assets/${segments.map(encodeURIComponent).join("/")}`;
 }
 
 export function mediaUrl(item: MediaItem): string {

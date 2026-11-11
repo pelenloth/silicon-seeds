@@ -1,6 +1,7 @@
 import { createSignal, Match, onCleanup, Show, Switch } from "solid-js";
 import type { EnhanceKind } from "../../../prompts/enhance-prompts";
 import { ApiError, apiSend } from "../../lib/api-client";
+import { toast } from "../../stores/toast";
 import { Icons } from "../Icons";
 
 export type PromptFieldProps = {
@@ -34,7 +35,8 @@ export function PromptField(props: PromptFieldProps) {
 
   const enhance = async () => {
     if (!props.enhanceKind || busy()) return;
-    const sourceText = undoText() ?? props.value;
+    const sentFieldValue = props.value;
+    const sourceText = undoText() ?? sentFieldValue;
     setEnhanceError(null);
     setBusy(true);
     abortCtrl?.abort();
@@ -58,9 +60,20 @@ export function PromptField(props: PromptFieldProps) {
         { signal: ctrl.signal },
       );
       if (disposed || abortCtrl !== ctrl) return;
-      const next = res?.enhanced?.trim();
-      if (!next) {
+      const rawNext = res?.enhanced?.trim();
+      if (!rawNext) {
         throw new ApiError(500, "Empty response from the server");
+      }
+      if (props.value !== sentFieldValue) {
+        toast.info("Kept your edits. Run Enhance again to use the new text.");
+        return;
+      }
+      let next = rawNext;
+      if (props.maxLength && next.length > props.maxLength) {
+        next = next.slice(0, props.maxLength);
+        toast.warning(
+          `Enhanced text was trimmed to ${props.maxLength} characters.`,
+        );
       }
       setUndoText(sourceText);
       props.onInput(next);
@@ -93,6 +106,8 @@ export function PromptField(props: PromptFieldProps) {
     props.onInput(prev);
   };
 
+  const actionLabel = () => (props.value.trim() ? "Enhance" : "Inspire");
+
   return (
     <div classList={{ panel: !props.bare }} class="flex flex-col">
       <div
@@ -111,6 +126,7 @@ export function PromptField(props: PromptFieldProps) {
           <button
             type="button"
             class="btn btn-ghost btn-xs gap-1"
+            aria-label={`${props.label}: ${actionLabel()}`}
             disabled={busy()}
             onClick={() => void enhance()}
           >
@@ -120,7 +136,7 @@ export function PromptField(props: PromptFieldProps) {
             >
               <span class="loading loading-spinner loading-xs" />
             </Show>
-            {props.value.trim() ? "Enhance" : "Inspire"}
+            {actionLabel()}
           </button>
         </Show>
       </div>
@@ -131,6 +147,8 @@ export function PromptField(props: PromptFieldProps) {
         maxLength={props.maxLength}
         placeholder={props.placeholder}
         value={props.value}
+        required={props.required}
+        aria-required={props.required ? "true" : undefined}
         onInput={(e) => {
           setUndoText(null);
           setEnhanceError(null);

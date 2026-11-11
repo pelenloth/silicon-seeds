@@ -161,3 +161,288 @@ test("create image: blockGeneration blocks unstubbed generation and enhance requ
 
   expect(guard.calls().length).toBeGreaterThanOrEqual(2);
 });
+
+test("create image: Ctrl+Enter in prompt submits once; Enter alone does not submit", async ({
+  page,
+}) => {
+  let submitCount = 0;
+  await page.route("**/api/jobs/images", async (route) => {
+    submitCount++;
+    await route.fulfill({
+      status: 400,
+      contentType: "application/json",
+      body: JSON.stringify({
+        error: "Stubbed submit check",
+        fields: { prompt: "Stubbed submit check" },
+      }),
+    });
+  });
+
+  await page.goto("/create/image");
+  const prompt = page.locator('textarea[name="prompt"]');
+  await expect(prompt).toBeVisible({ timeout: 10000 });
+  await prompt.fill("first line");
+  await prompt.focus();
+
+  await page.keyboard.press("Enter");
+  await prompt.pressSequentially("second line");
+  expect(submitCount).toBe(0);
+
+  await prompt.press("Control+Enter");
+  await expect(page.getByText("Stubbed submit check")).toBeVisible();
+  expect(submitCount).toBe(1);
+});
+
+test("create image: two fast clicks on Generate send only one request", async ({
+  page,
+}) => {
+  let submitCount = 0;
+  await page.route("**/api/jobs/images", async (route) => {
+    submitCount++;
+    await new Promise((r) => setTimeout(r, 500));
+    await route.fulfill({
+      status: 400,
+      contentType: "application/json",
+      body: JSON.stringify({
+        error: "Stubbed double click check",
+      }),
+    });
+  });
+
+  await page.goto("/create/image");
+  const prompt = page.locator('textarea[name="prompt"]');
+  await expect(prompt).toBeVisible({ timeout: 10000 });
+  await prompt.fill("double click test");
+
+  await page.evaluate(() => {
+    const btn = document.getElementById("submit-btn") as HTMLButtonElement;
+    btn.click();
+    btn.click();
+  });
+
+  await expect(page.getByText("Stubbed double click check")).toBeVisible();
+  expect(submitCount).toBe(1);
+});
+
+test("create image: 400 naming batch_size or collapsed field shows error and opens collapsed section", async ({
+  page,
+}) => {
+  let mode: "batch" | "advanced" = "batch";
+  await page.route("**/api/jobs/images", async (route) => {
+    if (mode === "batch") {
+      await route.fulfill({
+        status: 400,
+        contentType: "application/json",
+        body: JSON.stringify({
+          error: "Too big: expected number to be <=16",
+          fields: { batch_size: "Too big: expected number to be <=16" },
+        }),
+      });
+    } else {
+      await route.fulfill({
+        status: 400,
+        contentType: "application/json",
+        body: JSON.stringify({
+          error: "Unsupported model",
+          fields: { image_model: "Unsupported model" },
+        }),
+      });
+    }
+  });
+
+  await page.goto("/create/image");
+  const prompt = page.locator('textarea[name="prompt"]');
+  await expect(prompt).toBeVisible({ timeout: 10000 });
+  await prompt.fill("testing 400 field errors");
+
+  await page.locator("#submit-btn").click();
+  await expect(
+    page.getByText("Too big: expected number to be <=16"),
+  ).toBeVisible();
+
+  mode = "advanced";
+  await expect(page.locator('select[name="image_model"]')).not.toBeVisible();
+  await page.locator("#submit-btn").click();
+  await expect(page.locator('select[name="image_model"]')).toBeVisible();
+  await expect(page.getByText("Unsupported model")).toBeVisible();
+});
+
+test("create image: Enhance replaces untouched text with Undo, and preserves edits typed while in flight", async ({
+  page,
+}) => {
+  await page.route("**/api/enhance**", async (route) => {
+    await new Promise((r) => setTimeout(r, 400));
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ enhanced: "enhanced masterpiece prompt" }),
+    });
+  });
+
+  await page.goto("/create/image");
+  const prompt = page.locator('textarea[name="prompt"]');
+  await expect(prompt).toBeVisible({ timeout: 10000 });
+
+  // (a) untouched text is replaced and Undo restores it
+  await prompt.fill("original fox");
+  const enhanceBtn = page.getByRole("button", { name: "Prompt: Enhance" });
+  await enhanceBtn.click();
+  await expect(prompt).toHaveValue("enhanced masterpiece prompt");
+  await page.getByRole("button", { name: "Undo" }).click();
+  await expect(prompt).toHaveValue("original fox");
+
+  // (b) text typed during the request is kept and the info toast appears
+  await enhanceBtn.click();
+  await prompt.fill("original fox edited while waiting");
+  await expect(
+    page.getByText("Kept your edits. Run Enhance again to use the new text."),
+  ).toBeVisible();
+  await expect(prompt).toHaveValue("original fox edited while waiting");
+});
+
+test("create image: Generate again right after loading /create/image?job_id=<id> is not a no-op", async ({
+  page,
+  request,
+}) => {
+  const { jobs } = (await (await request.get("/api/jobs")).json()) as {
+    jobs: { id: string; name: string; kind: string; status: string }[];
+  };
+  const job = jobs.find((j) => j.kind === "image" && j.status === "complete");
+  test.skip(!job, "no completed image job in this database");
+
+  await page.goto(`/create/image?job_id=${job!.id}`);
+  const panel = page.locator("#result-panel");
+  const genAgain = panel.getByRole("button", { name: "Generate again" });
+  await expect(genAgain).toBeVisible({ timeout: 10000 });
+
+  await genAgain.click();
+  await expect(page.getByText("Prompt is required")).toBeVisible();
+});
+
+test("create image: stubbed create response shows job, and switching to a second job clears first job tiles immediately", async ({
+  page,
+  request,
+}) => {
+  const { jobs } = (await (await request.get("/api/jobs")).json()) as {
+    jobs: { id: string; name: string; kind: string; status: string }[];
+  };
+  const completedImageJobs = jobs.filter(
+    (j) => j.kind === "image" && j.status === "complete",
+  );
+  test.skip(
+    completedImageJobs.length === 0,
+    "no completed image job in this database",
+  );
+
+  const firstJob = completedImageJobs[0]!;
+  const secondJobId = "stub-second-job-id";
+  let nextCreateId = firstJob.id;
+
+  await page.route("**/api/jobs/images", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ jobId: nextCreateId, message: "job queued" }),
+    });
+  });
+
+  await page.route(`**/api/jobs/${secondJobId}/media**`, async (route) => {
+    await new Promise((r) => setTimeout(r, 800));
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: [
+          {
+            filename: "second-job-img.png",
+            subfolder: "",
+            mediaType: "image",
+            job_name: "Second Stub Job",
+          },
+        ],
+      }),
+    });
+  });
+
+  await page.route(`**/api/jobs/${secondJobId}`, async (route) => {
+    await new Promise((r) => setTimeout(r, 800));
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        job: {
+          id: secondJobId,
+          name: "Second Stub Job",
+          status: "complete",
+          created_at: new Date().toISOString(),
+          kind: "image",
+          progress: {
+            total: 1,
+            complete: 1,
+            running: 0,
+            pending: 0,
+            failed: 0,
+          },
+          thumb: null,
+        },
+        events: [],
+      }),
+    });
+  });
+
+  await page.goto("/create/image");
+  const prompt = page.locator('textarea[name="prompt"]');
+  await expect(prompt).toBeVisible({ timeout: 10000 });
+  await prompt.fill("first stubbed create");
+  await page.locator("#submit-btn").click();
+
+  const panel = page.locator("#result-panel");
+  await expect(panel).toContainText(firstJob.name, { timeout: 10000 });
+  const firstTiles = panel.locator("button[aria-label^='Open ']");
+  await expect(firstTiles.first()).toBeVisible();
+
+  nextCreateId = secondJobId;
+  await page.locator("#submit-btn").click();
+
+  // While secondJobId detail/media are still delayed, firstJob's tiles must already be gone
+  await expect(firstTiles).toHaveCount(0);
+  await expect(panel).toContainText("Second Stub Job", { timeout: 5000 });
+  await expect(firstTiles).toHaveCount(1);
+});
+
+test("create image: focused last control in Advanced does not intersect sticky submit bar at 390x844 and 1280x800", async ({
+  page,
+}) => {
+  for (const size of [
+    { width: 390, height: 844 },
+    { width: 1280, height: 800 },
+  ]) {
+    await page.setViewportSize(size);
+    await page.goto("/create/image");
+    const prompt = page.locator('textarea[name="prompt"]');
+    await expect(prompt).toBeVisible({ timeout: 10000 });
+
+    const advSummary = page.locator("summary", { hasText: "Advanced" });
+    const details = page.locator("details", { has: advSummary });
+    if (!(await details.evaluate((el: HTMLDetailsElement) => el.open))) {
+      await advSummary.click();
+    }
+    const modelSelect = page.locator('select[name="image_model"]');
+    await expect(modelSelect).toBeVisible();
+    await advSummary.focus();
+    await page.keyboard.press("Tab");
+    await expect(modelSelect).toBeFocused();
+
+    const modelBox = await modelSelect.boundingBox();
+    const barBox = await page.locator("#submit-bar").boundingBox();
+    expect(modelBox).not.toBeNull();
+    expect(barBox).not.toBeNull();
+    // Bounding boxes must not overlap vertically when they overlap horizontally
+    const horizOverlap =
+      modelBox!.x < barBox!.x + barBox!.width &&
+      modelBox!.x + modelBox!.width > barBox!.x;
+    if (horizOverlap) {
+      expect(modelBox!.y + modelBox!.height).toBeLessThanOrEqual(barBox!.y + 1);
+    }
+  }
+});

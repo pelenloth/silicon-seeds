@@ -103,3 +103,19 @@ export function mergeInitial<T extends Record<string, string>>(
   }
   return out as T;
 }
+
+export function resolveInitialValues<T extends Record<string, string>>(opts: {
+  base: T;
+  defaults?: Record<string, string | undefined> | null;
+  draft?: Record<string, string | undefined> | null;
+  prefill?: Record<string, string | undefined> | null;
+  query?: Record<string, string | undefined> | null;
+}): T {
+  return mergeInitial(
+    opts.base,
+    opts.defaults,
+    opts.draft,
+    opts.prefill,
+    opts.query,
+  );
+}

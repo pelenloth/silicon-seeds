@@ -3,9 +3,11 @@ import { ApiError } from "./api-client";
 import {
   AUDIO_DEFAULTS,
   CREATE_KINDS,
+  mapServerErrors,
   quickCreateValues,
   submitCreateJob,
   toFormData,
+  validateCreateFields,
 } from "./create-job";
 import { FALLBACK_DEFAULTS } from "./defaults";
 
@@ -133,5 +135,94 @@ describe("submitCreateJob", () => {
     const err = await submitCreateJob("image", { prompt: "x" }).catch((e) => e);
     expect(err).toBeInstanceOf(ApiError);
     expect(err.message).toBe("The server did not return a job id");
+  });
+  test("times out when the server does not answer in time", async () => {
+    globalThis.fetch = (() => new Promise(() => {})) as unknown as typeof fetch;
+    const err = await submitCreateJob(
+      "image",
+      { prompt: "slow" },
+      { timeoutMs: 20 },
+    ).catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.message).toBe(
+      "The server did not answer. Check Jobs before trying again.",
+    );
+  });
+});
+
+describe("validateCreateFields", () => {
+  test("checks required fields, max lengths and numeric ranges", () => {
+    const res1 = validateCreateFields(
+      { prompt: "   ", style_guide: "a".repeat(2005), batch_size: "20" },
+      {
+        required: [{ field: "prompt", message: "Prompt is required" }],
+        maxLengths: [{ field: "style_guide", max: 2000, label: "Style guide" }],
+        ranges: [{ field: "batch_size", min: 1, max: 16, label: "Images" }],
+      },
+    );
+    expect(res1.firstInvalid).toBe("prompt");
+    expect(res1.errors.prompt).toBe("Prompt is required");
+    expect(res1.errors.style_guide).toContain("2000");
+    expect(res1.errors.batch_size).toContain("16");
+
+    const res2 = validateCreateFields(
+      { prompt: "valid", style_guide: "short", batch_size: "4" },
+      {
+        required: [{ field: "prompt", message: "Prompt is required" }],
+        maxLengths: [{ field: "style_guide", max: 2000, label: "Style guide" }],
+        ranges: [{ field: "batch_size", min: 1, max: 16, label: "Images" }],
+      },
+    );
+    expect(res2.firstInvalid).toBeNull();
+    expect(res2.errors).toEqual({});
+  });
+});
+
+describe("mapServerErrors", () => {
+  test("maps known fields, normalizes loras.N.strength to loras, and puts unowned fields into formError with labels", () => {
+    const out1 = mapServerErrors(
+      "Validation failed",
+      {
+        batch_size: "Too big",
+        "loras.1.strength": "Number must be less than or equal to 2",
+      },
+      {
+        knownFields: [
+          "prompt",
+          "style_guide",
+          "style_preset",
+          "resolution",
+          "batch_size",
+          "image_model",
+          "loras",
+        ],
+        labels: {
+          batch_size: "Images",
+          loras: "LoRAs",
+        },
+      },
+    );
+    expect(out1.fieldErrors).toEqual({
+      batch_size: "Too big",
+      loras: "Number must be less than or equal to 2",
+      "loras.1.strength": "Number must be less than or equal to 2",
+    });
+    expect(out1.formError).toBeNull();
+    expect(out1.firstField).toBe("batch_size");
+  });
+
+  test("lists unowned field errors in formError as <label>: <message>", () => {
+    const out2 = mapServerErrors(
+      "Invalid value",
+      {
+        unknown_param: "Must be positive",
+      },
+      {
+        knownFields: ["prompt"],
+        labels: { unknown_param: "Unknown Param" },
+      },
+    );
+    expect(out2.fieldErrors).toEqual({});
+    expect(out2.formError).toBe("Unknown Param: Must be positive");
   });
 });
