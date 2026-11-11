@@ -99,3 +99,10 @@ export function toGenerationDefaults(
     video_model: videoModel,
   };
 }
+
+export function labelOf(
+  options: readonly { value: string; label: string }[],
+  value: string,
+): string {
+  return options.find((o) => o.value === value)?.label ?? value;
+}
