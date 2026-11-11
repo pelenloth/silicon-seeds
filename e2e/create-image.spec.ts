@@ -1,4 +1,9 @@
 import { expect, test } from "@playwright/test";
+import { blockGeneration } from "./helpers/no-generation";
+
+test.beforeEach(async ({ page }) => {
+  await blockGeneration(page);
+});
 
 test("create image: saved defaults, controls, validation, draft, reset (no generation)", async ({
   page,
@@ -125,4 +130,34 @@ test("create image: result panel shows Starting your job while create request is
   });
   await expect(panel.getByText("Your images appear here")).toBeVisible();
   await page.unroute("**/api/jobs/images");
+});
+
+test("create image: blockGeneration blocks unstubbed generation and enhance requests with 503", async ({
+  page,
+}) => {
+  const guard = await blockGeneration(page);
+  await page.goto("/create/image");
+  await expect(page.locator('textarea[name="prompt"]')).toBeVisible({
+    timeout: 10000,
+  });
+
+  const resJobs = await page.evaluate(async () => {
+    const r = await fetch("/api/jobs/images", { method: "POST" });
+    return { status: r.status, body: await r.json() };
+  });
+  expect(resJobs).toEqual({
+    status: 503,
+    body: { error: "blocked by test" },
+  });
+
+  const resEnhance = await page.evaluate(async () => {
+    const r = await fetch("/api/enhance?prompt=hi");
+    return { status: r.status, body: await r.json() };
+  });
+  expect(resEnhance).toEqual({
+    status: 503,
+    body: { error: "blocked by test" },
+  });
+
+  expect(guard.calls().length).toBeGreaterThanOrEqual(2);
 });
