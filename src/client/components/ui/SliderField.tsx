@@ -11,11 +11,16 @@ export type SliderFieldProps = {
   onInput: (n: number) => void;
   format?: (n: number) => string;
   hint?: string;
+  error?: string;
 };
 
 export function SliderField(props: SliderFieldProps) {
   const uid = createUniqueId();
   const id = () => props.id ?? uid;
+  const hintId = () => `${id()}-hint`;
+  const errorId = () => `${id()}-error`;
+  const describedBy = () =>
+    props.error ? errorId() : props.hint ? hintId() : undefined;
 
   return (
     <div class="flex flex-col gap-1">
@@ -35,11 +40,24 @@ export function SliderField(props: SliderFieldProps) {
         max={props.max}
         step={props.step ?? 1}
         value={props.value}
+        aria-describedby={describedBy()}
+        aria-invalid={props.error ? "true" : undefined}
         onInput={(e) => props.onInput(Number(e.currentTarget.value))}
         class="range range-primary range-xs w-full"
       />
-      <Show when={props.hint}>
-        <p class="text-xs text-base-content/50">{props.hint}</p>
+      <Show
+        when={props.error}
+        fallback={
+          <Show when={props.hint}>
+            <p id={hintId()} class="text-xs text-base-content/50">
+              {props.hint}
+            </p>
+          </Show>
+        }
+      >
+        <p id={errorId()} class="text-xs text-error" role="alert">
+          {props.error}
+        </p>
       </Show>
     </div>
   );

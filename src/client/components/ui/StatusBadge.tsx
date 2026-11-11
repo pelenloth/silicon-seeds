@@ -14,11 +14,11 @@ export type StatusBadgeProps = {
 };
 
 const TONE_CLASS: Record<Tone, string> = {
-  neutral: "badge-neutral",
-  info: "badge-info",
-  success: "badge-success",
-  warning: "badge-warning",
-  error: "badge-error",
+  neutral: "badge-ghost",
+  info: "badge-soft badge-info",
+  success: "badge-soft badge-success",
+  warning: "badge-soft badge-warning",
+  error: "badge-soft badge-error",
 };
 
 export function StatusBadge(props: StatusBadgeProps) {
@@ -29,7 +29,7 @@ export function StatusBadge(props: StatusBadgeProps) {
 
   return (
     <span
-      class={`badge badge-soft ${props.size === "md" ? "badge-md" : "badge-sm"} gap-1 ${TONE_CLASS[meta().tone]}`}
+      class={`badge ${props.size === "md" ? "badge-md" : "badge-sm"} gap-1 ${TONE_CLASS[meta().tone]}`}
     >
       <Show when={meta().label === "Running"}>
         <span class="loading loading-spinner loading-xs" />

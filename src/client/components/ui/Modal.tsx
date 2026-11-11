@@ -12,6 +12,7 @@ export type ModalProps = {
 export function Modal(props: ModalProps) {
   const titleId = createUniqueId();
   let ref!: HTMLDialogElement;
+  let closingProgrammatically = false;
 
   createEffect(() => {
     if (!ref) return;
@@ -21,6 +22,7 @@ export function Modal(props: ModalProps) {
       }
     } else {
       if (ref.open) {
+        closingProgrammatically = true;
         ref.close();
       }
     }
@@ -31,7 +33,13 @@ export function Modal(props: ModalProps) {
       ref={ref}
       class="modal"
       aria-labelledby={titleId}
-      onClose={() => props.onClose()}
+      onClose={() => {
+        if (closingProgrammatically) {
+          closingProgrammatically = false;
+          return;
+        }
+        props.onClose();
+      }}
     >
       <div
         class={`modal-box ${props.size === "lg" ? "max-w-2xl" : "max-w-md"}`}

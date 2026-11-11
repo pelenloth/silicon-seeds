@@ -1,4 +1,5 @@
 import { createSignal, onCleanup, Show } from "solid-js";
+import { toast } from "../../stores/toast";
 import { Icons } from "../Icons";
 
 export type CopyButtonProps = {
@@ -6,6 +7,24 @@ export type CopyButtonProps = {
   label?: string;
   class?: string;
 };
+
+function fallbackCopy(text: string): boolean {
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.setAttribute("readonly", "");
+  ta.style.position = "fixed";
+  ta.style.left = "-9999px";
+  ta.style.top = "0";
+  document.body.appendChild(ta);
+  try {
+    ta.select();
+    return document.execCommand("copy");
+  } catch {
+    return false;
+  } finally {
+    ta.remove();
+  }
+}
 
 export function CopyButton(props: CopyButtonProps) {
   const [copied, setCopied] = createSignal(false);
@@ -16,12 +35,25 @@ export function CopyButton(props: CopyButtonProps) {
   });
 
   const handleCopy = async () => {
-    try {
-      await navigator.clipboard?.writeText(props.text);
+    let ok = false;
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(props.text);
+        ok = true;
+      } catch {
+        ok = fallbackCopy(props.text);
+      }
+    } else {
+      ok = fallbackCopy(props.text);
+    }
+
+    if (ok) {
       setCopied(true);
       if (timer !== undefined) clearTimeout(timer);
       timer = setTimeout(() => setCopied(false), 1500);
-    } catch {}
+    } else {
+      toast.error("Could not copy to the clipboard");
+    }
   };
 
   return (

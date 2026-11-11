@@ -1,5 +1,4 @@
-import { createUniqueId, For } from "solid-js";
-import { Field } from "./Field";
+import { createUniqueId, For, Show } from "solid-js";
 
 export type SelectFieldProps = {
   label: string;
@@ -15,14 +14,23 @@ export type SelectFieldProps = {
 export function SelectField(props: SelectFieldProps) {
   const uid = createUniqueId();
   const id = () => props.id ?? uid;
+  const hintId = () => `${id()}-hint`;
+  const errorId = () => `${id()}-error`;
+  const describedBy = () =>
+    props.error ? errorId() : props.hint ? hintId() : undefined;
 
   return (
-    <Field label={props.label} for={id()} hint={props.hint} error={props.error}>
+    <div class="flex flex-col gap-1">
+      <label for={id()} class="text-xs font-medium text-base-content/70">
+        {props.label}
+      </label>
       <select
         class="select select-sm w-full"
         name={props.name}
         id={id()}
         value={props.value}
+        aria-describedby={describedBy()}
+        aria-invalid={props.error ? "true" : undefined}
         onChange={(e) => props.onChange(e.currentTarget.value)}
       >
         <For each={props.options}>
@@ -37,7 +45,21 @@ export function SelectField(props: SelectFieldProps) {
           )}
         </For>
       </select>
-    </Field>
+      <Show
+        when={props.error}
+        fallback={
+          <Show when={props.hint}>
+            <p id={hintId()} class="text-xs text-base-content/50">
+              {props.hint}
+            </p>
+          </Show>
+        }
+      >
+        <p id={errorId()} class="text-xs text-error" role="alert">
+          {props.error}
+        </p>
+      </Show>
+    </div>
   );
 }
 

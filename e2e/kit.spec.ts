@@ -43,3 +43,18 @@ test("ui kit: toast, confirm, modal, segmented, slider, lightbox", async ({
   await expect(page.getByText("Running").first()).toBeVisible();
   await expect(page.getByText("Nothing here yet")).toBeVisible();
 });
+
+test("ui kit: back-to-back confirm dialog stays open after first closes", async ({
+  page,
+}) => {
+  await page.goto("/dev/kit");
+  const askBtn = page.getByRole("button", { name: "Ask to confirm" });
+  const confirm = page.getByRole("dialog", { name: "Delete this?" });
+
+  await askBtn.click();
+  await expect(confirm).toBeVisible();
+  await confirm.getByRole("button", { name: "Delete" }).click();
+  await askBtn.click();
+  await page.waitForTimeout(300);
+  await expect(confirm).toBeVisible();
+});
