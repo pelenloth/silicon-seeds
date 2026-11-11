@@ -62,7 +62,7 @@ export function createThumbService(deps: ThumbServiceDeps): {
     sweptTmp = true;
     try {
       const entries = await readdir(deps.cacheDir);
-      const cutoff = now() - STALE_TMP_AGE_MS;
+      const cutoff = Date.now() - STALE_TMP_AGE_MS;
       for (const name of entries) {
         if (!name.endsWith(".tmp.jpg")) continue;
         const full = path.join(deps.cacheDir, name);
@@ -134,26 +134,27 @@ export function createThumbService(deps: ThumbServiceDeps): {
     out: string,
     width: ThumbWidth,
     kind: "image" | "video",
-  ): Promise<boolean> {
+  ): Promise<"ok" | "failed" | "env-failed"> {
     try {
       await ensureCacheDir();
     } catch (err) {
       try {
         Logger.warn(`[Thumbs] failed to create cache dir: ${String(err)}`);
       } catch {}
-      return false;
+      return "env-failed";
     }
 
     await sweepStaleTmpOnce();
 
     try {
       const existing = await fsStat(out);
-      if (existing.isFile() && existing.size > 0) return true;
+      if (existing.isFile() && existing.size > 0) return "ok";
     } catch {}
 
     const tmp = `${out}.${crypto.randomUUID()}.tmp.jpg`;
     let exitCode = -1;
     let stderrText = "";
+    let timedOut = false;
 
     try {
       const proc = deps.spawn([
@@ -161,7 +162,14 @@ export function createThumbService(deps: ThumbServiceDeps): {
         ...ffmpegThumbArgs(abs, tmp, width, kind),
       ]);
       let killTimer: ReturnType<typeof setTimeout> | undefined;
+      let abandonTimer: ReturnType<typeof setTimeout> | undefined;
+      let resolveAbandon!: (res: [number, string]) => void;
+      const abandonPromise = new Promise<[number, string]>((r) => {
+        resolveAbandon = r;
+      });
+
       const termTimer = setTimeout(() => {
+        timedOut = true;
         try {
           proc.kill("SIGTERM");
         } catch {}
@@ -169,29 +177,37 @@ export function createThumbService(deps: ThumbServiceDeps): {
           try {
             proc.kill("SIGKILL");
           } catch {}
+          abandonTimer = setTimeout(() => {
+            try {
+              void proc.stderr?.cancel().catch(() => {});
+            } catch {}
+            resolveAbandon([-1, "timed out after SIGKILL"]);
+          }, killGraceMs);
         }, killGraceMs);
       }, timeoutMs);
 
       try {
-        const [code, stderr] = await Promise.all([
-          proc.exited,
-          proc.stderr
-            ? new Response(proc.stderr).text().catch(() => "")
-            : Promise.resolve(""),
+        const stderrPromise = proc.stderr
+          ? new Response(proc.stderr).text().catch(() => "")
+          : Promise.resolve("");
+        const [code, stderr] = await Promise.race([
+          Promise.all([proc.exited, stderrPromise]),
+          abandonPromise,
         ]);
         exitCode = code;
         stderrText = stderr;
       } finally {
         clearTimeout(termTimer);
         if (killTimer !== undefined) clearTimeout(killTimer);
+        if (abandonTimer !== undefined) clearTimeout(abandonTimer);
       }
 
-      if (exitCode === 0) {
+      if (!timedOut && exitCode === 0) {
         try {
           const tmpStat = await fsStat(tmp);
           if (tmpStat.isFile() && tmpStat.size > 0) {
             await rename(tmp, out);
-            return true;
+            return "ok";
           }
         } catch {}
       }
@@ -207,7 +223,7 @@ export function createThumbService(deps: ThumbServiceDeps): {
         `[Thumbs] ffmpeg failed (${exitCode}): ${stderrText.slice(0, 200)}`,
       );
     } catch {}
-    return false;
+    return "failed";
   }
 
   return {
@@ -253,11 +269,13 @@ export function createThumbService(deps: ThumbServiceDeps): {
           if (slotRes.busy) {
             return { ok: false, reason: "busy" };
           }
-          if (slotRes.value) {
+          if (slotRes.value === "ok") {
             negativeCache.delete(out);
             return { ok: true, file: out };
           }
-          recordFailure(out);
+          if (slotRes.value === "failed") {
+            recordFailure(out);
+          }
           return { ok: false, reason: "failed" };
         })().finally(() => {
           inFlight.delete(out);

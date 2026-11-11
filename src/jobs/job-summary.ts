@@ -122,3 +122,17 @@ export function pickThumb(
   }
   return firstVideo;
 }
+
+export function takePage<T>(
+  items: readonly T[],
+  offset: number,
+  limit: number,
+): { slice: T[]; hasMore: boolean } {
+  const safeOffset = Math.max(0, offset);
+  const safeLimit = Math.max(0, limit);
+  const end = safeOffset + safeLimit;
+  return {
+    slice: items.slice(safeOffset, end),
+    hasMore: items.length > end,
+  };
+}

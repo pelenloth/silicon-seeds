@@ -138,4 +138,27 @@ describe("media helpers", () => {
     expect(pickThumb([{ filename: "a.wav", subfolder: "" }])).toBeNull();
     expect(pickThumb([])).toBeNull();
   });
+  test("takePage slices items and reports hasMore when at least one item lies beyond the slice", async () => {
+    const { takePage } = await import("./job-summary");
+    expect(takePage(["a", "b", "c"], 0, 2)).toEqual({
+      slice: ["a", "b"],
+      hasMore: true,
+    });
+    expect(takePage(["a", "b"], 0, 2)).toEqual({
+      slice: ["a", "b"],
+      hasMore: false,
+    });
+    expect(takePage(["a", "b", "c", "d"], 1, 2)).toEqual({
+      slice: ["b", "c"],
+      hasMore: true,
+    });
+    expect(takePage(["a", "b", "c"], 1, 2)).toEqual({
+      slice: ["b", "c"],
+      hasMore: false,
+    });
+    expect(takePage([], 0, 12)).toEqual({
+      slice: [],
+      hasMore: false,
+    });
+  });
 });

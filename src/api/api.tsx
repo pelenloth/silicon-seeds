@@ -147,7 +147,7 @@ app.use("/assets/*", async (c) => {
   const rawRel = new URL(c.req.url).pathname.slice("/assets/".length);
   let decodedRelPath: string;
   try {
-    decodedRelPath = decodeURIComponent(rawRel);
+    decodedRelPath = decodeURIComponent(rawRel).replace(/^\/+/, "");
   } catch {
     return c.text("Not found", 404);
   }

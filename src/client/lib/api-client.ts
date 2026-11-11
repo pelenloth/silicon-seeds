@@ -210,6 +210,17 @@ export type GalleryItem = {
   mediaType: "image" | "video" | "audio" | null;
 };
 
+export type GalleryPageResponse = {
+  items: GalleryItem[];
+  next_cursor?: string | null;
+};
+
+export type JobMediaResponse = {
+  items: MediaItem[];
+  total?: number;
+  hasMore?: boolean;
+};
+
 export type EventRow = {
   id: string;
   created_at: string;

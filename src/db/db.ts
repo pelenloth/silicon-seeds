@@ -15,6 +15,7 @@ import {
 import { JobUpdates } from "../sse/job-updates";
 import { Lora } from "../styles/presets";
 import { Utils } from "../utils/utils";
+import { pickGalleryPage } from "../api/gallery-etag";
 
 export interface DbSchema {
   settings: {
@@ -1103,8 +1104,9 @@ export namespace DB {
       return getOutputAssetPath(subfolder, filename);
     }
 
-    export async function listItems(options: ListItemsOptions = {}) {
+    export async function listItemsPage(options: ListItemsOptions = {}) {
       const { cursor, type, limit = 20 } = options;
+      const scanLimit = limit * 2;
 
       let query = DB.db
         .selectFrom("meta")
@@ -1157,7 +1159,7 @@ export namespace DB {
 
       const results = await query
         .orderBy("meta.id", "desc") // UUID7 is sortable chronologically!
-        .limit(limit * 2)
+        .limit(scanLimit)
         .execute();
 
       const concurrency = 10;
@@ -1206,7 +1208,20 @@ export namespace DB {
         if (items.length >= limit) break;
       }
 
-      return items.slice(0, limit);
+      const lastScannedMetaId =
+        results.length > 0 ? results[results.length - 1].meta_id : null;
+      return pickGalleryPage({
+        limit,
+        scanLimit,
+        scannedCount: results.length,
+        lastScannedMetaId,
+        surviving: items,
+      });
+    }
+
+    export async function listItems(options: ListItemsOptions = {}) {
+      const { items } = await listItemsPage(options);
+      return items;
     }
   }
 

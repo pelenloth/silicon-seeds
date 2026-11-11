@@ -36,6 +36,7 @@ import {
   deriveJobKind,
   mediaTypeFromFilename,
   pickThumb,
+  takePage,
   type EventSig,
 } from "../../jobs/job-summary";
 
@@ -221,8 +222,10 @@ app.get("/jobs/:jobId/media", async (c) => {
   const type = c.req.query("type") as string | undefined;
   const offset = parseInt(c.req.query("offset") ?? "0", 10);
   const limit = parseInt(c.req.query("limit") ?? "12", 10);
-  const offsetVal = Number.isNaN(offset) ? 0 : offset;
-  const limitVal = Number.isNaN(limit) ? 12 : Math.min(limit, 100);
+  const offsetVal = Number.isNaN(offset) ? 0 : Math.max(0, offset);
+  const limitVal = Number.isNaN(limit)
+    ? 12
+    : Math.min(Math.max(1, limit), 1000);
   const effectiveType =
     type && type !== "all" ? (type as "image" | "video" | "audio") : undefined;
   function getOutputAssetPath(subfolder: string, filename: string) {
@@ -270,7 +273,7 @@ app.get("/jobs/:jobId/media", async (c) => {
   }
   const results = await query
     .orderBy("meta.id", "desc")
-    .limit(limitVal * 2 + offsetVal)
+    .limit(limitVal * 2 + offsetVal + 1)
     .execute();
   const items: Array<{
     meta_id: string;
@@ -304,10 +307,10 @@ app.get("/jobs/:jobId/media", async (c) => {
       job_name: row.job_name ?? null,
       mediaType,
     });
-    if (items.length >= limitVal + offsetVal) break;
+    if (items.length >= limitVal + offsetVal + 1) break;
   }
-  const slice = items.slice(offsetVal, offsetVal + limitVal);
-  return c.json({ items: slice, total: items.length });
+  const { slice, hasMore } = takePage(items, offsetVal, limitVal);
+  return c.json({ items: slice, total: items.length, hasMore });
 });
 
 app.route("/settings", settingsRoutes);
@@ -323,13 +326,17 @@ app.get("/gallery/items", async (c) => {
   const effectiveLimit = Number.isNaN(limit) ? 20 : limit;
   const effectiveType =
     type && type !== "all" ? (type as "image" | "video" | "audio") : undefined;
-  const items = await DB.Gallery.listItems({
+  const { items, nextCursor } = await DB.Gallery.listItemsPage({
     cursor,
     limit: effectiveLimit,
     type: effectiveType,
   });
   // ETag + Cache-Control for gallery (Solid client respects 304)
-  const etag = galleryEtag({ type, cursor, limit: effectiveLimit }, items);
+  const etag = galleryEtag(
+    { type, cursor, limit: effectiveLimit },
+    items,
+    nextCursor,
+  );
   const ifNoneMatch = c.req.header("If-None-Match");
   if (ifNoneMatch === etag) {
     return new Response(null, {
@@ -337,7 +344,7 @@ app.get("/gallery/items", async (c) => {
       headers: { ETag: etag, "Cache-Control": "no-cache" },
     });
   }
-  return c.json({ items }, 200, {
+  return c.json({ items, next_cursor: nextCursor }, 200, {
     "Cache-Control": "no-cache",
     ETag: etag,
   });
