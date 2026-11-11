@@ -38,7 +38,7 @@ export default function AppearanceSection() {
       >
         <For each={options()}>
           {(opt) => (
-            <label class="panel cursor-pointer overflow-hidden has-[:checked]:border-primary has-[:checked]:ring-1 has-[:checked]:ring-primary">
+            <label class="panel cursor-pointer overflow-hidden has-[:checked]:border-primary has-[:checked]:ring-1 has-[:checked]:ring-primary has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-primary">
               <input
                 type="radio"
                 name="theme"

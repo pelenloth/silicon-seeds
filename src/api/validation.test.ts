@@ -34,6 +34,11 @@ describe("formatZodIssues", () => {
       fields: {},
     });
   });
+  test("handles Object.prototype property names like toString", () => {
+    expect(
+      formatZodIssues([{ path: ["toString"], message: "Bad" }]).fields,
+    ).toEqual({ toString: "Bad" });
+  });
 });
 
 describe("validationHook", () => {

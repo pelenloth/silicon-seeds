@@ -11,7 +11,7 @@ export async function retry_job(c: Context, jobId: string) {
     const status = e.status ?? 500;
     if (status === 409) return c.json({ error: e.message }, 409);
     if (e.message?.includes("not found") || e.message?.includes("no result"))
-      return c.json({ error: "job not found" }, 404);
+      return c.json({ error: "Job not found" }, 404);
     throw e;
   }
 }

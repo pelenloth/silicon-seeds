@@ -8,7 +8,7 @@ export function formatZodIssues(
   for (const issue of issues) {
     if (issue.path.length === 0) continue;
     const key = issue.path.map(String).join(".");
-    if (!(key in fields)) {
+    if (!Object.hasOwn(fields, key)) {
       fields[key] = issue.message;
     }
   }

@@ -16,15 +16,15 @@
   --color-primary-content: #ffffff;
   --color-secondary: #64748b;
   --color-secondary-content: #ffffff;
-  --color-accent: #0d9488;
+  --color-accent: #0f766e;
   --color-accent-content: #ffffff;
   --color-neutral: #2b3040;
   --color-neutral-content: #f5f6f8;
-  --color-info: #0284c7;
+  --color-info: #0369a1;
   --color-info-content: #ffffff;
-  --color-success: #16a34a;
+  --color-success: #15803d;
   --color-success-content: #ffffff;
-  --color-warning: #d97706;
+  --color-warning: #b45309;
   --color-warning-content: #ffffff;
   --color-error: #dc2626;
   --color-error-content: #ffffff;
@@ -117,7 +117,7 @@
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: color-mix(in oklab, var(--color-base-content) 60%, transparent);
+  color: color-mix(in oklab, var(--color-base-content) 70%, transparent);
 }
 @utility page {
   padding: 1rem;

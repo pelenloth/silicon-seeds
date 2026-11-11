@@ -192,6 +192,18 @@ describe("lists and actions", () => {
       [],
     );
   });
+  test("filterJobs sorts unparsable created_at dates last", () => {
+    const mixed = [
+      job({ id: "older", created_at: "2026-01-02T00:00:00Z" }),
+      job({ id: "bad", created_at: "garbage" }),
+      job({ id: "newest", created_at: "2026-01-03T00:00:00Z" }),
+    ];
+    expect(filterJobs(mixed, {}).map((j) => j.id)).toEqual([
+      "newest",
+      "older",
+      "bad",
+    ]);
+  });
   test("countByStatus", () => {
     expect(countByStatus(jobs)).toEqual({
       all: 3,

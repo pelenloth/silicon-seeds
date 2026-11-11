@@ -311,7 +311,10 @@ export function filterJobs<
       return true;
     })
     .slice()
-    .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+    .sort(
+      (a, b) =>
+        (Date.parse(b.created_at) || 0) - (Date.parse(a.created_at) || 0),
+    );
 }
 
 export function countByStatus(jobs: readonly { status: string }[]): {

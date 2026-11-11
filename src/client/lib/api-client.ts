@@ -30,7 +30,7 @@ function parseIssues(
       if (!firstMsg && msg) firstMsg = msg;
       if (Array.isArray(rec.path) && msg) {
         const key = rec.path.map(String).join(".");
-        if (key && !(key in fields)) fields[key] = msg;
+        if (key && !Object.hasOwn(fields, key)) fields[key] = msg;
       }
     }
   }
@@ -97,6 +97,15 @@ export function parseApiError(
   }
 }
 
+function isAbortError(err: unknown, signal?: AbortSignal): boolean {
+  if (signal?.aborted) return true;
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    (err as { name?: unknown }).name === "AbortError"
+  );
+}
+
 export async function apiGet<T>(
   path: string,
   init?: { signal?: AbortSignal },
@@ -107,7 +116,8 @@ export async function apiGet<T>(
       headers: { Accept: "application/json" },
       signal: init?.signal,
     });
-  } catch {
+  } catch (err) {
+    if (isAbortError(err, init?.signal)) throw err;
     throw new ApiError(0, "Cannot reach the server");
   }
   if (!r.ok) {
@@ -116,7 +126,12 @@ export async function apiGet<T>(
   }
   const ct = r.headers.get("content-type") ?? "";
   if (ct.includes("application/json")) {
-    return (await r.json()) as T;
+    try {
+      return (await r.json()) as T;
+    } catch (err) {
+      if (isAbortError(err, init?.signal)) throw err;
+      throw new ApiError(r.status, "Unexpected response from the server");
+    }
   }
   const text = await r.text();
   if (!text) return undefined as T;
@@ -152,7 +167,8 @@ export async function apiSend<T = unknown>(
       body: payload,
       signal: init?.signal,
     });
-  } catch {
+  } catch (err) {
+    if (isAbortError(err, init?.signal)) throw err;
     throw new ApiError(0, "Cannot reach the server");
   }
   if (!r.ok) {
@@ -161,7 +177,12 @@ export async function apiSend<T = unknown>(
   }
   const ct = r.headers.get("content-type") ?? "";
   if (ct.includes("application/json")) {
-    return (await r.json()) as T;
+    try {
+      return (await r.json()) as T;
+    } catch (err) {
+      if (isAbortError(err, init?.signal)) throw err;
+      throw new ApiError(r.status, "Unexpected response from the server");
+    }
   }
   const text = await r.text();
   if (!text) return undefined as T;

@@ -74,8 +74,10 @@ export function initTheme(): void {
         });
       }
       window.addEventListener("storage", (e: StorageEvent) => {
-        if (e.key === THEME_STORAGE_KEY) {
-          setThemePrefSignal(normalizeThemePref(e.newValue));
+        if (e.key === THEME_STORAGE_KEY || e.key === null) {
+          setThemePrefSignal(
+            normalizeThemePref(e.key === null ? null : e.newValue),
+          );
           applyDomTheme(activeTheme());
         }
       });
