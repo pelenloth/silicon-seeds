@@ -65,6 +65,49 @@ function clampRound(
   return Math.min(max, Math.max(min, Math.round(val)));
 }
 
+const WORD_NUMBERS: Record<string, number> = {
+  "half a": 0.5,
+  "half an": 0.5,
+  a: 1,
+  an: 1,
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+};
+
+// Matches digits with a seconds/minutes unit (including single-letter s/m, so
+// phrases like "3 m tall" are acceptable matches) or the number words one-ten,
+// a/an, and half a before seconds/sec/minutes/min. Takes the first match.
+const DURATION_RE =
+  /\b(?:(\d+(?:[.,]\d+)?)\s*-?\s*(seconds?|secs?|s|minutes?|mins?|m)|((?:half\s+an?)|one|two|three|four|five|six|seven|eight|nine|ten|an?)[\s-]+(seconds?|secs?|minutes?|mins?))\b/i;
+
+export function durationFromText(text: string): number | null {
+  const m = DURATION_RE.exec(text);
+  if (!m) return null;
+  let value: number;
+  let unit: string;
+  if (m[1] !== undefined && m[2] !== undefined) {
+    value = Number.parseFloat(m[1].replace(",", "."));
+    unit = m[2].toLowerCase();
+  } else if (m[3] !== undefined && m[4] !== undefined) {
+    const key = m[3].toLowerCase().replace(/\s+/g, " ");
+    value = WORD_NUMBERS[key] ?? Number.NaN;
+    unit = m[4].toLowerCase();
+  } else {
+    return null;
+  }
+  if (!Number.isFinite(value) || value <= 0) return null;
+  const seconds = unit.startsWith("m") ? value * 60 : value;
+  return Math.round(seconds);
+}
+
 export function normalizePlan(
   raw: Partial<RawIntent> | null | undefined,
   text: string,
@@ -89,11 +132,12 @@ export function normalizePlan(
     ? presetNames.find((p) => p.toLowerCase() === rawPreset)
     : undefined;
   const style_preset = matchedPreset ?? fallback.style_preset;
+  const rawDuration = durationFromText(text) ?? raw?.duration_seconds;
   const duration_seconds =
     kind === "audio"
-      ? clampRound(raw?.duration_seconds, 60, 10, 720)
+      ? clampRound(rawDuration, 60, 10, 720)
       : kind === "video"
-        ? clampRound(raw?.duration_seconds, 5, 1, 10)
+        ? clampRound(rawDuration, 5, 1, 10)
         : 0;
 
   return {

@@ -26,6 +26,7 @@ import {
   mediaTitle,
   nextBackoffMs,
   plural,
+  progressFraction,
   shouldApplyResponse,
   shouldMoveMobileFocusForActive,
   shouldPreviewOnFocus,
@@ -858,5 +859,12 @@ describe("live updates helpers (isStreamStale, jobSignature, changedJobIds)", ()
     // removed job
     expect(changedJobIds(prev, [j1])).toEqual(["j2"]);
     expect(changedJobIds(prev, [j1], new Set(["j2"]))).toEqual([]);
+  });
+
+  test("progressFraction returns null when total is 0 and complete/total when total > 0", () => {
+    expect(progressFraction(P0)).toBeNull();
+    expect(progressFraction({ ...P0, total: 0, complete: 1 })).toBeNull();
+    expect(progressFraction({ ...P0, total: 1, complete: 0 })).toBe("0/1");
+    expect(progressFraction({ ...P0, total: 4, complete: 2 })).toBe("2/4");
   });
 });

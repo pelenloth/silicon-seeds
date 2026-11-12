@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   buildIntentPrompt,
   detectKind,
+  durationFromText,
   normalizePlan,
   resolutionFor,
 } from "./intent";
@@ -28,6 +29,50 @@ describe("detectKind: the user's own words decide", () => {
     expect(detectKind("a music video of a band", "audio")).toBe("audio");
     expect(detectKind("a music video of a band", "image")).toBe("video");
     expect(detectKind("a music video of a band")).toBe("video");
+  });
+});
+
+describe("durationFromText", () => {
+  test("parses digits with seconds and minutes units", () => {
+    expect(durationFromText("90 seconds")).toBe(90);
+    expect(durationFromText("90 sec")).toBe(90);
+    expect(durationFromText("90s")).toBe(90);
+    expect(durationFromText("5 second")).toBe(5);
+    expect(durationFromText("5-second")).toBe(5);
+    expect(durationFromText("2 minutes")).toBe(120);
+    expect(durationFromText("2 min")).toBe(120);
+    expect(durationFromText("1.5 minutes")).toBe(90);
+    expect(durationFromText("1,5 minutes")).toBe(90);
+    expect(durationFromText("3 m tall")).toBe(180);
+  });
+  test("parses number words one to ten, a/an, and half a before a unit", () => {
+    expect(durationFromText("two minutes long")).toBe(120);
+    expect(durationFromText("a minute")).toBe(60);
+    expect(durationFromText("an minute")).toBe(60);
+    expect(durationFromText("half a minute")).toBe(30);
+    expect(durationFromText("ten seconds")).toBe(10);
+    expect(durationFromText("one second")).toBe(1);
+    expect(durationFromText("three minutes")).toBe(180);
+    expect(durationFromText("four seconds")).toBe(4);
+    expect(durationFromText("five minutes")).toBe(300);
+    expect(durationFromText("six seconds")).toBe(6);
+    expect(durationFromText("seven seconds")).toBe(7);
+    expect(durationFromText("eight seconds")).toBe(8);
+    expect(durationFromText("nine seconds")).toBe(9);
+  });
+  test("ignores resolutions, counts, aspect ratios and frame rates", () => {
+    expect(durationFromText("a red fox in snow")).toBeNull();
+    expect(durationFromText("720p")).toBeNull();
+    expect(durationFromText("4 photos")).toBeNull();
+    expect(durationFromText("1080p")).toBeNull();
+    expect(durationFromText("9:16")).toBeNull();
+    expect(durationFromText("16 fps")).toBeNull();
+  });
+  test("takes the first duration when several appear", () => {
+    expect(durationFromText("5 seconds intro then 2 minutes long")).toBe(5);
+    expect(durationFromText("two minutes long with a 10 second outro")).toBe(
+      120,
+    );
   });
 });
 
@@ -127,6 +172,32 @@ describe("normalizePlan", () => {
     expect(
       normalizePlan({ duration_seconds: 30 }, "foxes", PRESETS, FB)
         .duration_seconds,
+    ).toBe(0);
+  });
+  test("durations stated in the prompt win over the model's answer and still clamp per kind", () => {
+    expect(
+      normalizePlan({}, "an ambient music track, two minutes long", PRESETS, FB)
+        .duration_seconds,
+    ).toBe(120);
+    expect(
+      normalizePlan(
+        { duration_seconds: 30 },
+        "an ambient music track, two minutes long",
+        PRESETS,
+        FB,
+      ).duration_seconds,
+    ).toBe(120);
+    expect(
+      normalizePlan({}, "a 20 second clip of rain", PRESETS, FB)
+        .duration_seconds,
+    ).toBe(10);
+    expect(
+      normalizePlan(
+        { duration_seconds: 30 },
+        "a fox in snow, two minutes before dusk",
+        PRESETS,
+        FB,
+      ).duration_seconds,
     ).toBe(0);
   });
   test("blank LLM prompt falls back to the user text; long prompts are capped", () => {

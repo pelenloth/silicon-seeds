@@ -12,6 +12,7 @@ import { thumbUrl } from "../../lib/api-client";
 import {
   formatRelativeTime,
   jobKindMeta,
+  progressFraction,
   type countByStatus,
   type JobSummary,
 } from "../../lib/job-view";
@@ -101,8 +102,10 @@ function JobRow(props: { job: JobSummary; selected: boolean; href: string }) {
           </div>
           <div class="mt-0.5 flex items-center justify-between gap-2">
             <span class="truncate text-xs text-base-content/60">
-              {jobKindMeta(props.job.kind).label} ·{" "}
-              {props.job.progress.complete}/{props.job.progress.total}
+              {jobKindMeta(props.job.kind).label}
+              <Show when={progressFraction(props.job.progress)}>
+                {(f) => ` · ${f()}`}
+              </Show>
             </span>
             <StatusBadge
               kind="job"

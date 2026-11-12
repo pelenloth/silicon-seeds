@@ -3,7 +3,11 @@ import { createEffect, createSignal, For, on, onCleanup, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import { thumbUrl } from "../../lib/api-client";
 import { onDismiss } from "../../lib/dismiss";
-import { jobKindMeta, type JobSummary } from "../../lib/job-view";
+import {
+  jobKindMeta,
+  progressFraction,
+  type JobSummary,
+} from "../../lib/job-view";
 import {
   activeCount,
   jobs,
@@ -63,7 +67,10 @@ function ActivityRow(props: { job: JobSummary; onClose: () => void }) {
           <div class="min-w-0 flex-1">
             <div class="truncate text-sm font-medium">{props.job.name}</div>
             <div class="text-xs text-base-content/60">
-              {`${jobKindMeta(props.job.kind).label} · ${props.job.progress.complete}/${props.job.progress.total}`}
+              {jobKindMeta(props.job.kind).label}
+              <Show when={progressFraction(props.job.progress)}>
+                {(f) => ` · ${f()}`}
+              </Show>
             </div>
           </div>
         </A>

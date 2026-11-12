@@ -27,6 +27,7 @@ import {
   jobKindMeta,
   jobToPrefill,
   plural,
+  progressFraction,
   shouldMoveMobileFocusForActive,
   type JobAction,
   type JobEvent,
@@ -491,11 +492,12 @@ export function JobDetail(props: JobDetailProps) {
                             size="md"
                           />
                         </span>
-                        <Show when={currentJob().progress.total > 0}>
-                          <span class="text-xs text-base-content/60 tabular-nums">
-                            {currentJob().progress.complete}/
-                            {currentJob().progress.total}
-                          </span>
+                        <Show when={progressFraction(currentJob().progress)}>
+                          {(f) => (
+                            <span class="text-xs text-base-content/60 tabular-nums">
+                              {f()}
+                            </span>
+                          )}
                         </Show>
                       </div>
                       <p class="mt-1 text-xs text-base-content/60">

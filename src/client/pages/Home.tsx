@@ -45,6 +45,7 @@ import {
 } from "../lib/form-state";
 import {
   jobKindMeta,
+  progressFraction,
   shouldShowNewMedia,
   type JobSummary,
 } from "../lib/job-view";
@@ -213,8 +214,10 @@ function ActiveJobCard(props: { job: JobSummary }) {
             />
           </div>
           <div class="mt-0.5 text-xs text-base-content/60">
-            {jobKindMeta(props.job.kind).label} · {props.job.progress.complete}/
-            {props.job.progress.total}
+            {jobKindMeta(props.job.kind).label}
+            <Show when={progressFraction(props.job.progress)}>
+              {(f) => ` · ${f()}`}
+            </Show>
           </div>
           <progress
             class="progress progress-primary mt-1 h-1 w-full"

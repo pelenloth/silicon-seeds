@@ -20,6 +20,7 @@ import {
   mediaKindLabel,
   mediaTitle,
   plural,
+  progressFraction,
   shouldRetryMedia,
   summarizeEvents,
   type EventKind,
@@ -434,7 +435,8 @@ export function ResultPanel(props: ResultPanelProps) {
         const label =
           currentLabel ??
           (meta.label === "Finishing" ? "Finishing" : "Waiting in queue");
-        return `${j.progress.complete} of ${j.progress.total} · ${label}`;
+        const frac = progressFraction(j.progress);
+        return frac ? `${frac} · ${label}` : label;
       }
       case "complete": {
         if (currentMedia().length === 0 && isWaitingForOutputs()) {

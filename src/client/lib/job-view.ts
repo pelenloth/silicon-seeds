@@ -94,6 +94,13 @@ export function jobStatusMeta(
   }
 }
 
+export function progressFraction(
+  progress: Pick<JobProgress, "complete" | "total"> | null | undefined,
+): string | null {
+  if (!progress || progress.total <= 0) return null;
+  return `${progress.complete}/${progress.total}`;
+}
+
 export function isCancelledEvent(event: {
   status: string;
   error?: string | null;
