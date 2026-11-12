@@ -268,8 +268,20 @@ export default function Home() {
   let resolutionTouched = false;
   let presetTouched = false;
   let inFlight = false;
+  let submitBtnRef: HTMLButtonElement | undefined;
   let enhanceAbort: AbortController | null = null;
   let intentAbort: AbortController | null = null;
+
+  const cancelPreQueuePhase = () => {
+    const currentBusy = busy();
+    if (currentBusy !== "Planning…" && currentBusy !== "Enhancing…") return;
+    intentAbort?.abort();
+    intentAbort = null;
+    enhanceAbort?.abort();
+    enhanceAbort = null;
+    inFlight = false;
+    setBusy("");
+  };
 
   const applyDefaultsIfUntouched = (d: GenerationDefaults) => {
     if (disposed) return;
@@ -288,7 +300,11 @@ export default function Home() {
   });
 
   const setPrompt = (val: string) => {
+    const changed = val !== prompt();
     setPromptSignal(val);
+    if (changed) {
+      cancelPreQueuePhase();
+    }
     if (error()) setError(null);
     if (planChips().length > 0) setPlanChips([]);
     if (val) {
@@ -308,7 +324,11 @@ export default function Home() {
     ) {
       return;
     }
+    const changed = next !== mode();
     setModeSignal(next);
+    if (changed) {
+      cancelPreQueuePhase();
+    }
     if (planChips().length > 0) setPlanChips([]);
     try {
       localStorage.setItem("home:mode", next);
@@ -370,24 +390,43 @@ export default function Home() {
     });
   };
 
+  /*
+   * Submit phases:
+   * - idle (""): edit updates draft/clears error & chips; mode change updates mode/clears chips.
+   * - planning ("Planning…") / enhancing ("Enhancing…"): edit or mode change aborts the in-flight
+   *   request, ends busy, queues nothing, shows no toast. After await, proceed only if not aborted
+   *   and prompt() === submittedText and mode() === submittedMode. On planner failure, switch to
+   *   "image" only if mode() is still "auto".
+   * - queueing ("Queueing…"): create request is in flight; user may type or change mode. On success,
+   *   clear prompt and draft only if prompt() === submittedText.
+   */
   const onSubmit = async (e: SubmitEvent) => {
     e.preventDefault();
     if (inFlight || busy()) return;
 
-    const rawPrompt = prompt();
-    if (!rawPrompt.trim()) {
+    const submittedFromButton =
+      (typeof document !== "undefined" &&
+        document.activeElement === submitBtnRef) ||
+      e.submitter === submitBtnRef;
+
+    const submittedText = prompt();
+    if (!submittedText.trim()) {
       setError("Describe what you want to create");
       promptRef?.focus();
       return;
     }
 
+    if (submittedFromButton) {
+      promptRef?.focus();
+    }
+
     setError(null);
     setPlanChips([]);
     inFlight = true;
-    const currentMode = mode();
+    const submittedMode = mode();
 
     try {
-      if (currentMode === "auto") {
+      if (submittedMode === "auto") {
         setBusy("Planning…");
         const ctrl = new AbortController();
         intentAbort = ctrl;
@@ -397,7 +436,7 @@ export default function Home() {
           const res = await apiSend<{ plan?: unknown }>(
             "POST",
             "/api/intent",
-            { text: rawPrompt },
+            { text: submittedText },
             { signal: ctrl.signal },
           );
           if (isPlan(res?.plan)) {
@@ -414,11 +453,23 @@ export default function Home() {
         }
 
         if (disposed) return;
+        if (
+          ctrl.signal.aborted ||
+          mode() !== submittedMode ||
+          prompt() !== submittedText
+        ) {
+          return;
+        }
         if (!plan) {
           toast.error(
             "Could not plan that automatically. Pick a format and try again.",
           );
-          setMode("image");
+          if (mode() === "auto") {
+            setMode("image");
+          }
+          if (submittedFromButton) {
+            promptRef?.focus();
+          }
           return;
         }
 
@@ -427,7 +478,7 @@ export default function Home() {
         setBusy("Queueing…");
         const { kind, values } = planToCreate(plan, generationDefaults());
         const { jobId } = await submitCreateJob(kind, values);
-        if (!disposed) {
+        if (!disposed && prompt() === submittedText) {
           setPromptSignal("");
           clearDraft("/");
         }
@@ -441,9 +492,9 @@ export default function Home() {
         return;
       }
 
-      const currentOverrides = overridesForMode(currentMode);
+      const currentOverrides = overridesForMode(submittedMode);
       const currentPreset = preset();
-      let finalText = rawPrompt;
+      let finalText = submittedText;
 
       if (enhanceFirst()) {
         setBusy("Enhancing…");
@@ -455,54 +506,80 @@ export default function Home() {
             "POST",
             "/api/enhance",
             {
-              text: rawPrompt,
-              kind: enhanceKindForMode(currentMode),
+              text: submittedText,
+              kind: enhanceKindForMode(submittedMode),
               style_preset:
-                currentMode === "image" || currentMode === "video"
+                submittedMode === "image" || submittedMode === "video"
                   ? currentPreset
                   : undefined,
             },
             { signal: ctrl.signal },
           );
-          const next = res?.enhanced?.trim();
-          if (next) {
-            finalText = next;
-          } else {
-            toast.warning("Could not enhance the prompt, using it as written");
+          if (
+            !ctrl.signal.aborted &&
+            mode() === submittedMode &&
+            prompt() === submittedText
+          ) {
+            const next = res?.enhanced?.trim();
+            if (next) {
+              finalText = next;
+            } else {
+              toast.warning(
+                "Could not enhance the prompt, using it as written",
+              );
+            }
           }
         } catch {
           if (disposed) return;
-          toast.warning("Could not enhance the prompt, using it as written");
+          if (
+            !ctrl.signal.aborted &&
+            mode() === submittedMode &&
+            prompt() === submittedText
+          ) {
+            toast.warning("Could not enhance the prompt, using it as written");
+          }
         } finally {
           clearTimeout(timer);
           if (enhanceAbort === ctrl) {
             enhanceAbort = null;
           }
         }
+
+        if (
+          disposed ||
+          ctrl.signal.aborted ||
+          mode() !== submittedMode ||
+          prompt() !== submittedText
+        ) {
+          return;
+        }
       }
 
       if (disposed) return;
       setBusy("Queueing…");
       const { jobId } = await submitCreateJob(
-        currentMode,
+        submittedMode,
         quickCreateValues(
-          currentMode,
+          submittedMode,
           finalText,
           generationDefaults(),
           currentOverrides,
         ),
       );
-      if (!disposed) {
+      if (!disposed && prompt() === submittedText) {
         setPromptSignal("");
         clearDraft("/");
       }
       void refreshJobs();
-      toast.success(`Queued ${CREATE_KINDS[currentMode].label.toLowerCase()}`, {
-        action: {
-          label: "View",
-          href: `/jobs/${encodeURIComponent(jobId)}`,
+      toast.success(
+        `Queued ${CREATE_KINDS[submittedMode].label.toLowerCase()}`,
+        {
+          action: {
+            label: "View",
+            href: `/jobs/${encodeURIComponent(jobId)}`,
+          },
         },
-      });
+      );
     } catch (err) {
       if (!disposed) {
         setError(
@@ -512,11 +589,16 @@ export default function Home() {
               ? err.message
               : "Could not queue the job",
         );
+        if (submittedFromButton) {
+          promptRef?.focus();
+        }
       }
     } finally {
-      inFlight = false;
-      if (!disposed) {
-        setBusy("");
+      if (!intentAbort && !enhanceAbort) {
+        inFlight = false;
+        if (!disposed) {
+          setBusy("");
+        }
       }
     }
   };
@@ -794,6 +876,7 @@ export default function Home() {
               More options
             </A>
             <button
+              ref={submitBtnRef}
               type="submit"
               id="home-generate"
               class="btn btn-primary btn-sm ml-auto gap-2 px-5"

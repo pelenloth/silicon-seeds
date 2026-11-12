@@ -1259,3 +1259,200 @@ test("home: More options in auto mode navigates to /create/image with prompt fil
     "auto mode handoff draft",
   );
 });
+
+test("home: edit or mode change during planning aborts intent, sends no create request, keeps new text, and re-enables button", async ({
+  page,
+}) => {
+  let createCalls = 0;
+  let releaseIntent: (() => void) | null = null;
+
+  await page.route("**/api/intent", async (route) => {
+    await new Promise<void>((r) => {
+      releaseIntent = r;
+    });
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        plan: {
+          kind: "image",
+          prompt: "old fox",
+          count: 1,
+          resolution: "720p",
+          style_preset: "none",
+          duration_seconds: 0,
+        },
+      }),
+    });
+  });
+
+  await page.route("**/api/jobs/**", async (route) => {
+    if (route.request().method() === "POST") {
+      createCalls++;
+    }
+    await route.fulfill({ status: 200, body: JSON.stringify({ jobId: "j1" }) });
+  });
+
+  await page.goto("/");
+  const prompt = page.locator("#home-prompt");
+  const btn = page.locator("#home-generate");
+  await expect(prompt).toBeVisible({ timeout: 10000 });
+
+  // 1. Edit during planning
+  await prompt.fill("initial prompt for planning");
+  await btn.click();
+  await expect(btn).toContainText("Planning…");
+  await expect(btn).toBeDisabled();
+
+  await prompt.fill("edited while planning");
+  await expect(btn).toBeEnabled();
+  await expect(btn).toContainText("Generate");
+  releaseIntent!();
+  await page.waitForTimeout(100);
+  expect(createCalls).toBe(0);
+  await expect(prompt).toHaveValue("edited while planning");
+  await expect(page.getByRole("status")).toHaveCount(0);
+
+  // 2. Mode change during planning
+  releaseIntent = null;
+  await prompt.fill("second prompt for planning");
+  await btn.click();
+  await expect(btn).toContainText("Planning…");
+  await expect(btn).toBeDisabled();
+
+  await page.locator('input[name="home-mode"][value="video"]').check();
+  await expect(btn).toBeEnabled();
+  await expect(btn).toContainText("Generate");
+  releaseIntent!();
+  await page.waitForTimeout(100);
+  expect(createCalls).toBe(0);
+  await expect(prompt).toHaveValue("second prompt for planning");
+  await expect(
+    page.locator('input[name="home-mode"][value="video"]'),
+  ).toBeChecked();
+  await expect(page.getByRole("status")).toHaveCount(0);
+});
+
+test("home: typing during queueing keeps the newly typed text after the toast", async ({
+  page,
+}) => {
+  let releaseCreate: (() => void) | null = null;
+  const stubJobId = "stub-queue-type-job";
+
+  await mockJobRoutes(page, stubJobId, "image");
+  await page.route("**/api/jobs/images", async (route) => {
+    await new Promise<void>((r) => {
+      releaseCreate = r;
+    });
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ jobId: stubJobId, message: "queued" }),
+    });
+  });
+
+  await page.goto("/");
+  const prompt = page.locator("#home-prompt");
+  const btn = page.locator("#home-generate");
+  await expect(prompt).toBeVisible({ timeout: 10000 });
+  await page.locator('input[name="home-mode"][value="image"]').check();
+  await prompt.fill("first prompt queued");
+  await btn.click();
+
+  await expect(btn).toContainText("Queueing…");
+  await prompt.fill("next idea typed while queueing");
+
+  releaseCreate!();
+  await expect(
+    page.getByRole("status").filter({ hasText: "Queued image" }),
+  ).toBeVisible();
+  await expect(prompt).toHaveValue("next idea typed while queueing");
+
+  await page.reload();
+  await expect(page.locator("#home-prompt")).toHaveValue(
+    "next idea typed while queueing",
+  );
+});
+
+test("home: edit during enhancing aborts enhance and sends no create request", async ({
+  page,
+}) => {
+  let createCalls = 0;
+  let releaseEnhance: (() => void) | null = null;
+
+  await page.route("**/api/enhance**", async (route) => {
+    await new Promise<void>((r) => {
+      releaseEnhance = r;
+    });
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ enhanced: "enhanced old prompt" }),
+    });
+  });
+
+  await page.route("**/api/jobs/images", async (route) => {
+    createCalls++;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ jobId: "should-not-happen", message: "queued" }),
+    });
+  });
+
+  await page.goto("/");
+  const prompt = page.locator("#home-prompt");
+  const btn = page.locator("#home-generate");
+  await expect(prompt).toBeVisible({ timeout: 10000 });
+
+  await page.locator('input[name="home-mode"][value="image"]').check();
+  await page.getByLabel("Enhance prompt first").check();
+  await prompt.fill("original prompt to enhance");
+  await btn.click();
+
+  await expect(btn).toContainText("Enhancing…");
+  await expect(btn).toBeDisabled();
+
+  await prompt.fill("edited while enhancing");
+  await expect(btn).toBeEnabled();
+  await expect(btn).toContainText("Generate");
+
+  releaseEnhance!();
+  await page.waitForTimeout(100);
+  expect(createCalls).toBe(0);
+  await expect(prompt).toHaveValue("edited while enhancing");
+});
+
+test("home: keyboard submit from the Generate button leaves focus in #home-prompt", async ({
+  page,
+}) => {
+  let releaseCreate: (() => void) | null = null;
+  await page.route("**/api/jobs/images", async (route) => {
+    await new Promise<void>((r) => {
+      releaseCreate = r;
+    });
+    await route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "stub failure" }),
+    });
+  });
+
+  await page.goto("/");
+  const prompt = page.locator("#home-prompt");
+  const btn = page.locator("#home-generate");
+  await expect(prompt).toBeVisible({ timeout: 10000 });
+  await page.locator('input[name="home-mode"][value="image"]').check();
+  await prompt.fill("focus test from button");
+
+  await btn.focus();
+  await expect(btn).toBeFocused();
+  await btn.press("Enter");
+
+  await expect(btn).toBeDisabled();
+  await expect(prompt).toBeFocused();
+
+  releaseCreate!();
+  await expect(page.locator("#home-prompt-error")).toHaveText("stub failure");
+  await expect(prompt).toBeFocused();
+});

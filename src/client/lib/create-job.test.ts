@@ -422,5 +422,48 @@ describe("plans", () => {
     expect(isPlan({ ...base, resolution: "" })).toBe(false);
     expect(isPlan({ ...base, style_preset: "" })).toBe(false);
     expect(isPlan({ ...base, duration_seconds: -1 })).toBe(false);
+    // count: integer 1-8
+    expect(isPlan({ ...base, count: 1 })).toBe(true);
+    expect(isPlan({ ...base, count: 8 })).toBe(true);
+    expect(isPlan({ ...base, count: 9 })).toBe(false);
+    expect(isPlan({ ...base, count: 2.5 })).toBe(false);
+    // resolution: one of the known values
+    expect(isPlan({ ...base, resolution: "480p" })).toBe(true);
+    expect(isPlan({ ...base, resolution: "720p" })).toBe(true);
+    expect(isPlan({ ...base, resolution: "1080p" })).toBe(true);
+    expect(isPlan({ ...base, resolution: "9_16_SD" })).toBe(true);
+    expect(isPlan({ ...base, resolution: "9_16_HD" })).toBe(true);
+    expect(isPlan({ ...base, resolution: "4k" })).toBe(false);
+    // style_preset: non-empty string
+    expect(isPlan({ ...base, style_preset: "   " })).toBe(false);
+    // duration_seconds: integer, 1-10 for video, 10-720 for audio, any non-negative integer for image
+    expect(isPlan({ ...base, kind: "image", duration_seconds: 0 })).toBe(true);
+    expect(isPlan({ ...base, kind: "image", duration_seconds: 15 })).toBe(true);
+    expect(isPlan({ ...base, kind: "image", duration_seconds: 1.5 })).toBe(
+      false,
+    );
+    expect(isPlan({ ...base, kind: "video", duration_seconds: 0 })).toBe(false);
+    expect(isPlan({ ...base, kind: "video", duration_seconds: 1 })).toBe(true);
+    expect(isPlan({ ...base, kind: "video", duration_seconds: 10 })).toBe(true);
+    expect(isPlan({ ...base, kind: "video", duration_seconds: 11 })).toBe(
+      false,
+    );
+    expect(isPlan({ ...base, kind: "video", duration_seconds: 5.5 })).toBe(
+      false,
+    );
+    expect(isPlan({ ...base, kind: "audio", duration_seconds: 9 })).toBe(false);
+    expect(isPlan({ ...base, kind: "audio", duration_seconds: 10 })).toBe(true);
+    expect(isPlan({ ...base, kind: "audio", duration_seconds: 720 })).toBe(
+      true,
+    );
+    expect(isPlan({ ...base, kind: "audio", duration_seconds: 721 })).toBe(
+      false,
+    );
+    expect(isPlan({ ...base, kind: "audio", duration_seconds: 60.2 })).toBe(
+      false,
+    );
+    // prompt: non-empty string of at most 4000 characters
+    expect(isPlan({ ...base, prompt: "x".repeat(4000) })).toBe(true);
+    expect(isPlan({ ...base, prompt: "x".repeat(4001) })).toBe(false);
   });
 });

@@ -256,7 +256,7 @@ export function CommandPalette() {
                         role="option"
                         id={`cmd-${entry.index}`}
                         aria-selected={entry.index === clampedActive()}
-                        class="cursor-pointer rounded-field px-3 py-2 text-sm"
+                        class="cursor-pointer truncate rounded-field px-3 py-2 text-sm"
                         classList={{
                           "bg-base-200": entry.index === clampedActive(),
                         }}

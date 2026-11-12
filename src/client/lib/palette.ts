@@ -86,24 +86,26 @@ export function buildCommands(ctx: PaletteContext): Command[] {
   const words = q ? q.split(/\s+/).length : 0;
   const quickCreate = ctx.quickCreate;
   if (quickCreate && (words >= 3 || q.length >= 16)) {
+    const labelText = q.length > 80 ? `${q.slice(0, 80)}…` : q;
+    const promptText = q.slice(0, 4000);
     out.push(
       {
         id: "create-image",
         group: "Create",
-        label: `Generate image: “${q}”`,
-        run: () => quickCreate("image", q),
+        label: `Generate image: “${labelText}”`,
+        run: () => quickCreate("image", promptText),
       },
       {
         id: "create-video",
         group: "Create",
-        label: `Generate video: “${q}”`,
-        run: () => quickCreate("video", q),
+        label: `Generate video: “${labelText}”`,
+        run: () => quickCreate("video", promptText),
       },
       {
         id: "create-audio",
         group: "Create",
-        label: `Generate audio: “${q}”`,
-        run: () => quickCreate("audio", q),
+        label: `Generate audio: “${labelText}”`,
+        run: () => quickCreate("audio", promptText),
       },
     );
   }

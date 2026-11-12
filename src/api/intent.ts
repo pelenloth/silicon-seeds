@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { zValidator } from "@hono/zod-validator";
 import z from "zod";
 import { DB } from "../db/db";
@@ -17,6 +18,7 @@ const BodySchema = z.object({
 });
 
 const INTENT_TIMEOUT_MS = 45_000;
+const INTENT_MAX_BODY_BYTES = 32 * 1024;
 
 async function planWithTimeout(
   prompt: string,
@@ -40,30 +42,38 @@ async function planWithTimeout(
 
 const app = new Hono();
 
-app.post("/", zValidator("json", BodySchema, validationHook), async (c) => {
-  const { text } = c.req.valid("json");
-  try {
-    const [presets, settings] = await Promise.all([
-      DB.StylePresets.list(),
-      DB.Settings.getAll(),
-    ]);
-    const names = presets.map((p) => p.name);
-    const res = await planWithTimeout(buildIntentPrompt(text, names));
-    if (!res?.parsed) {
-      Logger.warn("Intent planner returned no parsed plan");
+app.post(
+  "/",
+  bodyLimit({
+    maxSize: INTENT_MAX_BODY_BYTES,
+    onError: (c) => c.json({ error: "Request body too large" }, 413),
+  }),
+  zValidator("json", BodySchema, validationHook),
+  async (c) => {
+    const { text } = c.req.valid("json");
+    try {
+      const [presets, settings] = await Promise.all([
+        DB.StylePresets.list(),
+        DB.Settings.getAll(),
+      ]);
+      const names = presets.map((p) => p.name);
+      const res = await planWithTimeout(buildIntentPrompt(text, names));
+      if (!res?.parsed) {
+        Logger.warn("Intent planner returned no parsed plan");
+        return c.json({ error: "Planner unavailable" }, 502);
+      }
+      const plan = normalizePlan(res.parsed, text, names, {
+        resolution: settings.default_resolution || "720p",
+        style_preset: settings.default_style_preset || "none",
+      });
+      return c.json({ plan });
+    } catch (err) {
+      Logger.error("Intent planner failed", {
+        message: err instanceof Error ? err.message : "unknown error",
+      });
       return c.json({ error: "Planner unavailable" }, 502);
     }
-    const plan = normalizePlan(res.parsed, text, names, {
-      resolution: settings.default_resolution || "720p",
-      style_preset: settings.default_style_preset || "none",
-    });
-    return c.json({ plan });
-  } catch (err) {
-    Logger.error("Intent planner failed", {
-      message: err instanceof Error ? err.message : "unknown error",
-    });
-    return c.json({ error: "Planner unavailable" }, 502);
-  }
-});
+  },
+);
 
 export default app;

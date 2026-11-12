@@ -383,24 +383,54 @@ export type Plan = {
   duration_seconds: number;
 };
 
+const KNOWN_RESOLUTIONS = new Set<string>(RESOLUTIONS.map((r) => r.value));
+
 export function isPlan(val: unknown): val is Plan {
   if (!val || typeof val !== "object") return false;
   const p = val as Record<string, unknown>;
   if (p.kind !== "image" && p.kind !== "video" && p.kind !== "audio") {
     return false;
   }
-  if (typeof p.prompt !== "string" || !p.prompt.trim()) return false;
-  if (typeof p.count !== "number" || !Number.isFinite(p.count) || p.count < 1) {
+  if (
+    typeof p.prompt !== "string" ||
+    !p.prompt.trim() ||
+    p.prompt.length > 4000
+  ) {
     return false;
   }
-  if (typeof p.resolution !== "string" || !p.resolution.trim()) return false;
+  if (
+    typeof p.count !== "number" ||
+    !Number.isInteger(p.count) ||
+    p.count < 1 ||
+    p.count > 8
+  ) {
+    return false;
+  }
+  if (
+    typeof p.resolution !== "string" ||
+    !KNOWN_RESOLUTIONS.has(p.resolution)
+  ) {
+    return false;
+  }
   if (typeof p.style_preset !== "string" || !p.style_preset.trim()) {
     return false;
   }
   if (
     typeof p.duration_seconds !== "number" ||
-    !Number.isFinite(p.duration_seconds) ||
+    !Number.isInteger(p.duration_seconds) ||
     p.duration_seconds < 0
+  ) {
+    return false;
+  }
+  if (
+    p.kind === "video" &&
+    (p.duration_seconds < 1 || p.duration_seconds > 10)
+  ) {
+    return false;
+  }
+  if (
+    p.kind === "audio" &&
+    (p.duration_seconds < 10 || p.duration_seconds > 720)
   ) {
     return false;
   }

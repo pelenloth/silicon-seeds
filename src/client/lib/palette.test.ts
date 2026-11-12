@@ -178,4 +178,30 @@ describe("palette", () => {
     const cmds = filterCommands(buildCommands(ctx({ jobs: many }).c), "job");
     expect(cmds.filter((x) => x.group === "Jobs").length).toBe(6);
   });
+  test("quick-create label truncates query over 80 characters with ellipsis while passing full text capped at 4000 characters", () => {
+    const made: { kind: string; prompt: string }[] = [];
+    const qc = (k: string, p: string) => made.push({ kind: k, prompt: p });
+
+    const exact80 = "a".repeat(80);
+    const cmds80 = buildCommands(
+      ctx({ query: exact80, quickCreate: qc }).c,
+    ).filter((x) => x.group === "Create");
+    expect(cmds80[0]?.label).toBe(`Generate image: “${exact80}”`);
+
+    const over80 = `${"a".repeat(80)}bcdef`;
+    const cmdsOver80 = buildCommands(
+      ctx({ query: over80, quickCreate: qc }).c,
+    ).filter((x) => x.group === "Create");
+    expect(cmdsOver80[0]?.label).toBe(`Generate image: “${"a".repeat(80)}…”`);
+    cmdsOver80[0]?.run();
+    expect(made[0]).toEqual({ kind: "image", prompt: over80 });
+
+    const over4000 = "x".repeat(4500);
+    const cmdsOver4000 = buildCommands(
+      ctx({ query: over4000, quickCreate: qc }).c,
+    ).filter((x) => x.group === "Create");
+    expect(cmdsOver4000[0]?.label).toBe(`Generate image: “${"x".repeat(80)}…”`);
+    cmdsOver4000[0]?.run();
+    expect(made[1]?.prompt.length).toBe(4000);
+  });
 });
