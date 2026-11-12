@@ -2,8 +2,11 @@ import { createMemo, createRoot, createSignal } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import { ApiError, apiGet, apiSend } from "../lib/api-client";
 import {
+  changedJobIds,
   detectTransitions,
   filterJobs,
+  isStreamStale,
+  jobSignature,
   nextBackoffMs,
   shouldApplyResponse,
   type JobAction,
@@ -16,10 +19,12 @@ const [jobsStore, setJobsStore] = createStore<JobSummary[]>([]);
 const [jobsLoadedSignal, setJobsLoadedSignal] = createSignal<boolean>(false);
 const [jobsErrorSignal, setJobsErrorSignal] = createSignal<string | null>(null);
 const [versions, setVersions] = createStore<Record<string, number>>({});
+const [streamEpochSignal, setStreamEpochSignal] = createSignal<number>(0);
 
 export const jobs: () => JobSummary[] = () => jobsStore;
 export const jobsLoaded: () => boolean = jobsLoadedSignal;
 export const jobsError: () => string | null = jobsErrorSignal;
+export const streamEpoch: () => number = streamEpochSignal;
 
 export function jobVersion(id: string): number {
   return versions[id] ?? 0;
@@ -51,6 +56,7 @@ export function recentFinished(n: number): JobSummary[] {
 }
 
 const prevStatuses = new Map<string, string>();
+const prevSignatures = new Map<string, string>();
 let hasLoadedOnce = false;
 let nextRequestSeq = 0;
 let lastAppliedSeq = 0;
@@ -73,10 +79,16 @@ export async function refreshJobs(): Promise<void> {
     const transitions = hasLoadedOnce
       ? detectTransitions(prevStatuses, list)
       : [];
+    const changed = hasLoadedOnce ? changedJobIds(prevSignatures, list) : [];
     hasLoadedOnce = true;
     prevStatuses.clear();
+    prevSignatures.clear();
     for (const j of list) {
       prevStatuses.set(j.id, j.status);
+      prevSignatures.set(j.id, jobSignature(j));
+    }
+    for (const id of changed) {
+      setVersions(id, (v) => (v ?? 0) + 1);
     }
     for (const t of transitions) {
       if (t.to === "complete") {
@@ -127,63 +139,85 @@ export function startJobsStore(): () => void {
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let intervalTimer: ReturnType<typeof setInterval> | null = null;
   let stopped = false;
+  let hadError = false;
+  let attempt = 0;
+  let lastMessageAt: number | null = null;
+  let lastPollAt = Date.now();
+
+  const handleStreamFailure = () => {
+    streamDown = true;
+    hadError = true;
+    lastMessageAt = null;
+    if (es) {
+      es.close();
+      es = null;
+    }
+    if (stopped) return;
+    const delay = nextBackoffMs(attempt++);
+    if (reconnectTimer !== null) clearTimeout(reconnectTimer);
+    reconnectTimer = setTimeout(connect, delay);
+  };
+
+  const connect = () => {
+    if (stopped || typeof EventSource !== "function") return;
+    reconnectTimer = null;
+    if (es) {
+      es.close();
+      es = null;
+    }
+    es = new EventSource("/jobs/stream/all");
+    lastMessageAt = Date.now();
+    es.onopen = () => {
+      lastMessageAt = Date.now();
+      attempt = 0;
+      streamDown = false;
+    };
+    es.addEventListener("ping", () => {
+      lastMessageAt = Date.now();
+    });
+    es.addEventListener("job-update", (evt: MessageEvent) => {
+      lastMessageAt = Date.now();
+      try {
+        const parsed = JSON.parse(String(evt.data)) as { jobId?: unknown };
+        if (typeof parsed.jobId === "string" && parsed.jobId) {
+          setVersions(parsed.jobId, (v) => (v ?? 0) + 1);
+        }
+      } catch {}
+      scheduleTrailingRefresh();
+    });
+    es.addEventListener("connected", () => {
+      lastMessageAt = Date.now();
+      attempt = 0;
+      streamDown = false;
+      if (hadError) {
+        hadError = false;
+        setStreamEpochSignal((e) => e + 1);
+        void refreshJobs();
+      }
+    });
+    es.onerror = () => {
+      handleStreamFailure();
+    };
+  };
 
   if (typeof EventSource === "function") {
-    let hadError = false;
-    let attempt = 0;
-
-    const connect = () => {
-      if (stopped) return;
-      reconnectTimer = null;
-      if (es) {
-        es.close();
-        es = null;
-      }
-      es = new EventSource("/jobs/stream/all");
-      es.onopen = () => {
-        attempt = 0;
-        streamDown = false;
-      };
-      es.addEventListener("job-update", (evt: MessageEvent) => {
-        try {
-          const parsed = JSON.parse(String(evt.data)) as { jobId?: unknown };
-          if (typeof parsed.jobId === "string" && parsed.jobId) {
-            setVersions(parsed.jobId, (v) => (v ?? 0) + 1);
-          }
-        } catch {}
-        scheduleTrailingRefresh();
-      });
-      es.addEventListener("connected", () => {
-        attempt = 0;
-        streamDown = false;
-        if (hadError) {
-          hadError = false;
-          void refreshJobs();
-        }
-      });
-      es.onerror = () => {
-        streamDown = true;
-        hadError = true;
-        if (es) {
-          es.close();
-          es = null;
-        }
-        if (stopped) return;
-        const delay = nextBackoffMs(attempt++);
-        if (reconnectTimer !== null) clearTimeout(reconnectTimer);
-        reconnectTimer = setTimeout(connect, delay);
-      };
-    };
-
     connect();
   }
 
   if (typeof setInterval === "function") {
     intervalTimer = setInterval(() => {
-      if (streamDown && activeCount() > 0) {
+      const now = Date.now();
+      if (es && !streamDown && isStreamStale(lastMessageAt, now)) {
+        handleStreamFailure();
+      }
+      const isVisible =
+        typeof document === "undefined" ||
+        document.visibilityState === "visible";
+      if (streamDown && isVisible && now - lastPollAt >= 10_000) {
+        lastPollAt = now;
         void refreshJobs();
       }
-    }, 10_000);
+    }, 5_000);
     if (
       typeof intervalTimer === "object" &&
       intervalTimer !== null &&

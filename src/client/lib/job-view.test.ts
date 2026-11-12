@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   availableJobActions,
   canRegenerate,
+  changedJobIds,
   countByStatus,
   detectTransitions,
   eventDisplayStatus,
@@ -13,9 +14,11 @@ import {
   formatRelativeTime,
   galleryPageDecision,
   isCancelledEvent,
+  isStreamStale,
   JOB_CANCELLED_ERROR,
   jobDurationMs,
   jobKindMeta,
+  jobSignature,
   jobStatusMeta,
   jobToPrefill,
   mediaKindLabel,
@@ -760,5 +763,63 @@ describe("cancelled events, plural and shouldShowNewMedia", () => {
         attempt: 0,
       }),
     ).toBe(false);
+  });
+});
+
+describe("live updates helpers (isStreamStale, jobSignature, changedJobIds)", () => {
+  test("isStreamStale checks elapsed time since lastMessageAt against timeoutMs (default 40_000)", () => {
+    expect(isStreamStale(null, 50_000)).toBe(false);
+    expect(isStreamStale(10_000, 49_999)).toBe(false);
+    expect(isStreamStale(10_000, 50_000)).toBe(true);
+    expect(isStreamStale(10_000, 60_000)).toBe(true);
+    expect(isStreamStale(10_000, 19_999, 10_000)).toBe(false);
+    expect(isStreamStale(10_000, 20_000, 10_000)).toBe(true);
+  });
+
+  test("jobSignature and changedJobIds: unchanged list -> empty; status change; progress change; new job; removed job", () => {
+    const j1 = job({
+      id: "j1",
+      status: "active",
+      progress: { total: 4, complete: 1, running: 1, pending: 2, failed: 0 },
+    });
+    const j2 = job({
+      id: "j2",
+      status: "complete",
+      progress: { total: 2, complete: 2, running: 0, pending: 0, failed: 0 },
+    });
+
+    const prev = new Map<string, string>([
+      [j1.id, jobSignature(j1)],
+      [j2.id, jobSignature(j2)],
+    ]);
+
+    // unchanged list -> empty
+    expect(changedJobIds(prev, [j1, j2])).toEqual([]);
+
+    // status change
+    const j1Done = { ...j1, status: "complete" };
+    expect(changedJobIds(prev, [j1Done, j2])).toEqual(["j1"]);
+
+    // progress change (each progress counter)
+    for (const key of [
+      "total",
+      "complete",
+      "running",
+      "pending",
+      "failed",
+    ] as const) {
+      const j1Prog = {
+        ...j1,
+        progress: { ...j1.progress, [key]: j1.progress[key] + 1 },
+      };
+      expect(changedJobIds(prev, [j1Prog, j2])).toEqual(["j1"]);
+    }
+
+    // new job
+    const j3 = job({ id: "j3", status: "active" });
+    expect(changedJobIds(prev, [j1, j2, j3])).toEqual(["j3"]);
+
+    // removed job
+    expect(changedJobIds(prev, [j1])).toEqual(["j2"]);
   });
 });

@@ -630,3 +630,38 @@ export function shouldRetryMedia(opts: {
   if (opts.items >= opts.completeEvents) return false;
   return opts.attempt >= 0 && opts.attempt < MEDIA_RETRY_BACKOFF_MS.length;
 }
+
+export function isStreamStale(
+  lastMessageAt: number | null | undefined,
+  now: number,
+  timeoutMs = 40_000,
+): boolean {
+  if (typeof lastMessageAt !== "number") return false;
+  return now - lastMessageAt >= timeoutMs;
+}
+
+export function jobSignature(job: JobSummary): string {
+  const p = job.progress;
+  return `${job.status}:${p.total}:${p.complete}:${p.running}:${p.pending}:${p.failed}`;
+}
+
+export function changedJobIds(
+  prev: ReadonlyMap<string, string>,
+  next: readonly JobSummary[],
+): string[] {
+  const changed: string[] = [];
+  const seen = new Set<string>();
+  for (const j of next) {
+    seen.add(j.id);
+    const sig = jobSignature(j);
+    if (prev.get(j.id) !== sig) {
+      changed.push(j.id);
+    }
+  }
+  for (const id of prev.keys()) {
+    if (!seen.has(id)) {
+      changed.push(id);
+    }
+  }
+  return changed;
+}

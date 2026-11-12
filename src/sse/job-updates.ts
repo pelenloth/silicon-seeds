@@ -1,49 +1,85 @@
 const encoder = new TextEncoder();
 
-type Subscriber = (eventName: string, data?: string) => void;
+export type Subscriber = (eventName: string, data?: string) => void;
 
-export namespace JobUpdates {
+export type JobUpdatesClock = {
+  now?: () => number;
+  setTimeout?: typeof setTimeout;
+  clearTimeout?: typeof clearTimeout;
+  setInterval?: typeof setInterval;
+  clearInterval?: typeof clearInterval;
+};
+
+const WINDOW_MS = 300;
+const STALE_WINDOW_MS = 1000;
+const HEARTBEAT_MS = 15_000;
+
+export function createJobUpdates(clock: JobUpdatesClock = {}) {
+  const nowFn = clock.now ?? (() => Date.now());
+  const setTimeoutFn = clock.setTimeout ?? setTimeout;
+  const clearTimeoutFn = clock.clearTimeout ?? clearTimeout;
+  const setIntervalFn = clock.setInterval ?? setInterval;
+  const clearIntervalFn = clock.clearInterval ?? clearInterval;
+
   const subscribers = new Map<string, Set<Subscriber>>();
   const globalSubscribers = new Set<Subscriber>();
-  const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  const debounceWindows = new Map<
+    string,
+    { timer: ReturnType<typeof setTimeout>; openedAt: number }
+  >();
   const pendingJobs = new Set<string>();
 
-  export function publish(jobId: string) {
-    if (debounceTimers.has(jobId)) {
-      pendingJobs.add(jobId);
-      return;
-    }
-    pendingJobs.add(jobId);
-    const timer = setTimeout(() => {
-      debounceTimers.delete(jobId);
-      if (!pendingJobs.has(jobId)) return;
-      pendingJobs.delete(jobId);
-      const payload = JSON.stringify({ jobId });
-      const listeners = subscribers.get(jobId);
-      if (listeners) {
-        for (const send of listeners) {
-          try {
-            send("job-update", payload);
-          } catch {
-            listeners.delete(send);
-          }
-        }
-        if (listeners.size === 0) {
-          subscribers.delete(jobId);
-        }
-      }
-      for (const send of globalSubscribers) {
+  function emitJobUpdate(jobId: string): void {
+    const payload = JSON.stringify({ jobId });
+    const listeners = subscribers.get(jobId);
+    if (listeners) {
+      for (const send of [...listeners]) {
         try {
           send("job-update", payload);
         } catch {
-          globalSubscribers.delete(send);
+          listeners.delete(send);
         }
       }
-    }, 300);
-    debounceTimers.set(jobId, timer);
+      if (listeners.size === 0) {
+        subscribers.delete(jobId);
+      }
+    }
+    for (const send of [...globalSubscribers]) {
+      try {
+        send("job-update", payload);
+      } catch {
+        globalSubscribers.delete(send);
+      }
+    }
   }
 
-  export function subscribeAll(send: Subscriber): () => void {
+  function openWindow(jobId: string, now: number): void {
+    const timer = setTimeoutFn(() => {
+      debounceWindows.delete(jobId);
+      if (!pendingJobs.has(jobId)) return;
+      pendingJobs.delete(jobId);
+      emitJobUpdate(jobId);
+    }, WINDOW_MS);
+    debounceWindows.set(jobId, { timer, openedAt: now });
+  }
+
+  function publish(jobId: string): void {
+    const now = nowFn();
+    const existing = debounceWindows.get(jobId);
+    if (existing) {
+      if (now - existing.openedAt < STALE_WINDOW_MS) {
+        pendingJobs.add(jobId);
+        return;
+      }
+      clearTimeoutFn(existing.timer);
+      debounceWindows.delete(jobId);
+      pendingJobs.delete(jobId);
+    }
+    emitJobUpdate(jobId);
+    openWindow(jobId, now);
+  }
+
+  function subscribeAll(send: Subscriber): () => void {
     globalSubscribers.add(send);
     return () => {
       globalSubscribers.delete(send);
@@ -56,32 +92,32 @@ export namespace JobUpdates {
   ): Response {
     let cleanup: (() => void) | undefined;
 
-    const stream = new ReadableStream({
+    const stream = new ReadableStream<Uint8Array>({
       start(controller) {
         let closed = false;
+        let keepAlive: ReturnType<typeof setInterval> | undefined;
 
-        const send = (eventName: string, data = "{}") => {
+        const enqueueEvent = (eventName: string, data = "{}") => {
           if (closed) return;
-
-          controller.enqueue(
-            encoder.encode(`event: ${eventName}\ndata: ${data}\n\n`),
-          );
+          try {
+            controller.enqueue(
+              encoder.encode(`event: ${eventName}\ndata: ${data}\n\n`),
+            );
+          } catch {
+            cleanup?.();
+          }
         };
 
-        const unregister = register(send);
-
-        const keepAlive = setInterval(() => {
-          if (closed) return;
-          controller.enqueue(encoder.encode(`: keep-alive\n\n`));
-        }, 15000);
+        const unregister = register(enqueueEvent);
 
         cleanup = () => {
           if (closed) return;
           closed = true;
-
-          clearInterval(keepAlive);
+          if (keepAlive !== undefined) {
+            clearIntervalFn(keepAlive);
+            keepAlive = undefined;
+          }
           unregister();
-
           try {
             controller.close();
           } catch {
@@ -89,7 +125,11 @@ export namespace JobUpdates {
           }
         };
 
-        send("connected", hello);
+        keepAlive = setIntervalFn(() => {
+          enqueueEvent("ping", "{}");
+        }, HEARTBEAT_MS);
+
+        enqueueEvent("connected", hello);
       },
       cancel() {
         cleanup?.();
@@ -106,7 +146,7 @@ export namespace JobUpdates {
     });
   }
 
-  export function stream(jobId: string): Response {
+  function stream(jobId: string): Response {
     return createStream((send) => {
       const listeners = subscribers.get(jobId) ?? new Set<Subscriber>();
       listeners.add(send);
@@ -120,10 +160,50 @@ export namespace JobUpdates {
     }, JSON.stringify({ jobId }));
   }
 
-  export function streamAll(): Response {
+  function streamAll(): Response {
     return createStream(
       (send) => subscribeAll(send),
       JSON.stringify({ jobId: "*" }),
     );
+  }
+
+  function subscriberCount(): number {
+    let count = globalSubscribers.size;
+    for (const set of subscribers.values()) {
+      count += set.size;
+    }
+    return count;
+  }
+
+  return {
+    publish,
+    subscribeAll,
+    stream,
+    streamAll,
+    subscriberCount,
+  };
+}
+
+const defaultHub = createJobUpdates();
+
+export namespace JobUpdates {
+  export function publish(jobId: string): void {
+    defaultHub.publish(jobId);
+  }
+
+  export function subscribeAll(send: Subscriber): () => void {
+    return defaultHub.subscribeAll(send);
+  }
+
+  export function stream(jobId: string): Response {
+    return defaultHub.stream(jobId);
+  }
+
+  export function streamAll(): Response {
+    return defaultHub.streamAll();
+  }
+
+  export function subscriberCount(): number {
+    return defaultHub.subscriberCount();
   }
 }

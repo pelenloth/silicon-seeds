@@ -83,6 +83,8 @@ export function ResultPanel(props: ResultPanelProps) {
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let retryAttempt = 0;
+  let detailInFlight = false;
+  let detailPendingRefetch = false;
   let mediaInFlight = false;
   let mediaPendingRefetch = false;
   let prevJobId: string | undefined = "\0";
@@ -209,6 +211,12 @@ export function ResultPanel(props: ResultPanelProps) {
   };
 
   const fetchDetail = async (targetId: string) => {
+    if (detailInFlight) {
+      detailPendingRefetch = true;
+      return;
+    }
+    detailInFlight = true;
+    detailPendingRefetch = false;
     const seq = ++detailSeq;
     if (!jobStore[0] || jobStore[0].id !== targetId) {
       setDetailLoading(true);
@@ -241,6 +249,12 @@ export function ResultPanel(props: ResultPanelProps) {
         setRefetchError(true);
       } else {
         setLoadError(err instanceof Error ? err.message : "Failed to load job");
+      }
+    } finally {
+      detailInFlight = false;
+      if (!disposed && targetId === props.jobId && detailPendingRefetch) {
+        detailPendingRefetch = false;
+        void fetchDetail(targetId);
       }
     }
   };
@@ -320,6 +334,8 @@ export function ResultPanel(props: ResultPanelProps) {
     clearDebounce();
     clearRetryTimer();
     retryAttempt = 0;
+    detailInFlight = false;
+    detailPendingRefetch = false;
     mediaInFlight = false;
     mediaPendingRefetch = false;
     lastAppliedDetailSeq = detailSeq;

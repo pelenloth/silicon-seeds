@@ -1,5 +1,5 @@
 import { createEffect, on } from "solid-js";
-import { jobVersion } from "../stores/jobs";
+import { jobVersion, streamEpoch } from "../stores/jobs";
 
 export function onJobUpdate(
   jobId: () => string | null | undefined,
@@ -7,20 +7,24 @@ export function onJobUpdate(
 ) {
   let prevId: string | null | undefined = jobId();
   let prevVersion = prevId ? jobVersion(prevId) : 0;
+  let prevEpoch = streamEpoch();
 
   createEffect(
     on(
       () => {
         const id = jobId();
         const ver = id ? jobVersion(id) : 0;
-        return { id, ver };
+        const epoch = streamEpoch();
+        return { id, ver, epoch };
       },
-      ({ id, ver }) => {
+      ({ id, ver, epoch }) => {
         const sameJob = Boolean(id && id === prevId);
-        const versionChanged = ver !== prevVersion;
+        const versionOrEpochChanged =
+          ver !== prevVersion || epoch !== prevEpoch;
         prevId = id;
         prevVersion = ver;
-        if (sameJob && versionChanged) {
+        prevEpoch = epoch;
+        if (sameJob && versionOrEpochChanged) {
           cb();
         }
       },
