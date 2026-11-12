@@ -34,6 +34,7 @@ export type CreateFormOptions<T extends Record<string, string>> = {
   required?: readonly RequiredRule<keyof T & string>[];
   maxLengths?: readonly MaxLengthRule<keyof T & string>[];
   ranges?: readonly NumericRangeRule<keyof T & string>[];
+  validate?: (values: T) => Record<string, string> | void;
   labels?: Readonly<Record<string, string>>;
   beforeSubmit?: (fd: FormData) => void;
 };
@@ -146,6 +147,8 @@ export function useCreateForm<T extends Record<string, string>>(
 ): {
   values: T;
   set: (field: keyof T & string, value: string) => void;
+  setUntouched: (field: keyof T & string, value: string) => void;
+  clearError: (field: keyof T & string) => void;
   loras: () => LoraSpec[];
   setLoras: (v: LoraSpec[]) => void;
   errors: () => Record<string, string>;
@@ -255,9 +258,7 @@ export function useCreateForm<T extends Record<string, string>>(
     flushDraft();
   });
 
-  const set = (field: keyof T & string, value: string) => {
-    tracker.touch(field);
-    setValues(field as any, value as any);
+  const clearError = (field: keyof T & string) => {
     if (errors()[field]) {
       setErrors((prev) => {
         const next = { ...prev };
@@ -265,6 +266,16 @@ export function useCreateForm<T extends Record<string, string>>(
         return next;
       });
     }
+  };
+
+  const set = (field: keyof T & string, value: string) => {
+    tracker.touch(field);
+    setValues(field as any, value as any);
+    clearError(field);
+  };
+
+  const setUntouched = (field: keyof T & string, value: string) => {
+    setValues(field as any, value as any);
   };
 
   const setLoras = (v: LoraSpec[]) => {
@@ -308,6 +319,7 @@ export function useCreateForm<T extends Record<string, string>>(
       maxLengths: opts.maxLengths,
       ranges: opts.ranges,
       loras: loras(),
+      validate: opts.validate,
     });
     if (Object.keys(validation.errors).length > 0) {
       setErrors(validation.errors);
@@ -394,6 +406,8 @@ export function useCreateForm<T extends Record<string, string>>(
   return {
     values,
     set,
+    setUntouched,
+    clearError,
     loras,
     setLoras,
     errors,

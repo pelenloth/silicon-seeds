@@ -5,6 +5,7 @@ import {
   onCleanup,
   Show,
   Switch,
+  type JSX,
 } from "solid-js";
 import type { EnhanceKind } from "../../../prompts/enhance-prompts";
 import { ApiError, apiSend } from "../../lib/api-client";
@@ -31,6 +32,7 @@ export type PromptFieldProps = {
   error?: string;
   enhanceKind?: EnhanceKind;
   getPreset?: () => string | undefined;
+  children?: JSX.Element;
 };
 
 export function PromptField(props: PromptFieldProps) {
@@ -191,6 +193,9 @@ export function PromptField(props: PromptFieldProps) {
           "px-0": !!props.bare,
         }}
       />
+      <Show when={props.children}>
+        <div classList={{ "px-4": !props.bare }}>{props.children}</div>
+      </Show>
       <div
         id={`${props.id}-note`}
         class="flex items-center justify-between gap-2 pb-2 text-xs text-base-content/50"

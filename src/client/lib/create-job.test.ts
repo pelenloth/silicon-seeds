@@ -175,6 +175,19 @@ describe("validateCreateFields and firstInvalidInOrder", () => {
       },
     );
     expect(res2.errors).toEqual({});
+
+    const res3 = validateCreateFields(
+      { script: "ab" },
+      {
+        validate: (v) =>
+          v.script.trim().length < 3
+            ? { script: "Write a script or upload a file" }
+            : undefined,
+      },
+    );
+    expect(res3.errors).toEqual({
+      script: "Write a script or upload a file",
+    });
   });
 
   test("firstInvalidInOrder chooses the first invalid field by DOM order rather than rule order", () => {

@@ -123,16 +123,20 @@ export type NumericRangeRule<K extends string = string> = {
   label?: string;
 };
 
-export type CreateValidationRules<K extends string = string> = {
+export type CreateValidationRules<
+  K extends string = string,
+  T extends Record<string, string> = Record<string, string>,
+> = {
   required?: readonly RequiredRule<K>[];
   maxLengths?: readonly MaxLengthRule<K>[];
   ranges?: readonly NumericRangeRule<K>[];
   loras?: readonly { name: string; strength: number }[];
+  validate?: (values: T) => Record<string, string> | void;
 };
 
 export function validateCreateFields<T extends Record<string, string>>(
   values: T,
-  rules: CreateValidationRules<keyof T & string>,
+  rules: CreateValidationRules<keyof T & string, T>,
 ): { errors: Record<string, string> } {
   const errors: Record<string, string> = {};
   const mark = (field: string, msg: string) => {
@@ -146,6 +150,17 @@ export function validateCreateFields<T extends Record<string, string>>(
       const val = values[req.field] ?? "";
       if (!val.trim()) {
         mark(req.field, req.message);
+      }
+    }
+  }
+
+  if (rules.validate) {
+    const custom = rules.validate(values);
+    if (custom) {
+      for (const [k, msg] of Object.entries(custom)) {
+        if (msg) {
+          mark(k, msg);
+        }
       }
     }
   }
