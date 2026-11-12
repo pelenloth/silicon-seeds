@@ -234,7 +234,7 @@ export function CommandPalette() {
           ref={listRef}
           id="palette-list"
           role="listbox"
-          class="max-h-[50vh] overflow-y-auto scroll-thin p-2"
+          class="relative max-h-[50vh] overflow-y-auto scroll-thin p-2"
         >
           <Show
             when={commands().length > 0}

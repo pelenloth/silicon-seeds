@@ -200,7 +200,7 @@ export function ActivityCenter() {
           aria-label="Activity"
           class="fixed inset-x-3 top-14 w-auto sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 sm:w-[22rem] sm:max-w-sm z-30 rounded-box border border-base-300 bg-base-100 shadow-xl"
         >
-          <div class="max-h-[65vh] overflow-y-auto scroll-thin p-2">
+          <div class="relative max-h-[65vh] overflow-y-auto scroll-thin p-2">
             <Show
               when={hasAny()}
               fallback={

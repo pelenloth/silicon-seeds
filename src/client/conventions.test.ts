@@ -32,6 +32,22 @@ const PLAYWRIGHT_IMPORT_RE =
   /\b(?:import|export)\b[^;]*["']@playwright\/test["']|\bimport\s*\(\s*["']@playwright\/test["']\s*\)/;
 const JOB_URL_TEMPLATE_RE = /(?:href=["']|`)\/jobs\/\$\{/;
 
+const OVERFLOW_SCROLL_RE =
+  /(?:^|\s)overflow-(?:y-auto|auto|y-scroll|x-auto|scroll)(?=\s|$)/;
+const POSITIONED_RE = /(?:^|\s)(?:relative|absolute|fixed|sticky)(?=\s|$)/;
+const STRING_LIT_RE = /"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`/g;
+
+export function findUnpositionedOverflowLiterals(text: string): string[] {
+  const bad: string[] = [];
+  for (const m of text.matchAll(STRING_LIT_RE)) {
+    const inner = m[0].slice(1, -1);
+    if (OVERFLOW_SCROLL_RE.test(inner) && !POSITIONED_RE.test(inner)) {
+      bad.push(m[0]);
+    }
+  }
+  return bad;
+}
+
 describe("client conventions", () => {
   test("no banned patterns", async () => {
     const files = await sources();
@@ -46,6 +62,11 @@ describe("client conventions", () => {
       }
       if (path.endsWith(".tsx") && EMOJI_RE.test(text)) {
         hits.push(`${path}: emoji in .tsx`);
+      }
+      if (path.endsWith(".tsx")) {
+        for (const lit of findUnpositionedOverflowLiterals(text)) {
+          hits.push(`${path}: overflow without position in ${lit}`);
+        }
       }
       for (const [idx, line] of text.split("\n").entries()) {
         if (
@@ -95,6 +116,14 @@ describe("client conventions", () => {
         `expected BANNED["${name}"] not to flag clean code`,
       ).toBe(false);
     }
+
+    const badOverflow =
+      '<div class="min-h-0 flex-1 overflow-' + 'y-auto scroll-thin" />';
+    const goodOverflow =
+      '<div class="relative min-h-0 flex-1 overflow-' +
+      'y-auto scroll-thin" />';
+    expect(findUnpositionedOverflowLiterals(badOverflow)).toHaveLength(1);
+    expect(findUnpositionedOverflowLiterals(goodOverflow)).toEqual([]);
   });
 
   test("deleted legacy components stay deleted", async () => {

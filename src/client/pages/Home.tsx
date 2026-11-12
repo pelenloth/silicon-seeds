@@ -782,7 +782,7 @@ export default function Home() {
               value={mode()}
               onChange={setMode}
               options={MODE_OPTIONS}
-              class="max-w-full overflow-x-auto scroll-thin"
+              class="relative max-w-full overflow-x-auto scroll-thin"
             />
             <Show when={mode() === "auto"}>
               <span class="text-xs text-base-content/60">

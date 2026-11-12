@@ -627,7 +627,7 @@ export function JobDetail(props: JobDetailProps) {
                     </TabLink>
                   </nav>
                 </header>
-                <div class="page min-h-0 flex-1 overflow-y-auto scroll-thin">
+                <div class="page relative min-h-0 flex-1 overflow-y-auto scroll-thin">
                   <Switch>
                     <Match when={props.tab === "status"}>
                       <JobOverview

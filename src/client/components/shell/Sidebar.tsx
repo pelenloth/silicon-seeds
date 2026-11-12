@@ -169,7 +169,7 @@ export function Sidebar() {
         <nav
           ref={navRef}
           aria-label="Main"
-          class="flex min-h-0 flex-1 flex-col overflow-y-auto scroll-thin p-2"
+          class="relative flex min-h-0 flex-1 flex-col overflow-y-auto scroll-thin p-2"
         >
           <ul class="menu menu-sm w-full gap-0.5 p-0">
             <For each={MAIN_ROUTES}>{renderItem}</For>

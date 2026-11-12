@@ -510,7 +510,7 @@ export function ResultPanel(props: ResultPanelProps) {
               </div>
             </header>
             <progress class="progress progress-primary h-1 w-full rounded-none" />
-            <div class="min-h-0 flex-1 overflow-y-auto scroll-thin p-4">
+            <div class="relative min-h-0 flex-1 overflow-y-auto scroll-thin p-4">
               <div
                 class={`grid gap-2 ${pendingTileCount() === 1 ? "grid-cols-1" : "grid-cols-2"}`}
               >
@@ -641,7 +641,7 @@ export function ResultPanel(props: ResultPanelProps) {
                       max={Math.max(currentJob().progress.total, 1)}
                     />
                   </Show>
-                  <div class="min-h-0 flex-1 overflow-y-auto scroll-thin p-4">
+                  <div class="relative min-h-0 flex-1 overflow-y-auto scroll-thin p-4">
                     <Show
                       when={
                         !(

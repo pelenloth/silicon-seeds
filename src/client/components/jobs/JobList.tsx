@@ -153,7 +153,7 @@ export function JobList(props: JobListProps) {
       <nav
         id="job-filter"
         aria-label="Filter jobs"
-        class="scroll-thin flex flex-nowrap gap-px overflow-x-auto border-b border-base-300 px-1.5 py-2"
+        class="scroll-thin relative flex flex-nowrap gap-px overflow-x-auto border-b border-base-300 px-1.5 py-2"
       >
         <For each={visibleFilters()}>
           {(f) => {
@@ -173,7 +173,7 @@ export function JobList(props: JobListProps) {
         </For>
       </nav>
 
-      <ul class="min-h-0 flex-1 overflow-y-auto scroll-thin p-2">
+      <ul class="relative min-h-0 flex-1 overflow-y-auto scroll-thin p-2">
         <Show when={props.loading && !props.hasAnyJobs}>
           <For each={[0, 1, 2, 3, 4, 5, 6, 7]}>
             {() => (
