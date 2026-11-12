@@ -5,6 +5,7 @@ export type TabLinkProps = {
   href: string;
   active: boolean;
   variant?: "tab" | "chip";
+  size?: "xs" | "sm";
   children: JSX.Element;
   class?: string;
 };
@@ -29,7 +30,8 @@ export function TabLink(props: TabLinkProps) {
 
   const baseClass = () => {
     if (props.variant === "chip") {
-      return `btn btn-sm ${props.active ? "btn-primary" : "btn-ghost"}`;
+      const sz = props.size === "xs" ? "btn-xs" : "btn-sm";
+      return `btn ${sz} ${props.active ? "btn-primary" : "btn-ghost"}`;
     }
     return `tab ${props.active ? "tab-active" : ""}`.trim();
   };

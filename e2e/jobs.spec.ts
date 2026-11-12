@@ -451,3 +451,35 @@ test("jobs: media load error shows inline Try again in Media tab instead of No m
   await expect(retryBtn).toBeVisible();
   await page.unroute(mediaPattern);
 });
+
+test("jobs: status filter chips fit inside the list header at 1440x900", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/jobs");
+  const filterNav = page.locator("#job-filter");
+  await expect(filterNav).toBeVisible({ timeout: 10000 });
+  await expect(
+    page
+      .locator('#job-list a[href^="/jobs/"]')
+      .first()
+      .or(page.getByText(/No jobs yet/i)),
+  ).toBeVisible({ timeout: 10000 });
+
+  const lastChip = filterNav.getByRole("link").last();
+  await expect(lastChip).toBeVisible();
+
+  const headerBox = await filterNav.boundingBox();
+  const chipBox = await lastChip.boundingBox();
+  expect(headerBox).not.toBeNull();
+  expect(chipBox).not.toBeNull();
+
+  expect(chipBox!.x).toBeGreaterThanOrEqual(headerBox!.x);
+  expect(chipBox!.y).toBeGreaterThanOrEqual(headerBox!.y);
+  expect(chipBox!.x + chipBox!.width).toBeLessThanOrEqual(
+    headerBox!.x + headerBox!.width,
+  );
+  expect(chipBox!.y + chipBox!.height).toBeLessThanOrEqual(
+    headerBox!.y + headerBox!.height,
+  );
+});
