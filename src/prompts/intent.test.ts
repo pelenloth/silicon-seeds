@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   buildIntentPrompt,
+  decadeNumbers,
   detectKind,
   durationFromText,
   normalizePlan,
@@ -114,14 +115,14 @@ describe("durationFromText", () => {
   test("parses digits with seconds and minutes units", () => {
     expect(durationFromText("90 seconds")).toBe(90);
     expect(durationFromText("90 sec")).toBe(90);
-    expect(durationFromText("90s")).toBe(90);
+    expect(durationFromText("90 s")).toBeNull();
     expect(durationFromText("5 second")).toBe(5);
     expect(durationFromText("5-second")).toBe(5);
     expect(durationFromText("2 minutes")).toBe(120);
     expect(durationFromText("2 min")).toBe(120);
     expect(durationFromText("1.5 minutes")).toBe(90);
     expect(durationFromText("1,5 minutes")).toBe(90);
-    expect(durationFromText("10s loop")).toBe(10);
+    expect(durationFromText("10 sec loop")).toBe(10);
     expect(durationFromText("a 10 second clip")).toBe(10);
     expect(durationFromText("2 min ambient")).toBe(120);
   });
@@ -157,6 +158,84 @@ describe("durationFromText", () => {
     expect(durationFromText("two minutes long with a 10 second outro")).toBe(
       120,
     );
+  });
+});
+
+describe("durationFromText: decades are not durations", () => {
+  test("decade and year tokens give no duration", () => {
+    expect(durationFromText("an 80s synthwave song")).toBeNull();
+    expect(durationFromText("a 1980s disco song")).toBeNull();
+    expect(durationFromText("90s style hip hop beat")).toBeNull();
+    expect(durationFromText("a 1920s film of a train")).toBeNull();
+    expect(durationFromText("10s loop")).toBeNull();
+  });
+  test("explicit units still count", () => {
+    expect(durationFromText("a 10 second clip")).toBe(10);
+    expect(durationFromText("a 30-second jingle")).toBe(30);
+    expect(durationFromText("two minutes of rain")).toBe(120);
+  });
+});
+
+describe("decadeNumbers", () => {
+  test("finds decade and year tokens", () => {
+    expect(decadeNumbers("80s")).toEqual([80]);
+    expect(decadeNumbers("1980s")).toEqual([1980]);
+    expect(decadeNumbers("the '90s")).toEqual([90]);
+    expect(decadeNumbers("1920s and 30s")).toEqual([1920]);
+    expect(decadeNumbers("15s")).toEqual([]);
+    expect(decadeNumbers("10s loop")).toEqual([]);
+  });
+});
+
+describe("normalizePlan: decades", () => {
+  const dur = (text: string, kind: string, d: number) =>
+    normalizePlan(
+      { kind: kind as "audio" | "video", duration_seconds: d },
+      text,
+      PRESETS,
+      FB,
+    ).duration_seconds;
+  test("a decade is never taken as the length", () => {
+    expect(dur("an 80s synthwave song", "audio", 80)).toBe(60);
+    expect(dur("a 1980s disco song", "audio", 1980)).toBe(60);
+    expect(dur("a 1920s film of a train", "video", 1920)).toBe(5);
+  });
+  test("a stated length still wins", () => {
+    expect(dur("an 80s synthwave song, 90 seconds", "audio", 80)).toBe(90);
+  });
+  test("the planner value is trusted when nothing contradicts it", () => {
+    expect(dur("lofi music for studying", "audio", 120)).toBe(120);
+    expect(dur("a 10s loop of waves, video of the sea", "video", 10)).toBe(10);
+    expect(dur("a 30s jingle for a bakery", "audio", 30)).toBe(30);
+  });
+});
+
+describe("detectKind: portrait orientation and idiom filters", () => {
+  test("portrait as an orientation does not make an image", () => {
+    expect(detectKind("portrait video, dancer spinning", "video")).toBe(
+      "video",
+    );
+    expect(detectKind("a 5 second portrait-mode clip of rain", "video")).toBe(
+      "video",
+    );
+    expect(detectKind("a clip of rain in portrait", "video")).toBe("video");
+  });
+  test("portrait as a noun still makes an image", () => {
+    expect(detectKind("a portrait of an old sailor", "image")).toBe("image");
+    expect(detectKind("a portrait of a singer on stage", "audio")).toBe(
+      "image",
+    );
+    expect(detectKind("a portrait of an old sailor", "video")).toBe("image");
+  });
+  test("video request phrases respect the clip idiom filter", () => {
+    expect(detectKind("a photo of a paper clip of gold", "image")).toBe(
+      "image",
+    );
+    expect(detectKind("a paper clip of gold on a desk", "video")).toBe("image");
+    expect(detectKind("a clip of a paper boat on a pond", "image")).toBe(
+      "video",
+    );
+    expect(detectKind("a hair clip of silver, macro photo")).toBe("image");
   });
 });
 
