@@ -21,7 +21,6 @@ const IMAGE_NOUNS = [
   "photograph",
   "picture",
   "image",
-  "portrait",
   "painting",
   "illustration",
   "drawing",
@@ -155,8 +154,11 @@ const IMAGE_NOUN_RE = new RegExp(
 );
 
 const VIDEO_REQUEST_OVERRIDE_RE = new RegExp(
-  `\\b(?:${VIDEO_REQUEST_PHRASES.join("|")}|(?:animate|animates|animating)\\s+\\w+)\\b`,
+  `\\b(?:${VIDEO_REQUEST_PHRASES.join("|")})\\b`,
 );
+
+// "animate" is a request only as an imperative at the start of the prompt.
+const ANIMATE_IMPERATIVE_RE = /^(?:please\s+)?animate\b/;
 
 const VIDEO_SIMPLE_RE =
   /\b(?:videos?|animations?|footage|movies?|gifs?|timelapses?|time-lapses?|time\s+lapses?|short\s+films?|films?\s+of|animate|animates|animating)\b/;
@@ -196,10 +198,16 @@ function normalizeText(text: string): string {
 
 // "portrait" used as an orientation (portrait video, portrait-mode clip, in portrait), not as a noun.
 const PORTRAIT_ORIENTATION_RE =
-  /\bportrait[\s-]+(?:mode|orientation|format|aspect|ratio|videos?|clips?|animations?|gifs?|films?|movies?|footage|shots?)\b|\bin\s+portrait\b(?!\s+of\b)/g;
+  /\bportraits?[\s-]+(?:mode|orientation|oriented|format|aspect|ratio|\d+:\d+|videos?|clips?|animations?|gifs?|films?|movies?|footage|shots?)\b|\bin\s+portrait\b(?!\s+of\b)/g;
+
+// "portrait" is an image noun only after a determiner (at most two words in
+// between), as "portrait of", or as "self-portrait".
+const PORTRAIT_NOUN_RE =
+  /\b(?:a|an|the|my|his|her|their|our|your)\s+(?:\w+\s+){0,2}portraits?\b|\bportraits?\s+of\b|\bself[\s-]portraits?\b/;
 
 function hasExplicitImageNoun(norm: string): boolean {
-  return IMAGE_NOUN_RE.test(norm.replace(PORTRAIT_ORIENTATION_RE, " "));
+  const stripped = norm.replace(PORTRAIT_ORIENTATION_RE, " ");
+  return IMAGE_NOUN_RE.test(stripped) || PORTRAIT_NOUN_RE.test(stripped);
 }
 
 function withoutVideoFalsePositives(norm: string): string {
@@ -209,7 +217,10 @@ function withoutVideoFalsePositives(norm: string): string {
 }
 
 function hasVideoRequestPhrase(norm: string): boolean {
-  return VIDEO_REQUEST_OVERRIDE_RE.test(withoutVideoFalsePositives(norm));
+  const clean = withoutVideoFalsePositives(norm).trim();
+  return (
+    VIDEO_REQUEST_OVERRIDE_RE.test(clean) || ANIMATE_IMPERATIVE_RE.test(clean)
+  );
 }
 
 function hasAudioRequestPhrase(norm: string): boolean {
@@ -342,12 +353,17 @@ export function durationFromText(text: string): number | null {
 // numbers below 50 are lengths ("10s loop"), not decades.
 export function decadeNumbers(text: string): number[] {
   const out: number[] = [];
-  for (const m of text.matchAll(/(?<![\w])'?(\d{2}|\d{4})'?s\b/g)) {
-    const n = Number.parseInt(m[1] ?? "", 10);
-    const ok =
-      (m[1]?.length === 2 && n >= 50 && n <= 90 && n % 10 === 0) ||
-      (m[1]?.length === 4 && n >= 1800 && n <= 2090 && n % 10 === 0);
-    if (ok) out.push(n);
+  for (const m of text.matchAll(/(?<![\w])(the\s+)?('?)(\d{2}|\d{4})'?s\b/gi)) {
+    const n = Number.parseInt(m[3] ?? "", 10);
+    const marked = Boolean(m[1]) || m[2] === "'";
+    if (m[3]?.length === 2) {
+      if (n % 10 === 0 && n > 0 && (marked || (n >= 50 && n <= 90))) {
+        out.push(n);
+      }
+    } else if (n >= 1800 && n <= 2090 && n % 10 === 0) {
+      out.push(n);
+      if (n % 100 !== 0) out.push(n % 100);
+    }
   }
   return out;
 }

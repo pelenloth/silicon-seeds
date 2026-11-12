@@ -179,11 +179,22 @@ describe("durationFromText: decades are not durations", () => {
 describe("decadeNumbers", () => {
   test("finds decade and year tokens", () => {
     expect(decadeNumbers("80s")).toEqual([80]);
-    expect(decadeNumbers("1980s")).toEqual([1980]);
+    expect(decadeNumbers("1980s")).toEqual([1980, 80]);
     expect(decadeNumbers("the '90s")).toEqual([90]);
-    expect(decadeNumbers("1920s and 30s")).toEqual([1920]);
+    expect(decadeNumbers("1920s and 30s")).toEqual([1920, 20]);
     expect(decadeNumbers("15s")).toEqual([]);
     expect(decadeNumbers("10s loop")).toEqual([]);
+  });
+  test("a four-digit decade also counts its last two digits", () => {
+    expect(decadeNumbers("a 1980s disco song")).toEqual([1980, 80]);
+  });
+  test('small two-digit decades need an apostrophe or "the"', () => {
+    expect(decadeNumbers("music from the 20s")).toEqual([20]);
+    expect(decadeNumbers("'30s noir")).toEqual([30]);
+    expect(decadeNumbers("the '40s swing")).toEqual([40]);
+    expect(decadeNumbers("a 30s jingle")).toEqual([]);
+    expect(decadeNumbers("20s clip")).toEqual([]);
+    expect(decadeNumbers("80s")).toEqual([80]);
   });
 });
 
@@ -199,6 +210,8 @@ describe("normalizePlan: decades", () => {
     expect(dur("an 80s synthwave song", "audio", 80)).toBe(60);
     expect(dur("a 1980s disco song", "audio", 1980)).toBe(60);
     expect(dur("a 1920s film of a train", "video", 1920)).toBe(5);
+    expect(dur("a 1980s disco song", "audio", 80)).toBe(60);
+    expect(dur("music from the 20s", "audio", 20)).toBe(60);
   });
   test("a stated length still wins", () => {
     expect(dur("an 80s synthwave song, 90 seconds", "audio", 80)).toBe(90);
@@ -440,5 +453,50 @@ describe("buildIntentPrompt", () => {
     );
     expect(out.match(/<{3,}/g)).toEqual(["<<<"]);
     expect(out.match(/>{3,}/g)).toEqual([">>>"]);
+  });
+});
+
+describe("detectKind: portrait as a noun", () => {
+  test("orientation uses stay video", () => {
+    expect(detectKind("portrait 9:16 video, dancer spinning", "video")).toBe(
+      "video",
+    );
+    expect(detectKind("portrait-oriented clip of rain", "video")).toBe("video");
+    expect(
+      detectKind("a clip of waves shot in portrait, 10 seconds", "video"),
+    ).toBe("video");
+  });
+  test("noun positions are image", () => {
+    expect(detectKind("a portrait of an old sailor", "video")).toBe("image");
+    expect(detectKind("an oil portrait, dramatic light", "video")).toBe(
+      "image",
+    );
+    expect(detectKind("self-portrait in a mirror", "video")).toBe("image");
+    expect(detectKind("old sailor portrait, 85mm", "image")).toBe("image");
+  });
+});
+
+describe("detectKind: animate", () => {
+  test("a mid-sentence verb is no video request", () => {
+    expect(detectKind("a photo of a child animating a puppet", "image")).toBe(
+      "image",
+    );
+    expect(detectKind("a photo of a child animating a puppet", "video")).toBe(
+      "image",
+    );
+    expect(detectKind("a robot animating drawings on a screen", "image")).toBe(
+      "image",
+    );
+  });
+  test("an imperative at the start is a video request", () => {
+    expect(detectKind("animate a paper boat drifting on a pond", "image")).toBe(
+      "video",
+    );
+    expect(detectKind("please animate this pond scene", "image")).toBe("video");
+  });
+  test("elsewhere it is video evidence with the planner's agreement", () => {
+    expect(detectKind("a robot animating shapes on a screen", "video")).toBe(
+      "video",
+    );
   });
 });
