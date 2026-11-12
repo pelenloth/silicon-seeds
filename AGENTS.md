@@ -38,7 +38,7 @@ curl http://localhost:3000/api/health   # -> {"status":"up"}
 
 Example job URL:
 
-http://localhost:3000/jobs/019d4556-bbe7-7000-88da-b48bf06182dc?tab=overview
+http://localhost:3000/jobs/019d4556-bbe7-7000-88da-b48bf06182dc?tab=status
 
 Server binds `HOST`/`PORT` from env (defaults `127.0.0.1`/`3000`).
 Set `HOST=0.0.0.0` only on trusted networks, app has no auth.

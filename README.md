@@ -43,6 +43,17 @@ Local generative media studio. Orchestrates **LM Studio** (text), **ComfyUI** (i
 
 <table>
 <tr>
+<td colspan="2" align="center">
+
+**Home - describe it, Auto plans it**
+
+One prompt box. Auto mode picks the format and settings from your description; running jobs and recent creations sit right below.
+
+<img src="readme/home.webp" alt="Home view - prompt box with Auto mode, recent creations" width="90%" />
+
+</td>
+</tr>
+<tr>
 <td width="50%">
 
 **Compose - script to film**
@@ -58,7 +69,7 @@ Script + style guide + voice + LoRAs -> speech -> scenes -> images -> videos -> 
 
 Tabs for Appearance (themes), Defaults (prefill new jobs), LoRAs (synced from ComfyUI, reorder, toggle active), and Style presets.
 
-<img src="readme/settings.webp" alt="Settings view - defaults, LoRAs, style presets" width="100%" />
+<img src="readme/settings.webp" alt="Settings view - appearance themes, defaults, LoRAs, style presets" width="100%" />
 
 </td>
 </tr>
@@ -67,7 +78,7 @@ Tabs for Appearance (themes), Defaults (prefill new jobs), LoRAs (synced from Co
 
 **Jobs - master-detail and live timeline**
 
-Job list and detail view at `/jobs/<id>` with status filters, search, Overview / Media / Timeline tabs, media lightbox, and job/event actions.
+Job list and detail view at `/jobs/<id>` with status filters, search, Status / Media / Events tabs, media lightbox, and job/event actions.
 
 <img src="readme/jobs.webp" alt="Jobs view - live job status and event stream" width="100%" />
 
@@ -174,7 +185,7 @@ Variants: `bun run test:e2e:headed`, `bun run test:e2e:ui`.
 | **Activity & Toasts** | Topbar Activity panel listing running, queued, and recent jobs with pause/resume/cancel actions, plus completion and failure toasts with direct links to `/jobs/<id>`. |
 | **Command Palette** | `Ctrl K` (or `Cmd K`) opens a keyboard-navigable palette for routes, settings sections, recent jobs, themes, and quick create for typed prompts. |
 | **Create Studio** | Shared `StudioLayout` across Image (`/create/image`), Video (`/create/video`), Text-to-Video (`/create/text-to-video`), Audio (`/create/audio`), and Compose (`/compose`) with local per-route drafts, prompt Enhance (with Undo chain) and Inspire, style presets, LoRA stacking, and a live `ResultPanel`. |
-| **Jobs** | Master-detail view (`/jobs` and `/jobs/:id?tab=overview\|media\|timeline`) with status filter chips, search, step timeline, media grid with lightbox, "Use settings" prefill, per-event regenerate, and job pause, resume, retry, cancel, and delete actions. |
+| **Jobs** | Master-detail view (`/jobs` and `/jobs/:id?tab=status\|media\|events`) with status filter chips, search, step timeline, media grid with lightbox, "Reuse settings" prefill, per-event regenerate, and job pause, resume, retry, cancel, and delete actions. |
 | **Gallery** | Content library backed by `CONTENT_LIBRARY_DIR` with type filters (`all`, `image`, `video`, `audio`), cursor pagination, server-rendered thumbnails (`/thumbs/*`), and a lightbox with job links. |
 | **Settings** | Tabbed interface (`/settings?tab=appearance\|defaults\|loras\|presets`) covering Appearance (Daylight, Tokyo Night, Dracula, and OpenCode themes), Defaults (resolution, models, FPS, durations, preset), LoRAs (sync from ComfyUI, toggle active, reorder, delete), and Style presets. |
 | **Shell & Favicon** | Collapsible sidebar, responsive mobile drawer, `New` create menu, and SVG favicon (`src/client/favicon.svg`). |
