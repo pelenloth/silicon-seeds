@@ -38,7 +38,7 @@ curl http://localhost:3000/api/health   # -> {"status":"up"}
 
 Example job URL:
 
-http://localhost:3000/?job_id=019d4556-bbe7-7000-88da-b48bf06182dc&tab=status
+http://localhost:3000/jobs/019d4556-bbe7-7000-88da-b48bf06182dc?tab=overview
 
 Server binds `HOST`/`PORT` from env (defaults `127.0.0.1`/`3000`).
 Set `HOST=0.0.0.0` only on trusted networks, app has no auth.
@@ -49,7 +49,7 @@ Set `HOST=0.0.0.0` only on trusted networks, app has no auth.
 bun run test       # tsc (server) + tsc (client) + eslint (no services needed)
 bun run test:unit  # bun test src (pure logic, no services needed)
 bun run lint       # eslint only
-bun run test:e2e   # Playwright, needs app + ComfyUI + LM Studio running
+bun run test:e2e   # Playwright against running app (e2e/helpers/test.ts blocks GPU/LLM requests)
 ```
 
 # Documentation

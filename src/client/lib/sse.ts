@@ -32,5 +32,3 @@ export function onJobUpdate(
     ),
   );
 }
-
-export const useJobUpdates = onJobUpdate;

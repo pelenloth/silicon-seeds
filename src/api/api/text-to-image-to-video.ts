@@ -67,9 +67,6 @@ export async function text_to_image_to_video(options: PostTextToVideo) {
 
   return new Response(JSON.stringify({ message: "job queued", jobId }), {
     status: 200,
-    headers: {
-      "Content-Type": "application/json",
-      "HX-Redirect": `/create/video?show_progress=true&job_id=${jobId}`,
-    },
+    headers: { "Content-Type": "application/json" },
   });
 }

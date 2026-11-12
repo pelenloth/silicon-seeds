@@ -40,9 +40,6 @@ export async function text_to_audio(
 
   return new Response(JSON.stringify({ message: "job queued", jobId }), {
     status: 200,
-    headers: {
-      "Content-Type": "application/json",
-      "HX-Redirect": `/create/audio?show_progress=true&job_id=${jobId}`,
-    },
+    headers: { "Content-Type": "application/json" },
   });
 }

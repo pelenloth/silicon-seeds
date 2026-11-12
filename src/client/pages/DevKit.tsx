@@ -1,5 +1,5 @@
 import { useSearchParams } from "@solidjs/router";
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createSignal, For, onMount, Show } from "solid-js";
 import { Icons } from "../components/Icons";
 import { CopyButton } from "../components/ui/CopyButton";
 import { EmptyState } from "../components/ui/EmptyState";
@@ -80,24 +80,30 @@ export default function DevKit() {
   const [selectVal, setSelectVal] = createSignal("720p");
   const [lightboxIdx, setLightboxIdx] = createSignal<number | null>(null);
   const [lightboxCloseCount, setLightboxCloseCount] = createSignal(0);
+  const [galleryData, setGalleryData] = createSignal<{
+    images: GalleryItem[];
+    videos: GalleryItem[];
+  }>({ images: [], videos: [] });
 
-  const [galleryRes] = createResource(async () => {
-    try {
-      const [imgs, vids] = await Promise.all([
-        apiGet<{ items: GalleryItem[] }>(
-          "/api/gallery/items?limit=12&type=image",
-        ),
-        apiGet<{ items: GalleryItem[] }>(
-          "/api/gallery/items?limit=4&type=video",
-        ),
-      ]);
-      return {
-        images: imgs.items ?? [],
-        videos: vids.items ?? [],
-      };
-    } catch {
-      return { images: [], videos: [] };
-    }
+  onMount(() => {
+    void (async () => {
+      try {
+        const [imgs, vids] = await Promise.all([
+          apiGet<{ items: GalleryItem[] }>(
+            "/api/gallery/items?limit=12&type=image",
+          ),
+          apiGet<{ items: GalleryItem[] }>(
+            "/api/gallery/items?limit=4&type=video",
+          ),
+        ]);
+        setGalleryData({
+          images: imgs.items ?? [],
+          videos: vids.items ?? [],
+        });
+      } catch {
+        setGalleryData({ images: [], videos: [] });
+      }
+    })();
   });
 
   const tiles = (): MediaItem[] => {
@@ -114,11 +120,11 @@ export default function DevKit() {
       event_id: i.event_id,
       meta_id: i.meta_id,
     });
-    const imgs = (galleryRes.latest?.images ?? [])
-      .filter((i) => i.mediaType === "image" || !i.mediaType)
+    const imgs = galleryData()
+      .images.filter((i) => i.mediaType === "image" || !i.mediaType)
       .slice(0, 3)
       .map((i) => toMediaItem(i, "image"));
-    const firstVid = (galleryRes.latest?.videos ?? []).find(
+    const firstVid = galleryData().videos.find(
       (i) => i.mediaType === "video" || !i.mediaType,
     );
     const out: MediaItem[] = [];

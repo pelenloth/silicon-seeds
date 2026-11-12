@@ -22,24 +22,24 @@
 </p>
 
 <p align="center">
-  <a href="#-showcase">Showcase</a> •
-  <a href="#-quick-start">Quick Start</a> •
-  <a href="#-features">Features</a> •
-  <a href="#-architecture">Architecture</a> •
-  <a href="#-service-dependencies">Services</a> •
-  <a href="#-testing">Testing</a> •
-  <a href="#-troubleshooting">Troubleshooting</a>
+  <a href="#showcase">Showcase</a> •
+  <a href="#quick-start">Quick Start</a> •
+  <a href="#features">Features</a> •
+  <a href="#architecture">Architecture</a> •
+  <a href="#service-dependencies">Services</a> •
+  <a href="#testing">Testing</a> •
+  <a href="#troubleshooting">Troubleshooting</a>
 </p>
 
 ---
 
 > **License:** GPL-3.0-or-later - see [LICENSE](LICENSE). Any derivative or service that includes this code must remain open under the same license.
 
-Local generative media studio. Orchestrates **LM Studio** (text), **ComfyUI** (image / video / audio), **SQLite + Kysely** (jobs), and a **SolidJS + DaisyUI** frontend to turn scripts into images, videos, and fully composed films. Queue is DB-backed, UI is SSE-driven, everything runs on your hardware.
+Local generative media studio. Orchestrates **LM Studio** (text), **ComfyUI** (image / video / audio), **SQLite + Kysely** (jobs), and a **SolidJS + DaisyUI** frontend to turn prompts and scripts into images, videos, audio tracks, and composed films. Queue is DB-backed, UI is SSE-driven, everything runs on your hardware.
 
 ---
 
-## ✨ Showcase
+## Showcase
 
 <table>
 <tr>
@@ -47,16 +47,16 @@ Local generative media studio. Orchestrates **LM Studio** (text), **ComfyUI** (i
 
 **Compose - script to film**
 
-Script + style guide + voice + LoRAs → speech → scenes → images → videos → transitions → concat. End-to-end pipeline in one click.
+Script + style guide + voice + LoRAs -> speech -> scenes -> images -> videos -> transitions -> concat. Shared studio layout with local drafts and an inline result panel.
 
 <img src="readme/compose.webp" alt="Compose view - script, style guide, models, LoRAs, voice" width="100%" />
 
 </td>
 <td width="50%">
 
-**Settings - defaults, LoRAs, presets**
+**Settings - appearance, defaults, LoRAs, presets**
 
-Defaults prefill new jobs. LoRAs synced from ComfyUI (drag to reorder, toggle active). 14 style presets curated from mflux-forge.
+Tabs for Appearance (themes), Defaults (prefill new jobs), LoRAs (synced from ComfyUI, reorder, toggle active), and Style presets.
 
 <img src="readme/settings.webp" alt="Settings view - defaults, LoRAs, style presets" width="100%" />
 
@@ -65,18 +65,18 @@ Defaults prefill new jobs. LoRAs synced from ComfyUI (drag to reorder, toggle ac
 <tr>
 <td width="50%">
 
-**Jobs - live SSE timeline**
+**Jobs - master-detail and live timeline**
 
-Real-time job tracker with event stream, status tabs, and cancel / regenerate controls.
+Job list and detail view at `/jobs/<id>` with status filters, search, Overview / Media / Timeline tabs, media lightbox, and job/event actions.
 
 <img src="readme/jobs.webp" alt="Jobs view - live job status and event stream" width="100%" />
 
 </td>
 <td width="50%">
 
-**Create Image - prompt to still**
+**Create - shared studio and Home Auto mode**
 
-Prompt + style preset + LoRA stack (0.1–2.0) + resolution. Z-Image-Turbo, 9 steps, instant preview.
+Home quick create with Auto mode plus dedicated Image, Video, Text-to-Video, Audio, and Compose pages with local drafts and live result panels.
 
 <img src="readme/create-image.webp" alt="Create Image view - prompt, style, LoRAs" width="100%" />
 
@@ -85,9 +85,9 @@ Prompt + style preset + LoRA stack (0.1–2.0) + resolution. Z-Image-Turbo, 9 st
 <tr>
 <td colspan="2" align="center">
 
-**Gallery - content library**
+**Gallery - filters and lightbox**
 
-Persistent gallery backed by `CONTENT_LIBRARY_DIR` + ChromaDB vector search. Every generation archived, searchable, reusable.
+Persistent gallery backed by `CONTENT_LIBRARY_DIR` with type filters, cursor pagination, and a lightbox viewer.
 
 <img src="readme/library.webp" alt="Gallery view - content library" width="90%" />
 
@@ -97,7 +97,7 @@ Persistent gallery backed by `CONTENT_LIBRARY_DIR` + ChromaDB vector search. Eve
 
 ---
 
-## 🛠️ Quick Start
+## Quick Start
 
 ### Installation
 
@@ -128,68 +128,68 @@ bun run start:hot
 bun run start
 ```
 
-- Frontend (Vite dev, proxied): `http://127.0.0.1:5174` → API at `3000`
+- Frontend (Vite dev, proxied): `http://127.0.0.1:5174` -> API at `3000`
 - Backend (Hono): `http://127.0.0.1:3000`
-- Health: `curl http://localhost:3000/api/health` → `{"status":"up"}`
+- Health: `curl http://localhost:3000/api/health` -> `{"status":"up"}`
 
 Production build (serves SPA from `dist/client`):
 
 ```bash
-bun run build           # → dist/client (vite, outDir ../../dist/client from src/client)
-bun run build:css       # → static/style.css
+bun run build           # -> dist/client (vite, outDir ../../dist/client from src/client)
+bun run build:css       # -> static/style.css
 bun run start           # serves http://localhost:3000
 ```
 
 Useful commands:
 
 ```bash
-bun run test           # tsc --noEmit + eslint (no services needed)
+bun run test           # tsc (server + client) + eslint (no services needed)
+bun run test:unit      # bun test src (no services needed)
 bun run lint
-bun run db:rollback      # last migration
-bun run db:chroma        # start local Chroma (path from CONTENT_LIBRARY_DIR, port from CHROMADB_PORT)
+bun run db:rollback    # last migration
+bun run db:chroma      # start local Chroma (path from CONTENT_LIBRARY_DIR, port from CHROMADB_PORT)
 ```
 
 ---
 
-## 🧪 Testing
+## Testing
 
 ```bash
-bun run test      # typecheck (tsc --noEmit) + lint (eslint .) — no services needed
-bun run test:e2e  # Playwright specs in e2e/ (jobs, settings, gallery, create-image/video/audio, text-to-video, compose)
+bun run test       # typecheck (server + client tsc) + lint (eslint .) - no services needed
+bun run test:unit  # bun test src (unit + convention/guard tests) - no services needed
+bun run test:e2e   # Playwright specs in e2e/ (shell, kit, home, jobs, settings, gallery, create-image/video/audio, text-to-video, compose, live-updates)
 ```
 
-`test:e2e` prereqs: app + **ComfyUI** (`http://127.0.0.1:8188`) + **LM Studio**
-(`http://127.0.0.1:1234`, API server on with `LLM_MODEL` loaded) running.
-Playwright boots the app itself (`bun run build && bun src/main.ts`,
-baseURL `http://localhost:3000`, override via `PLAYWRIGHT_BASE_URL`).
+Every e2e spec imports `test` from `e2e/helpers/test.ts`, which blocks every request that could start GPU or LLM work; live generation is never part of the automated suite.
+Playwright runs against `http://localhost:3000` (override via `PLAYWRIGHT_BASE_URL`) and builds the client before starting the server when needed.
 Variants: `bun run test:e2e:headed`, `bun run test:e2e:ui`.
 
 ---
 
-## 🚀 Features
+## Features
 
 | Area | What you get |
 |------|--------------|
-| **Compose** | Script (paste or `.txt`) + style guide + voice → full film: TTS (Voicebox) → LLM scene expansion → Z-Image-Turbo stills → Wan 2.2 / LTX 2.3 i2v + transitions → ffmpeg concat. Progress streamed via SSE/WS. |
-| **Image** | Z-Image-Turbo text-to-image with style presets + optional LoRA chain (0–N, 0.1–2.0, ordered stacking). 480p / 720p / 1080p + 9:16 variants. |
-| **Video** | Image-to-video and text-to-video via Wan 2.2 14B and LTX 2.3, including style transitions between scenes. |
-| **Audio** | Text-to-instrumental / song via Stable Audio 3 Medium + ACE Step 1.5 XL. Single-slot queue, Voicebox voice cloning support. |
-| **Jobs** | DB-backed queue (`prio 300 audio > 200 image > 100 video`), live SSE updates, per-event status, cancel & retry. Survives restarts via `failBrokenJobs`. |
-| **Gallery** | Content library on disk (`CONTENT_LIBRARY_DIR`) with ChromaDB embeddings for semantic search. |
-| **Settings** | Generation defaults (fps, clip/transition duration, resolution, models), LoRA manager (sync from ComfyUI, drag-reorder), style preset editor. |
-| **Frontend** | SolidJS SPA + DaisyUI + Tailwind, Vite dev proxy, Hono API, WebSockets for ComfyUI queue events, SSE for job streams. |
-| **Local-first** | No cloud. No API keys. Bring your own ComfyUI + LM Studio. Optional services degrade gracefully. |
+| **Home & Auto mode** | Quick create bar with Auto, Image, Video, Text-to-Video, and Audio modes, active job cards, and recent creations. In Auto mode (`POST /api/intent`), the planner picks the format and rewrites the prompt while deterministic rules decide kind, counts, sizes, and durations. |
+| **Activity & Toasts** | Topbar Activity panel listing running, queued, and recent jobs with pause/resume/cancel actions, plus completion and failure toasts with direct links to `/jobs/<id>`. |
+| **Command Palette** | `Ctrl K` (or `Cmd K`) opens a keyboard-navigable palette for routes, settings sections, recent jobs, themes, and quick create for typed prompts. |
+| **Create Studio** | Shared `StudioLayout` across Image (`/create/image`), Video (`/create/video`), Text-to-Video (`/create/text-to-video`), Audio (`/create/audio`), and Compose (`/compose`) with local per-route drafts, prompt Enhance (with Undo chain) and Inspire, style presets, LoRA stacking, and a live `ResultPanel`. |
+| **Jobs** | Master-detail view (`/jobs` and `/jobs/:id?tab=overview\|media\|timeline`) with status filter chips, search, step timeline, media grid with lightbox, "Use settings" prefill, per-event regenerate, and job pause, resume, retry, cancel, and delete actions. |
+| **Gallery** | Content library backed by `CONTENT_LIBRARY_DIR` with type filters (`all`, `image`, `video`, `audio`), cursor pagination, server-rendered thumbnails (`/thumbs/*`), and a lightbox with job links. |
+| **Settings** | Tabbed interface (`/settings?tab=appearance\|defaults\|loras\|presets`) covering Appearance (Daylight, Tokyo Night, Dracula, and OpenCode themes), Defaults (resolution, models, FPS, durations, preset), LoRAs (sync from ComfyUI, toggle active, reorder, delete), and Style presets. |
+| **Shell & Favicon** | Collapsible sidebar, responsive mobile drawer, `New` create menu, and SVG favicon (`src/client/favicon.svg`). |
+| **Local-first** | No cloud or external API keys. Bring your own ComfyUI and LM Studio; optional Voicebox and ChromaDB degrade gracefully. |
 
 ---
 
-## 🧭 Architecture
+## Architecture
 
 ```mermaid
 flowchart LR
-  UI[SolidJS + DaisyUI<br/>Jobs / Compose / Gallery / Settings] -- SSE / WS --> API[Hono API<br/>:3000]
+  UI[SolidJS + DaisyUI<br/>Home / Create / Jobs / Gallery / Settings] -- SSE / REST --> API[Hono API<br/>:3000]
   API -- Kysely --> DB[(SQLite<br/>jobs + events + style_presets)]
   API -- queue --> Q[QueueManager<br/>prio 300/200/100<br/>single-slot]
-  Q --> LLM[LM Studio<br/>scene expansion]
+  Q --> LLM[LM Studio<br/>scene expansion + intent]
   Q --> COMFY[ComfyUI<br/>Z-Image-Turbo<br/>Wan 2.2 / LTX 2.3<br/>Stable Audio]
   Q --> TTS[Voicebox<br/>TTS / cloning]
   COMFY --> OUT[(OUTPUT_DIR)]
@@ -198,13 +198,17 @@ flowchart LR
   LIB --> UI
 ```
 
-**Request flow:** `Create → POST /api/jobs/*` → DB `jobs` + `events` rows → `QueueManager.pump()` picks next event by priority → driver (LLM / ComfyUI / TTS) executes → writes artifact to `OUTPUT_DIR` → copies to `CONTENT_LIBRARY_DIR` → SSE pushes update → UI re-renders. ComfyUI progress arrives via WebSocket (`COMFYUI_BASE_WS`).
+**Request flow:** `Create -> POST /api/jobs/*` -> DB `jobs` + `events` rows -> `QueueManager.pump()` picks next event by priority -> driver (LLM / ComfyUI / TTS) executes -> writes artifact to `OUTPUT_DIR` -> copies to `CONTENT_LIBRARY_DIR` -> SSE pushes update -> UI re-renders. ComfyUI progress arrives via WebSocket (`COMFYUI_BASE_WS`).
+
+**Client data layer:** A single SSE connection (`/jobs/stream/all`) with server heartbeats feeds the client job store (`src/client/stores/jobs.ts`). The store holds the job list, tracks per-job signatures and stream epochs, runs a staleness watchdog with exponential-backoff reconnect and a 10-second polling fallback while jobs are active, and drives the Activity panel and completion/failure toasts. Per-job views (`JobDetail`, `ResultPanel`) subscribe to the store via `onJobUpdate` and refetch only when their job's signature or the stream epoch changes.
+
+**UI kit and `/dev/kit`:** Shared components in `src/client/components/ui/` (`Field`, `SliderField`, `SelectField`, `Segmented`, `TabLink`, `StatusBadge`, `EmptyState`, `Modal`, `ConfirmHost`, `Toaster`, `MediaTile`, `Lightbox`, `CopyButton`) implement the flat bordered `panel` aesthetic and top-layer dialog/toast coordination. The `/dev/kit` route renders every UI kit component interactively for development and e2e verification.
 
 ---
 
-## 📋 Prerequisites
+## Prerequisites
 
-- **Bun** ≥1.3 (`curl -fsSL https://bun.sh/install | bash`)
+- **Bun** >=1.3 (`curl -fsSL https://bun.sh/install | bash`)
 - [**ComfyUI**](https://github.com/comfyanonymous/ComfyUI) running locally (default `http://127.0.0.1:8188`)
 - [**LM Studio**](https://lmstudio.ai/) with API server enabled (default `http://127.0.0.1:1234`) and models loaded
 - **ffmpeg + ffprobe** (`sudo pacman -S ffmpeg` / `brew install ffmpeg`)
@@ -213,20 +217,20 @@ flowchart LR
 
 ---
 
-## 🔌 Service dependencies
+## Service dependencies
 
 | Service | Default URL | Required | What it does |
 |---------|-------------|----------|--------------|
 | [ComfyUI](https://github.com/comfyanonymous/ComfyUI) | `http://127.0.0.1:8188` | yes | Image (Z-Image-Turbo), video (Wan 2.2 / LTX 2.3), audio generation |
-| [LM Studio](https://lmstudio.ai/) | `http://127.0.0.1:1234` | yes | LLM text, scene prompts, style expansion, job naming |
-| [Voicebox](https://github.com/JarodMica/voicebox) | `http://127.0.0.1:17493` | for Compose | TTS for script → speech |
+| [LM Studio](https://lmstudio.ai/) | `http://127.0.0.1:1234` | yes | LLM text, scene prompts, style expansion, intent planning, job naming |
+| [Voicebox](https://github.com/JarodMica/voicebox) | `http://127.0.0.1:17493` | for Compose | TTS for script -> speech |
 | ChromaDB | `http://127.0.0.1:8000` | no | Vector search for gallery |
 
 If Voicebox / Chroma are not running, the app still starts - related features just fail at runtime with a clear error.
 
 ---
 
-## ⚙️ Environment variables
+## Environment variables
 
 Copy `.env.example` to `.env` and edit paths. All vars are read via `Bun.env`.
 
@@ -270,13 +274,13 @@ LOG_LEVEL=info
 
 ---
 
-## 🎬 First run
+## First run
 
-1. Open `http://localhost:3000` → `Jobs`.
-2. Go to `Settings` → `Sync from ComfyUI` to import LoRAs, edit `Defaults` (fps, resolution, preset) and `Style Presets` (from `mflux-forge`).
-3. **Image:** `Create → Image` → prompt + style preset + optional LoRAs (drag to reorder, 0.1–2.0) → `Generate`.
-4. **Compose:** `Create → Compose` → script or `.txt` + style guide + voice → `Generate Video`. Pipeline: speech → scenes → images → videos → transitions → concat.
-5. **Gallery / Jobs:** track progress via SSE, view media, cancel or regenerate failed events.
+1. Open `http://localhost:3000` -> `Home` (or press `Ctrl K` to open the command palette).
+2. Go to `Settings` -> `Appearance` to pick a theme, `LoRAs` -> `Sync from ComfyUI` to import LoRAs, and `Defaults` / `Style presets` to configure defaults.
+3. **Quick create:** Type a prompt on `Home` in `Auto` mode (or pick `Image`, `Video`, `Text to Video`, `Audio`) and click `Generate`.
+4. **Create pages & Compose:** Open `/create/image`, `/create/video`, `/create/text-to-video`, `/create/audio`, or `/compose` for full controls, local drafts, and the inline result panel.
+5. **Jobs & Gallery:** Track active work in the topbar Activity panel or `/jobs/<id>`, and browse outputs in `/gallery`.
 
 API quick test:
 
@@ -290,31 +294,31 @@ curl -X POST http://localhost:3000/api/jobs/images \
 
 ---
 
-## 🧰 Tech Stack
+## Tech Stack
 
 | Layer | Choice | Why |
 |-------|--------|-----|
 | Runtime | **Bun** 1.3 | Native TS, fast startup, `Bun.env` + `Bun.file` |
 | Frontend | **SolidJS** + **DaisyUI** + Tailwind | Fine-grained reactivity, no VDOM tax, themeable components |
-| Realtime | **SSE** + **WebSockets** | SSE for job progress (one-way, reconnect-friendly), WS for ComfyUI queue |
+| Realtime | **SSE** + **WebSockets** | Single `/jobs/stream/all` SSE stream with heartbeats and polling fallback; WS for ComfyUI queue |
 | DB | **SQLite** + **Kysely** | Single file, zero ops, type-safe queries, migrations in `migrations/` |
 | Image | **ComfyUI + Z-Image-Turbo** | 9-step turbo, CLIP `qwen_3_4b`, LoRA stacking |
-| Video | **Wan 2.2 14B** / **LTX 2.3** | i2v + transition models, selectable per job |
+| Video | **Wan 2.2 14B** / **LTX 2.3** | i2v, t2v, and transition models, selectable per job |
 | Audio | **Stable Audio 3** + **ACE Step 1.5** | Instrumental / song, Voicebox for TTS |
-| LLM | **LM Studio** (Qwen 3) | Local OpenAI-compatible API, scene expansion |
+| LLM | **LM Studio** (Qwen 3) | Local OpenAI-compatible API, scene expansion and intent planning |
 | Search | **ChromaDB** | Embeddings (`text-embedding-qwen3-embedding-8b`) for gallery RAG |
 
 ---
 
-## 🔧 Troubleshooting
+## Troubleshooting
 
-- **ComfyUI not reachable** → check `COMFYUI_BASE_URL`/`WS`, `curl /system_stats`, ensure ComfyUI started with `--listen`.
-- **LLM_MODEL missing** → `LLM_MODEL variable missing` at startup - set in `.env` and load model in LM Studio with API server on.
-- **OUTPUT_DIR/INPUT_DIR wrong** → images not found, `Bun.file` errors - must be absolute paths to ComfyUI dirs.
-- **Voicebox 8000 vs 17493** → default is now `17493`; set `VOICEBOX_URL` if yours differs.
+- **ComfyUI not reachable** -> check `COMFYUI_BASE_URL`/`WS`, `curl /system_stats`, ensure ComfyUI started with `--listen`.
+- **LLM_MODEL missing** -> `LLM_MODEL variable missing` at startup - set in `.env` and load model in LM Studio with API server on.
+- **OUTPUT_DIR/INPUT_DIR wrong** -> images not found, `Bun.file` errors - must be absolute paths to ComfyUI dirs.
+- **Voicebox 8000 vs 17493** -> default is now `17493`; set `VOICEBOX_URL` if yours differs.
 
 ---
 
-## 📄 License
+## License
 
 GPL-3.0-or-later. See [LICENSE](LICENSE).

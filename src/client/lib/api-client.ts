@@ -180,10 +180,6 @@ export async function apiSend<T = unknown>(
   return handleResponse<T>(r, init?.signal);
 }
 
-export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
-  return apiSend<T>("POST", path, body as object | FormData | undefined);
-}
-
 export type MediaType = "image" | "video" | "audio";
 
 export type MediaItem = {
@@ -219,28 +215,6 @@ export type JobMediaResponse = {
   items: MediaItem[];
   total?: number;
   hasMore?: boolean;
-};
-
-export type EventRow = {
-  id: string;
-  created_at: string;
-  job_id: string;
-  mode: string;
-  status: string;
-  priority: number;
-  type: string;
-  text: string | null;
-  prompt: string | null;
-  filename: string | null;
-  start_img: string | null;
-  end_img: string | null;
-  duration: number | null;
-  lyrics: string | null;
-  audio_settings: string | null;
-  index: number | null;
-  claimed_at: string | null;
-  attempt_count: number;
-  error: string | null;
 };
 
 export function getAssetPath(subfolder: string, filename: string): string {
