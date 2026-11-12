@@ -115,6 +115,7 @@ export async function refreshJobs(): Promise<void> {
     if (!shouldApplyResponse(seq, lastAppliedSeq)) {
       return;
     }
+    streamBumpedIds.clear();
     const msg = err instanceof Error ? err.message : "Failed to load jobs";
     setJobsErrorSignal(msg);
   }
@@ -260,6 +261,7 @@ export function startJobsStore(): () => void {
     started = false;
     streamDown = false;
     currentStop = null;
+    streamBumpedIds.clear();
     if (reconnectTimer !== null) {
       clearTimeout(reconnectTimer);
       reconnectTimer = null;

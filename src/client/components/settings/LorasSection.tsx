@@ -1,6 +1,7 @@
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import { apiGet, apiSend } from "../../lib/api-client";
+import { dedupeLoras } from "../../lib/defaults";
 import { confirmDialog } from "../../stores/confirm";
 import { toast } from "../../stores/toast";
 import { Icons } from "../Icons";
@@ -32,6 +33,13 @@ export default function LorasSection() {
     {},
   );
   let disposed = false;
+
+  const isBusy = () =>
+    syncing() ||
+    reordering() ||
+    Object.keys(addingNames()).length > 0 ||
+    Object.keys(togglingIds()).length > 0 ||
+    Object.keys(deletingIds()).length > 0;
 
   const applyLoras = (next: LoraRow[]) => {
     setLoras(reconcile(next, { key: "id", merge: true }));
@@ -73,12 +81,13 @@ export default function LorasSection() {
   };
 
   const handleSync = async () => {
-    if (syncing()) return;
+    if (isBusy()) return;
     setSyncing(true);
     try {
       const data = await apiGet<{ loras?: string[] }>("/api/comfyui/loras");
       if (disposed) return;
-      const names = Array.isArray(data?.loras) ? data.loras : [];
+      const rawNames = Array.isArray(data?.loras) ? data.loras : [];
+      const names = dedupeLoras(rawNames);
       setDiscovered(names);
       if (names.length > 0) {
         toast.info(`Found ${names.length} LoRAs on ComfyUI`);
@@ -92,6 +101,7 @@ export default function LorasSection() {
           ? err.message
           : "Failed to sync from ComfyUI";
       toast.error(msg);
+      await fetchLoras();
     } finally {
       if (!disposed) {
         setSyncing(false);
@@ -100,7 +110,7 @@ export default function LorasSection() {
   };
 
   const handleAdd = async (comfyuiName: string) => {
-    if (addingNames()[comfyuiName]) return;
+    if (isBusy()) return;
     setAddingNames((prev) => ({ ...prev, [comfyuiName]: true }));
     const displayName = comfyuiName.replace(/\.safetensors$/i, "");
     try {
@@ -130,6 +140,7 @@ export default function LorasSection() {
           ? err.message
           : "Failed to add LoRA";
       toast.error(msg);
+      await fetchLoras();
     } finally {
       if (!disposed) {
         setAddingNames((prev) => {
@@ -143,7 +154,7 @@ export default function LorasSection() {
 
   const handleToggle = async (row: LoraRow) => {
     const id = row.id;
-    if (togglingIds()[id]) return;
+    if (isBusy()) return;
     const prevValue = row.is_active ? 1 : 0;
     const nextValue = prevValue ? 0 : 1;
     const idx = loras.findIndex((r) => r.id === id);
@@ -162,15 +173,12 @@ export default function LorasSection() {
       );
     } catch (err) {
       if (disposed) return;
-      const rollbackIdx = loras.findIndex((r) => r.id === id);
-      if (rollbackIdx !== -1) {
-        setLoras(rollbackIdx, "is_active", prevValue);
-      }
       const msg =
         err instanceof Error && err.message
           ? err.message
           : "Failed to update LoRA";
       toast.error(msg);
+      await fetchLoras();
     } finally {
       if (!disposed) {
         setTogglingIds((prev) => {
@@ -182,8 +190,8 @@ export default function LorasSection() {
     }
   };
 
-  const commitReorder = async (nextOrder: LoraRow[], prevOrder: LoraRow[]) => {
-    if (reordering()) return;
+  const commitReorder = async (nextOrder: LoraRow[]) => {
+    if (isBusy()) return;
     setReordering(true);
     applyLoras(nextOrder);
     const ids = nextOrder.map((r) => r.id);
@@ -193,12 +201,12 @@ export default function LorasSection() {
       toast.success("LoRA order updated");
     } catch (err) {
       if (disposed) return;
-      applyLoras(prevOrder);
       const msg =
         err instanceof Error && err.message
           ? err.message
           : "Failed to reorder LoRAs";
       toast.error(msg);
+      await fetchLoras();
     } finally {
       if (!disposed) {
         setReordering(false);
@@ -207,25 +215,28 @@ export default function LorasSection() {
   };
 
   const move = (idx: number, dir: -1 | 1) => {
-    if (reordering()) return;
+    if (isBusy()) return;
     const target = idx + dir;
     if (target < 0 || target >= loras.length) return;
-    const prevOrder = loras.map((r) => ({ ...r }));
-    const nextOrder = prevOrder.map((r) => ({ ...r }));
+    const nextOrder = loras.map((r) => ({ ...r }));
     [nextOrder[idx], nextOrder[target]] = [nextOrder[target], nextOrder[idx]];
     nextOrder.forEach((r, i) => {
       r.sort_order = i;
     });
-    void commitReorder(nextOrder, prevOrder);
+    void commitReorder(nextOrder);
   };
 
   const onDragStart = (e: DragEvent, idx: number) => {
+    if (isBusy()) {
+      e.preventDefault();
+      return;
+    }
     e.dataTransfer?.setData("text/plain", String(idx));
   };
 
   const onDrop = (e: DragEvent, idx: number) => {
     e.preventDefault();
-    if (reordering()) return;
+    if (isBusy()) return;
     const from = parseInt(e.dataTransfer?.getData("text/plain") ?? "", 10);
     if (
       Number.isNaN(from) ||
@@ -235,32 +246,31 @@ export default function LorasSection() {
     ) {
       return;
     }
-    const prevOrder = loras.map((r) => ({ ...r }));
-    const nextOrder = prevOrder.map((r) => ({ ...r }));
+    const nextOrder = loras.map((r) => ({ ...r }));
     const [moved] = nextOrder.splice(from, 1);
     nextOrder.splice(idx, 0, moved);
     nextOrder.forEach((r, i) => {
       r.sort_order = i;
     });
-    void commitReorder(nextOrder, prevOrder);
+    void commitReorder(nextOrder);
   };
 
   const handleDelete = async (row: LoraRow) => {
     const id = row.id;
-    if (deletingIds()[id]) return;
+    if (isBusy()) return;
     const ok = await confirmDialog({
       title: "Delete this LoRA?",
       body: row.display_name,
       confirmLabel: "Delete",
       tone: "danger",
     });
-    if (!ok || disposed) return;
+    if (!ok || disposed || isBusy()) return;
 
     setDeletingIds((prev) => ({ ...prev, [id]: true }));
+    applyLoras(loras.filter((r) => r.id !== id).map((r) => ({ ...r })));
     try {
       await apiSend("DELETE", `/api/loras/${encodeURIComponent(id)}`);
       if (disposed) return;
-      applyLoras(loras.filter((r) => r.id !== id).map((r) => ({ ...r })));
       toast.success("LoRA deleted");
     } catch (err) {
       if (disposed) return;
@@ -269,6 +279,7 @@ export default function LorasSection() {
           ? err.message
           : "Failed to delete LoRA";
       toast.error(msg);
+      await fetchLoras();
     } finally {
       if (!disposed) {
         setDeletingIds((prev) => {
@@ -293,7 +304,7 @@ export default function LorasSection() {
         <button
           type="button"
           class="btn btn-sm shrink-0"
-          disabled={syncing()}
+          disabled={isBusy()}
           onClick={() => void handleSync()}
         >
           <Show when={syncing()} fallback={<Icons.Refresh class="size-4" />}>
@@ -318,7 +329,7 @@ export default function LorasSection() {
                   <button
                     type="button"
                     class="btn btn-primary btn-xs shrink-0"
-                    disabled={!!addingNames()[name]}
+                    disabled={isBusy()}
                     onClick={() => void handleAdd(name)}
                   >
                     <Show when={addingNames()[name]}>
@@ -340,6 +351,7 @@ export default function LorasSection() {
             <button
               type="button"
               class="btn btn-ghost btn-xs"
+              disabled={isBusy()}
               onClick={() => void fetchLoras()}
             >
               Try again
@@ -368,13 +380,19 @@ export default function LorasSection() {
             {(row, idx) => (
               <li
                 class="flex min-w-0 items-center gap-2 sm:gap-3 rounded-field border border-base-300 bg-base-100 p-2"
-                draggable
+                draggable={!isBusy()}
                 onDragStart={(e) => onDragStart(e, idx())}
-                onDragOver={(e) => e.preventDefault()}
+                onDragOver={(e) => {
+                  if (!isBusy()) e.preventDefault();
+                }}
                 onDrop={(e) => onDrop(e, idx())}
               >
                 <span
-                  class="cursor-grab select-none px-1 text-base-content/40"
+                  class={`select-none px-1 ${
+                    isBusy()
+                      ? "cursor-not-allowed text-base-content/20"
+                      : "cursor-grab text-base-content/40"
+                  }`}
                   aria-hidden="true"
                 >
                   ≡
@@ -393,7 +411,7 @@ export default function LorasSection() {
                     type="checkbox"
                     class="toggle toggle-primary toggle-sm"
                     checked={!!row.is_active}
-                    disabled={!!togglingIds()[row.id]}
+                    disabled={isBusy()}
                     aria-label={`Show ${row.display_name} in create forms`}
                     onChange={() => void handleToggle(row)}
                   />
@@ -403,7 +421,7 @@ export default function LorasSection() {
                   class="btn btn-ghost btn-xs btn-square shrink-0"
                   aria-label="Move up"
                   title={`Move ${row.display_name} up`}
-                  disabled={idx() === 0 || reordering()}
+                  disabled={idx() === 0 || isBusy()}
                   onClick={() => move(idx(), -1)}
                 >
                   <Icons.ChevronDown class="size-4 rotate-180" />
@@ -413,7 +431,7 @@ export default function LorasSection() {
                   class="btn btn-ghost btn-xs btn-square shrink-0"
                   aria-label="Move down"
                   title={`Move ${row.display_name} down`}
-                  disabled={idx() === loras.length - 1 || reordering()}
+                  disabled={idx() === loras.length - 1 || isBusy()}
                   onClick={() => move(idx(), 1)}
                 >
                   <Icons.ChevronDown class="size-4" />
@@ -423,7 +441,7 @@ export default function LorasSection() {
                   class="btn btn-ghost btn-xs btn-square shrink-0 text-error"
                   aria-label={`Delete ${row.display_name}`}
                   title={`Delete ${row.display_name}`}
-                  disabled={!!deletingIds()[row.id]}
+                  disabled={isBusy()}
                   onClick={() => void handleDelete(row)}
                 >
                   <Icons.Trash class="size-4" />

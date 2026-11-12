@@ -4,25 +4,18 @@ import { apiGet, apiSend } from "../../lib/api-client";
 import {
   FALLBACK_DEFAULTS,
   IMAGE_MODELS,
+  normalizeDefaults,
   RESOLUTIONS,
   toGenerationDefaults,
   VIDEO_MODELS,
+  type DefaultsFieldErrors,
+  type DefaultsFormEntries,
 } from "../../lib/defaults";
 import { invalidateDefaults } from "../../stores/settings";
 import { toast } from "../../stores/toast";
 import StylePresetSelect from "../StylePresetSelect";
 import { Field } from "../ui/Field";
 import { SelectField } from "../ui/SelectField";
-
-type DefaultsFormEntries = {
-  default_style_preset: string;
-  default_resolution: string;
-  default_image_model: string;
-  default_video_model: string;
-  default_fps: string;
-  default_clip_duration: string;
-  default_transition_duration: string;
-};
 
 const INITIAL_ENTRIES: DefaultsFormEntries = {
   default_style_preset: FALLBACK_DEFAULTS.style_preset,
@@ -35,6 +28,32 @@ const INITIAL_ENTRIES: DefaultsFormEntries = {
 };
 
 const KEYS = Object.keys(INITIAL_ENTRIES) as (keyof DefaultsFormEntries)[];
+
+const NUM_KEYS: (keyof DefaultsFormEntries)[] = [
+  "default_fps",
+  "default_clip_duration",
+  "default_transition_duration",
+];
+
+function canonicalFormValue(
+  key: keyof DefaultsFormEntries,
+  val: string,
+): string {
+  if (
+    key === "default_fps" ||
+    key === "default_clip_duration" ||
+    key === "default_transition_duration"
+  ) {
+    const trimmed = val.trim();
+    if (/^-?\d+$/.test(trimmed)) {
+      const n = Number(trimmed);
+      if (Number.isSafeInteger(n)) {
+        return String(n);
+      }
+    }
+  }
+  return val;
+}
 
 function mapToEntries(
   map: Record<string, string> | null | undefined,
@@ -70,9 +89,15 @@ export default function DefaultsSection() {
   const [loading, setLoading] = createSignal(!hasLoaded());
   const [loadError, setLoadError] = createSignal<string | null>(null);
   const [saving, setSaving] = createSignal(false);
+  const [fieldErrors, setFieldErrors] = createSignal<DefaultsFieldErrors>({});
   let disposed = false;
 
-  const isDirty = () => KEYS.some((k) => form[k] !== snapshot[k]);
+  const isDirty = () =>
+    hasLoaded() &&
+    KEYS.some(
+      (k) =>
+        canonicalFormValue(k, form[k]) !== canonicalFormValue(k, snapshot[k]),
+    );
 
   const fetchDefaults = async (force = false) => {
     if (!force && hasLoaded() && isDirty()) {
@@ -90,6 +115,7 @@ export default function DefaultsSection() {
       setSnapshot(entries);
       if (force || !hasLoaded() || !isDirty()) {
         setForm(entries);
+        setFieldErrors({});
       }
       setHasLoaded(true);
     } catch (err) {
@@ -114,19 +140,37 @@ export default function DefaultsSection() {
     disposed = true;
   });
 
+  const clearFieldError = (key: keyof DefaultsFormEntries) => {
+    if (fieldErrors()[key]) {
+      setFieldErrors((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+    }
+  };
+
   const handleSubmit = async (e: SubmitEvent) => {
     e.preventDefault();
-    if (saving()) return;
+    if (saving() || !hasLoaded()) return;
+    setFieldErrors({});
+
+    const normalized = normalizeDefaults(form);
+    if ("errors" in normalized) {
+      setFieldErrors(normalized.errors);
+      const firstKey = NUM_KEYS.find((k) => Boolean(normalized.errors[k]));
+      if (firstKey) {
+        queueMicrotask(() => {
+          document.getElementById(firstKey)?.focus();
+        });
+      }
+      return;
+    }
+
+    const payload = normalized.values;
+    setForm(payload);
+
     setSaving(true);
-    const payload: DefaultsFormEntries = {
-      default_style_preset: form.default_style_preset,
-      default_resolution: form.default_resolution,
-      default_image_model: form.default_image_model,
-      default_video_model: form.default_video_model,
-      default_fps: form.default_fps,
-      default_clip_duration: form.default_clip_duration,
-      default_transition_duration: form.default_transition_duration,
-    };
     try {
       await apiSend("PUT", "/api/settings", payload);
       if (disposed) return;
@@ -148,7 +192,11 @@ export default function DefaultsSection() {
   };
 
   return (
-    <form class="panel flex flex-col gap-4 p-4" onSubmit={handleSubmit}>
+    <form
+      class="panel flex flex-col gap-4 p-4"
+      novalidate
+      onSubmit={handleSubmit}
+    >
       <div>
         <h2 class="text-base font-semibold">Generation defaults</h2>
         <p class="text-xs text-base-content/60">
@@ -179,109 +227,150 @@ export default function DefaultsSection() {
         </div>
       </Show>
 
-      <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        <Field label="Default style preset" for="default_style_preset">
-          <StylePresetSelect
-            id="default_style_preset"
-            name="default_style_preset"
-            class="select select-sm w-full"
-            value={form.default_style_preset}
-            onChange={(v) => setForm("default_style_preset", v)}
-          />
-        </Field>
+      <Show when={hasLoaded()}>
+        <>
+          <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <Field label="Default style preset" for="default_style_preset">
+              <StylePresetSelect
+                id="default_style_preset"
+                name="default_style_preset"
+                class="select select-sm w-full"
+                value={form.default_style_preset}
+                onChange={(v) => setForm("default_style_preset", v)}
+              />
+            </Field>
 
-        <SelectField
-          label="Default resolution"
-          id="default_resolution"
-          name="default_resolution"
-          value={form.default_resolution}
-          onChange={(v) => setForm("default_resolution", v)}
-          options={RESOLUTIONS}
-        />
+            <SelectField
+              label="Default resolution"
+              id="default_resolution"
+              name="default_resolution"
+              value={form.default_resolution}
+              onChange={(v) => setForm("default_resolution", v)}
+              options={RESOLUTIONS}
+            />
 
-        <SelectField
-          label="Default image model"
-          id="default_image_model"
-          name="default_image_model"
-          value={form.default_image_model}
-          onChange={(v) => setForm("default_image_model", v)}
-          options={IMAGE_MODELS}
-        />
+            <SelectField
+              label="Default image model"
+              id="default_image_model"
+              name="default_image_model"
+              value={form.default_image_model}
+              onChange={(v) => setForm("default_image_model", v)}
+              options={IMAGE_MODELS}
+            />
 
-        <SelectField
-          label="Default video model"
-          id="default_video_model"
-          name="default_video_model"
-          value={form.default_video_model}
-          onChange={(v) => setForm("default_video_model", v)}
-          options={VIDEO_MODELS}
-        />
+            <SelectField
+              label="Default video model"
+              id="default_video_model"
+              name="default_video_model"
+              value={form.default_video_model}
+              onChange={(v) => setForm("default_video_model", v)}
+              options={VIDEO_MODELS}
+            />
 
-        <Field label="Default FPS (1–24)" for="default_fps">
-          <input
-            id="default_fps"
-            name="default_fps"
-            type="number"
-            min="1"
-            max="24"
-            class="input input-sm w-full"
-            value={form.default_fps}
-            onInput={(e) => setForm("default_fps", e.currentTarget.value)}
-          />
-        </Field>
+            <Field
+              label="Default FPS (1–24)"
+              for="default_fps"
+              error={fieldErrors().default_fps}
+            >
+              <input
+                id="default_fps"
+                name="default_fps"
+                type="number"
+                required
+                min="1"
+                max="24"
+                step="1"
+                aria-invalid={fieldErrors().default_fps ? "true" : undefined}
+                aria-describedby={
+                  fieldErrors().default_fps ? "default_fps-error" : undefined
+                }
+                class="input input-sm w-full"
+                value={form.default_fps}
+                onInput={(e) => {
+                  setForm("default_fps", e.currentTarget.value);
+                  clearFieldError("default_fps");
+                }}
+              />
+            </Field>
 
-        <Field
-          label="Default clip duration (1–10s)"
-          for="default_clip_duration"
-        >
-          <input
-            id="default_clip_duration"
-            name="default_clip_duration"
-            type="number"
-            min="1"
-            max="10"
-            class="input input-sm w-full"
-            value={form.default_clip_duration}
-            onInput={(e) =>
-              setForm("default_clip_duration", e.currentTarget.value)
-            }
-          />
-        </Field>
+            <Field
+              label="Default clip duration (1–10s)"
+              for="default_clip_duration"
+              error={fieldErrors().default_clip_duration}
+            >
+              <input
+                id="default_clip_duration"
+                name="default_clip_duration"
+                type="number"
+                required
+                min="1"
+                max="10"
+                step="1"
+                aria-invalid={
+                  fieldErrors().default_clip_duration ? "true" : undefined
+                }
+                aria-describedby={
+                  fieldErrors().default_clip_duration
+                    ? "default_clip_duration-error"
+                    : undefined
+                }
+                class="input input-sm w-full"
+                value={form.default_clip_duration}
+                onInput={(e) => {
+                  setForm("default_clip_duration", e.currentTarget.value);
+                  clearFieldError("default_clip_duration");
+                }}
+              />
+            </Field>
 
-        <Field
-          label="Default transition duration (1–10s)"
-          for="default_transition_duration"
-        >
-          <input
-            id="default_transition_duration"
-            name="default_transition_duration"
-            type="number"
-            min="1"
-            max="10"
-            class="input input-sm w-full"
-            value={form.default_transition_duration}
-            onInput={(e) =>
-              setForm("default_transition_duration", e.currentTarget.value)
-            }
-          />
-        </Field>
-      </div>
+            <Field
+              label="Default transition duration (1–10s)"
+              for="default_transition_duration"
+              error={fieldErrors().default_transition_duration}
+            >
+              <input
+                id="default_transition_duration"
+                name="default_transition_duration"
+                type="number"
+                required
+                min="1"
+                max="10"
+                step="1"
+                aria-invalid={
+                  fieldErrors().default_transition_duration ? "true" : undefined
+                }
+                aria-describedby={
+                  fieldErrors().default_transition_duration
+                    ? "default_transition_duration-error"
+                    : undefined
+                }
+                class="input input-sm w-full"
+                value={form.default_transition_duration}
+                onInput={(e) => {
+                  setForm("default_transition_duration", e.currentTarget.value);
+                  clearFieldError("default_transition_duration");
+                }}
+              />
+            </Field>
+          </div>
 
-      <div class="flex items-center justify-end gap-3 pt-1">
-        <Show when={isDirty()}>
-          <span class="text-xs text-warning">Unsaved changes</span>
-        </Show>
-        <button
-          type="submit"
-          class="btn btn-primary btn-sm"
-          disabled={saving()}
-        >
-          <Show when={saving()}>
-            <span class="loading loading-spinner loading-xs" />
-          </Show>
-          Save Defaults
-        </button>
-      </div>
+          <div class="flex items-center justify-end gap-3 pt-1">
+            <Show when={isDirty()}>
+              <span class="text-xs text-warning">Unsaved changes</span>
+            </Show>
+            <button
+              type="submit"
+              class="btn btn-primary btn-sm"
+              disabled={saving()}
+            >
+              <Show when={saving()}>
+                <span class="loading loading-spinner loading-xs" />
+              </Show>
+              Save Defaults
+            </button>
+          </div>
+        </>
+      </Show>
     </form>
   );
 }

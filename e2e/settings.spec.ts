@@ -185,10 +185,23 @@ test("settings: defaults form controls, dirty tracking, save persistence, and pr
     await route.fallback();
   });
 
-  await page.goto("/settings?tab=defaults");
+  // 1. Open /create/image first so the defaults cache is warm
+  await page.goto("/create/image");
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Image" }),
+  ).toBeVisible({ timeout: 10000 });
+  await expect(page.locator('select[name="resolution"]')).toHaveValue("720p");
+
+  // 2. Navigate to Settings through the sidebar link, then switch to Defaults tab
+  await page.locator('a[href="/settings"]').first().click();
   await expect(
     page.getByRole("heading", { level: 1, name: "Settings" }),
   ).toBeVisible({ timeout: 10000 });
+  await page
+    .getByRole("navigation", { name: "Settings sections" })
+    .getByRole("link", { name: "Defaults", exact: true })
+    .click();
+  await expect(page).toHaveURL(/tab=defaults/);
 
   for (const name of [
     "default_style_preset",
@@ -210,6 +223,23 @@ test("settings: defaults form controls, dirty tracking, save persistence, and pr
   const original = await res.inputValue();
   const nextResolution = original === "480p" ? "720p" : "480p";
 
+  // Before saving, visiting Image page through the sidebar still shows the old value
+  await res.selectOption(nextResolution);
+  await expect(page.getByText("Unsaved changes")).toBeVisible();
+  await page.locator('a[href="/create/image"]').first().click();
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Image" }),
+  ).toBeVisible({ timeout: 10000 });
+  await expect(page.locator('select[name="resolution"]')).toHaveValue(original);
+
+  // Return to Settings -> Defaults via sidebar link
+  await page.locator('a[href="/settings"]').first().click();
+  await page
+    .getByRole("navigation", { name: "Settings sections" })
+    .getByRole("link", { name: "Defaults", exact: true })
+    .click();
+  await expect(res).toBeVisible();
+
   await res.selectOption(nextResolution);
   await expect(page.getByText("Unsaved changes")).toBeVisible();
   await res.selectOption(original);
@@ -228,8 +258,8 @@ test("settings: defaults form controls, dirty tracking, save persistence, and pr
   expect(savedBody).not.toBeNull();
   expect(savedBody!.default_resolution).toBe(nextResolution);
 
-  // Opening /create/image shows the saved value prefilled
-  await page.goto("/create/image");
+  // Navigating back to /create/image via sidebar link (no reload) shows the saved value
+  await page.locator('a[href="/create/image"]').first().click();
   await expect(
     page.getByRole("heading", { level: 1, name: "Image" }),
   ).toBeVisible({ timeout: 10000 });
@@ -889,4 +919,357 @@ test("settings: layout - desktop no horizontal overflow and fits phone with long
       ),
     ).toBe(true);
   }
+});
+
+test("settings: presets blank primary_style on create and edit, non-dismissible modal during save, and reload sorted list", async ({
+  page,
+}) => {
+  type PresetItem = {
+    id: string;
+    name: string;
+    description: string | null;
+    primary_style: string;
+    secondary_trigger: string | null;
+    styles: string[];
+    texture: string | null;
+  };
+
+  const presetsList: PresetItem[] = [
+    {
+      id: "preset-1",
+      name: "Cyberpunk",
+      description: "Neon aesthetic",
+      primary_style: "cyberpunk",
+      secondary_trigger: null,
+      styles: ["neon"],
+      texture: null,
+    },
+  ];
+
+  let postPayload: Record<string, unknown> | null = null;
+  let putPayload: Record<string, unknown> | null = null;
+  let resolvePost: (() => void) | null = null;
+
+  await page.route("**/api/style-presets", async (route) => {
+    const method = route.request().method();
+    if (method === "GET") {
+      const sorted = [...presetsList].sort((a, b) =>
+        a.name.localeCompare(b.name),
+      );
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ presets: sorted }),
+      });
+      return;
+    }
+    if (method === "POST") {
+      postPayload = (route.request().postDataJSON() ??
+        JSON.parse(route.request().postData() ?? "{}")) as Record<
+        string,
+        unknown
+      >;
+      if (resolvePost) {
+        await new Promise<void>((r) => {
+          resolvePost = r;
+        });
+      }
+      const created: PresetItem = {
+        id: "preset-new",
+        name: String(postPayload.name ?? "Unnamed"),
+        description: (postPayload.description as string | null) ?? null,
+        primary_style: String(postPayload.primary_style ?? "default"),
+        secondary_trigger:
+          (postPayload.secondary_trigger as string | null) ?? null,
+        styles: Array.isArray(postPayload.styles)
+          ? (postPayload.styles as string[])
+          : [],
+        texture: (postPayload.texture as string | null) ?? null,
+      };
+      presetsList.push(created);
+      await route.fulfill({
+        status: 201,
+        contentType: "application/json",
+        body: JSON.stringify(created),
+      });
+      return;
+    }
+    await route.fallback();
+  });
+
+  await page.route(/\/api\/style-presets\/[^/]+$/, async (route) => {
+    const method = route.request().method();
+    const id = route.request().url().split("/").pop() ?? "";
+    if (method === "PUT") {
+      putPayload = (route.request().postDataJSON() ??
+        JSON.parse(route.request().postData() ?? "{}")) as Record<
+        string,
+        unknown
+      >;
+      const found = presetsList.find((p) => p.id === id);
+      if (found) Object.assign(found, putPayload);
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(found ?? { id, ...putPayload }),
+      });
+      return;
+    }
+    await route.fallback();
+  });
+
+  await page.goto("/settings?tab=presets");
+  await expect(page.getByText("Cyberpunk", { exact: true })).toBeVisible({
+    timeout: 10000,
+  });
+
+  // Delay POST to test non-dismissible modal during save and blank primary_style on create
+  resolvePost = () => {};
+  await page.getByRole("button", { name: /New preset/i }).click();
+  const newDialog = page.getByRole("dialog", { name: "New preset" });
+  await expect(newDialog).toBeVisible();
+
+  await newDialog.locator('input[name="name"]').fill("Acoustic");
+  // Leave primary_style blank
+  await newDialog.getByRole("button", { name: "Save" }).click();
+
+  // Wait until POST request arrives
+  await expect.poll(() => postPayload !== null).toBe(true);
+  expect(postPayload!.primary_style).toBe("Acoustic");
+
+  // During the delay, Cancel is disabled and Escape keeps the dialog open
+  await expect(
+    newDialog.getByRole("button", { name: "Cancel" }),
+  ).toBeDisabled();
+  await page.keyboard.press("Escape");
+  await expect(newDialog).toBeVisible();
+
+  // Finish the delayed POST
+  resolvePost?.();
+  resolvePost = null;
+  await expect(newDialog).toBeHidden();
+
+  // "New preset" opens the dialog again cleanly
+  await page.getByRole("button", { name: /New preset/i }).click();
+  await expect(newDialog).toBeVisible();
+  await newDialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(newDialog).toBeHidden();
+
+  // Server sorted list shows Acoustic before Cyberpunk
+  const presetNames = page.locator("ul li p.font-mono");
+  await expect(presetNames.nth(0)).toHaveText("Acoustic");
+  await expect(presetNames.nth(1)).toHaveText("Cyberpunk");
+
+  // Editing with primary_style cleared omits primary_style from PUT payload
+  const cyberpunkRow = page.locator("li").filter({ hasText: "Cyberpunk" });
+  await cyberpunkRow.getByRole("button", { name: "Edit" }).click();
+  const editDialog = page.getByRole("dialog", { name: "Edit preset" });
+  await expect(editDialog).toBeVisible();
+  await editDialog.locator('input[name="primary_style"]').fill("");
+  await editDialog.getByRole("button", { name: "Save" }).click();
+  await expect(editDialog).toBeHidden();
+
+  expect(putPayload).not.toBeNull();
+  expect(Object.hasOwn(putPayload!, "primary_style")).toBe(false);
+});
+
+test("settings: defaults number validation, canonical comparison ('08' vs '8'), and tab/sidebar draft lifecycle", async ({
+  page,
+}) => {
+  const settingsData: Record<string, string> = {
+    default_style_preset: "none",
+    default_resolution: "720p",
+    default_image_model: "z-image-turbo",
+    default_video_model: "wan2.2",
+    default_fps: "8",
+    default_clip_duration: "5",
+    default_transition_duration: "2",
+  };
+
+  let putCalled = false;
+
+  await page.route("**/api/settings", async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(settingsData),
+      });
+      return;
+    }
+    if (route.request().method() === "PUT") {
+      putCalled = true;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(settingsData),
+      });
+      return;
+    }
+    await route.fallback();
+  });
+
+  await page.goto("/settings?tab=defaults");
+  const fpsInput = page.locator('input[name="default_fps"]');
+  await expect(fpsInput).toBeVisible({ timeout: 10000 });
+  await expect(fpsInput).toHaveValue("8");
+
+  // Typing "08" over saved "8" shows no "Unsaved changes"
+  await fpsInput.fill("08");
+  await expect(page.getByText("Unsaved changes")).toHaveCount(0);
+
+  // Clearing FPS and pressing Save sends no request, shows field error, and keeps "Unsaved changes"
+  await fpsInput.fill("");
+  await expect(page.getByText("Unsaved changes")).toBeVisible();
+  await page.getByRole("button", { name: /Save Defaults/i }).click();
+
+  expect(putCalled).toBe(false);
+  await expect(fpsInput).toHaveAttribute("aria-invalid", "true");
+  await expect(page.locator("#default_fps-error")).toBeVisible();
+  await expect(fpsInput).toBeFocused();
+  await expect(page.getByText("Unsaved changes")).toBeVisible();
+
+  // Unsaved edit survives a switch to the LoRAs tab and back
+  await fpsInput.fill("12");
+  await expect(page.getByText("Unsaved changes")).toBeVisible();
+  const tabs = page.getByRole("navigation", { name: "Settings sections" });
+  await tabs.getByRole("link", { name: "LoRAs", exact: true }).click();
+  await expect(page).toHaveURL(/tab=loras/);
+
+  await tabs.getByRole("link", { name: "Defaults", exact: true }).click();
+  await expect(page).toHaveURL(/tab=defaults/);
+  await expect(fpsInput).toHaveValue("12");
+  await expect(page.getByText("Unsaved changes")).toBeVisible();
+
+  // Leaving Settings through the sidebar and coming back resets the unsaved edit to the saved value
+  await page.locator('a[href="/jobs"]').first().click();
+  await expect(page).toHaveURL(/\/jobs/);
+  await page.locator('a[href="/settings"]').first().click();
+  await expect(page).toHaveURL(/\/settings/);
+  await tabs.getByRole("link", { name: "Defaults", exact: true }).click();
+  await expect(fpsInput).toHaveValue("8");
+  await expect(page.getByText("Unsaved changes")).toHaveCount(0);
+});
+
+test("settings: loras disables row actions during delayed reorder, reloads from server on failure, and deduplicates sync names", async ({
+  page,
+}) => {
+  let serverLoras = [
+    {
+      id: "lora-1",
+      comfyui_name: "a.safetensors",
+      display_name: "Alpha",
+      trigger_word: null,
+      is_active: 1,
+      sort_order: 0,
+    },
+    {
+      id: "lora-2",
+      comfyui_name: "b.safetensors",
+      display_name: "Beta",
+      trigger_word: null,
+      is_active: 1,
+      sort_order: 1,
+    },
+  ];
+
+  let resolveReorder: (() => void) | null = null;
+  let reorderHit = false;
+
+  await page.route("**/api/loras", async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ loras: serverLoras }),
+      });
+      return;
+    }
+    await route.fallback();
+  });
+
+  await page.route("**/api/loras/reorder", async (route) => {
+    if (route.request().method() === "PUT") {
+      reorderHit = true;
+      if (resolveReorder) {
+        await new Promise<void>((r) => {
+          resolveReorder = r;
+        });
+      }
+      // Server state changed meanwhile (e.g. a third item or updated display)
+      serverLoras = [
+        {
+          id: "lora-1",
+          comfyui_name: "a.safetensors",
+          display_name: "Alpha Server",
+          trigger_word: null,
+          is_active: 0,
+          sort_order: 0,
+        },
+        {
+          id: "lora-2",
+          comfyui_name: "b.safetensors",
+          display_name: "Beta Server",
+          trigger_word: null,
+          is_active: 1,
+          sort_order: 1,
+        },
+      ];
+      await route.fulfill({
+        status: 500,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "Server reorder conflict" }),
+      });
+      return;
+    }
+    await route.fallback();
+  });
+
+  await page.route("**/api/comfyui/loras", async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          loras: ["x.safetensors", "x.safetensors", "b.safetensors"],
+        }),
+      });
+      return;
+    }
+    await route.fallback();
+  });
+
+  await page.goto("/settings?tab=loras");
+  const rows = page.locator("li").filter({ hasText: ".safetensors" });
+  await expect(rows).toHaveCount(2);
+
+  // Trigger delayed reorder
+  resolveReorder = () => {};
+  await rows.nth(0).getByRole("button", { name: "Move down" }).click();
+  await expect.poll(() => reorderHit).toBe(true);
+
+  // During the delay, the toggle of another row is disabled
+  await expect(rows.nth(0).getByRole("checkbox")).toBeDisabled();
+  await expect(rows.nth(1).getByRole("checkbox")).toBeDisabled();
+
+  // Fail reorder -> reloads list from GET /api/loras instead of stale snapshot
+  resolveReorder?.();
+  resolveReorder = null;
+
+  await expect(
+    page.getByRole("status").filter({ hasText: /Server reorder conflict/i }),
+  ).toBeVisible();
+  await expect(rows.nth(0)).toContainText("Alpha Server");
+  await expect(rows.nth(1)).toContainText("Beta Server");
+
+  // Sync deduplicates ["x.safetensors", "x.safetensors", "b.safetensors"] with b already saved -> 1 discovered row and toast count 2
+  await page.getByRole("button", { name: /Sync from ComfyUI/i }).click();
+  await expect(
+    page.getByRole("status").filter({ hasText: "Found 2 LoRAs on ComfyUI" }),
+  ).toBeVisible();
+
+  const discoveredItems = page
+    .locator("li")
+    .filter({ hasText: "x.safetensors" });
+  await expect(discoveredItems).toHaveCount(1);
 });

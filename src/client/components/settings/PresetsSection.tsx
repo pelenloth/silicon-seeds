@@ -1,6 +1,11 @@
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import { apiGet, apiSend } from "../../lib/api-client";
+import {
+  buildPresetPayload,
+  type PresetFieldErrors,
+  type PresetFormInput,
+} from "../../lib/defaults";
 import { confirmDialog } from "../../stores/confirm";
 import { toast } from "../../stores/toast";
 import { Icons } from "../Icons";
@@ -18,16 +23,7 @@ export type StylePresetRow = {
   texture: string | null;
 };
 
-type PresetFormState = {
-  name: string;
-  description: string;
-  primary_style: string;
-  secondary_trigger: string;
-  styles: string;
-  texture: string;
-};
-
-const EMPTY_FORM: PresetFormState = {
+const EMPTY_FORM: PresetFormInput = {
   name: "",
   description: "",
   primary_style: "",
@@ -36,12 +32,23 @@ const EMPTY_FORM: PresetFormState = {
   texture: "",
 };
 
-function parseStylesList(raw: string): string[] {
-  return raw
-    .split(/[\n,]/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
+const FIELD_ORDER: (keyof PresetFormInput)[] = [
+  "name",
+  "description",
+  "primary_style",
+  "secondary_trigger",
+  "styles",
+  "texture",
+];
+
+const FIELD_IDS: Record<keyof PresetFormInput, string> = {
+  name: "preset-name",
+  description: "preset-description",
+  primary_style: "preset-primary-style",
+  secondary_trigger: "preset-secondary-trigger",
+  styles: "preset-styles",
+  texture: "preset-texture",
+};
 
 export default function PresetsSection() {
   const [presets, setPresets] = createStore<StylePresetRow[]>([]);
@@ -49,8 +56,8 @@ export default function PresetsSection() {
   const [loadError, setLoadError] = createSignal<string | null>(null);
   const [modalOpen, setModalOpen] = createSignal(false);
   const [editingId, setEditingId] = createSignal<string | null>(null);
-  const [form, setForm] = createStore<PresetFormState>({ ...EMPTY_FORM });
-  const [nameError, setNameError] = createSignal<string | undefined>(undefined);
+  const [form, setForm] = createStore<PresetFormInput>({ ...EMPTY_FORM });
+  const [fieldErrors, setFieldErrors] = createSignal<PresetFieldErrors>({});
   const [modalError, setModalError] = createSignal<string | null>(null);
   const [saving, setSaving] = createSignal(false);
   const [deletingIds, setDeletingIds] = createSignal<Record<string, boolean>>(
@@ -97,7 +104,7 @@ export default function PresetsSection() {
   const openNewModal = () => {
     setEditingId(null);
     setForm({ ...EMPTY_FORM });
-    setNameError(undefined);
+    setFieldErrors({});
     setModalError(null);
     setModalOpen(true);
   };
@@ -112,7 +119,7 @@ export default function PresetsSection() {
       styles: Array.isArray(p.styles) ? p.styles.join("\n") : "",
       texture: p.texture ?? "",
     });
-    setNameError(undefined);
+    setFieldErrors({});
     setModalError(null);
     setModalOpen(true);
   };
@@ -122,81 +129,60 @@ export default function PresetsSection() {
     setModalOpen(false);
   };
 
+  const clearFieldError = (key: keyof PresetFormInput) => {
+    if (fieldErrors()[key]) {
+      setFieldErrors((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+    }
+  };
+
   const handleSave = async () => {
     if (saving()) return;
-    setNameError(undefined);
+    setFieldErrors({});
     setModalError(null);
 
-    const name = form.name.trim();
-    if (!name) {
-      setNameError("Name is required");
+    const id = editingId();
+    const res = buildPresetPayload(form, id ? "update" : "create");
+    if ("errors" in res) {
+      setFieldErrors(res.errors);
+      const firstKey = FIELD_ORDER.find((k) => Boolean(res.errors[k]));
+      if (firstKey) {
+        queueMicrotask(() => {
+          document.getElementById(FIELD_IDS[firstKey])?.focus();
+        });
+      }
       return;
     }
 
-    const payload = {
-      name,
-      description: form.description.trim() || null,
-      primary_style: form.primary_style.trim(),
-      secondary_trigger: form.secondary_trigger.trim() || null,
-      styles: parseStylesList(form.styles),
-      texture: form.texture.trim() || null,
-    };
+    const { payload } = res;
 
     setSaving(true);
-    const id = editingId();
     try {
       if (id) {
-        const updated = await apiSend<Partial<StylePresetRow>>(
+        await apiSend<Partial<StylePresetRow>>(
           "PUT",
           `/api/style-presets/${encodeURIComponent(id)}`,
           payload,
         );
         if (disposed) return;
-        const nextList = presets.map((p) =>
-          p.id === id
-            ? {
-                ...p,
-                ...payload,
-                ...(updated && typeof updated === "object" ? updated : {}),
-                id,
-              }
-            : { ...p },
-        );
-        applyPresets(nextList);
+        await fetchPresets();
+        if (disposed) return;
         setModalOpen(false);
-        toast.success(`Preset "${name}" saved`);
+        toast.success(`Preset "${payload.name}" saved`);
       } else {
-        const created = await apiSend<Partial<StylePresetRow>>(
+        await apiSend<Partial<StylePresetRow>>(
           "POST",
           "/api/style-presets",
           payload,
         );
         if (disposed) return;
-        if (created && typeof created.id === "string") {
-          const newRow: StylePresetRow = {
-            id: created.id,
-            name: created.name ?? payload.name,
-            description:
-              created.description !== undefined
-                ? created.description
-                : payload.description,
-            primary_style: created.primary_style ?? payload.primary_style,
-            secondary_trigger:
-              created.secondary_trigger !== undefined
-                ? created.secondary_trigger
-                : payload.secondary_trigger,
-            styles: Array.isArray(created.styles)
-              ? created.styles
-              : payload.styles,
-            texture:
-              created.texture !== undefined ? created.texture : payload.texture,
-          };
-          applyPresets([...presets.map((p) => ({ ...p })), newRow]);
-        } else {
-          await fetchPresets();
-        }
+        await fetchPresets();
+        if (disposed) return;
         setModalOpen(false);
-        toast.success(`Preset "${name}" created`);
+        toast.success(`Preset "${payload.name}" created`);
       }
     } catch (err) {
       if (disposed) return;
@@ -227,7 +213,8 @@ export default function PresetsSection() {
     try {
       await apiSend("DELETE", `/api/style-presets/${encodeURIComponent(id)}`);
       if (disposed) return;
-      applyPresets(presets.filter((r) => r.id !== id).map((r) => ({ ...r })));
+      await fetchPresets();
+      if (disposed) return;
       toast.success("Preset deleted");
     } catch (err) {
       if (disposed) return;
@@ -362,6 +349,7 @@ export default function PresetsSection() {
       <Modal
         open={modalOpen()}
         onClose={closeModal}
+        dismissible={!saving()}
         title={editingId() ? "Edit preset" : "New preset"}
         size="lg"
         actions={
@@ -408,58 +396,104 @@ export default function PresetsSection() {
           </Show>
 
           <div class="grid gap-3 sm:grid-cols-2">
-            <Field label="Name" for="preset-name" error={nameError()}>
+            <Field label="Name" for="preset-name" error={fieldErrors().name}>
               <input
                 id="preset-name"
                 name="name"
                 type="text"
                 required
+                maxLength={50}
                 placeholder="e.g. anime"
-                aria-invalid={nameError() ? "true" : undefined}
+                aria-invalid={fieldErrors().name ? "true" : undefined}
+                aria-describedby={
+                  fieldErrors().name ? "preset-name-error" : undefined
+                }
                 class="input input-sm w-full font-mono"
                 value={form.name}
                 onInput={(e) => {
                   setForm("name", e.currentTarget.value);
-                  if (nameError()) setNameError(undefined);
+                  clearFieldError("name");
                 }}
               />
             </Field>
 
-            <Field label="Description" for="preset-description">
+            <Field
+              label="Description"
+              for="preset-description"
+              error={fieldErrors().description}
+            >
               <input
                 id="preset-description"
                 name="description"
                 type="text"
+                maxLength={500}
                 placeholder="Short description"
+                aria-invalid={fieldErrors().description ? "true" : undefined}
+                aria-describedby={
+                  fieldErrors().description
+                    ? "preset-description-error"
+                    : undefined
+                }
                 class="input input-sm w-full"
                 value={form.description}
-                onInput={(e) => setForm("description", e.currentTarget.value)}
+                onInput={(e) => {
+                  setForm("description", e.currentTarget.value);
+                  clearFieldError("description");
+                }}
               />
             </Field>
 
-            <Field label="Primary style" for="preset-primary-style">
+            <Field
+              label="Primary style"
+              for="preset-primary-style"
+              error={fieldErrors().primary_style}
+            >
               <input
                 id="preset-primary-style"
                 name="primary_style"
                 type="text"
+                maxLength={50}
                 placeholder="e.g. watercolor"
+                aria-invalid={fieldErrors().primary_style ? "true" : undefined}
+                aria-describedby={
+                  fieldErrors().primary_style
+                    ? "preset-primary-style-error"
+                    : undefined
+                }
                 class="input input-sm w-full"
                 value={form.primary_style}
-                onInput={(e) => setForm("primary_style", e.currentTarget.value)}
+                onInput={(e) => {
+                  setForm("primary_style", e.currentTarget.value);
+                  clearFieldError("primary_style");
+                }}
               />
             </Field>
 
-            <Field label="Secondary trigger" for="preset-secondary-trigger">
+            <Field
+              label="Secondary trigger"
+              for="preset-secondary-trigger"
+              error={fieldErrors().secondary_trigger}
+            >
               <input
                 id="preset-secondary-trigger"
                 name="secondary_trigger"
                 type="text"
+                maxLength={100}
                 placeholder="Optional trigger word"
+                aria-invalid={
+                  fieldErrors().secondary_trigger ? "true" : undefined
+                }
+                aria-describedby={
+                  fieldErrors().secondary_trigger
+                    ? "preset-secondary-trigger-error"
+                    : undefined
+                }
                 class="input input-sm w-full"
                 value={form.secondary_trigger}
-                onInput={(e) =>
-                  setForm("secondary_trigger", e.currentTarget.value)
-                }
+                onInput={(e) => {
+                  setForm("secondary_trigger", e.currentTarget.value);
+                  clearFieldError("secondary_trigger");
+                }}
               />
             </Field>
           </div>
@@ -467,27 +501,47 @@ export default function PresetsSection() {
           <Field
             label="Styles (one per line or comma-separated)"
             for="preset-styles"
+            error={fieldErrors().styles}
           >
             <textarea
               id="preset-styles"
               name="styles"
               rows={3}
               placeholder="soft lighting&#10;cel shading"
+              aria-invalid={fieldErrors().styles ? "true" : undefined}
+              aria-describedby={
+                fieldErrors().styles ? "preset-styles-error" : undefined
+              }
               class="textarea textarea-sm w-full"
               value={form.styles}
-              onInput={(e) => setForm("styles", e.currentTarget.value)}
+              onInput={(e) => {
+                setForm("styles", e.currentTarget.value);
+                clearFieldError("styles");
+              }}
             />
           </Field>
 
-          <Field label="Texture" for="preset-texture">
+          <Field
+            label="Texture"
+            for="preset-texture"
+            error={fieldErrors().texture}
+          >
             <input
               id="preset-texture"
               name="texture"
               type="text"
+              maxLength={500}
               placeholder="Optional texture prompt suffix"
+              aria-invalid={fieldErrors().texture ? "true" : undefined}
+              aria-describedby={
+                fieldErrors().texture ? "preset-texture-error" : undefined
+              }
               class="input input-sm w-full"
               value={form.texture}
-              onInput={(e) => setForm("texture", e.currentTarget.value)}
+              onInput={(e) => {
+                setForm("texture", e.currentTarget.value);
+                clearFieldError("texture");
+              }}
             />
           </Field>
         </form>

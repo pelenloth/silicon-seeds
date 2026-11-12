@@ -15,6 +15,7 @@ export type ModalProps = {
   title: string;
   actions?: JSX.Element;
   size?: "md" | "lg";
+  dismissible?: boolean;
   children: JSX.Element;
 };
 
@@ -24,6 +25,8 @@ export function Modal(props: ModalProps) {
   let closingProgrammatically = false;
   let currentOverlayId: number | null = null;
   const [overlayId, setOverlayId] = createSignal<number | null>(null);
+
+  const isDismissible = () => props.dismissible !== false;
 
   const releaseOverlay = () => {
     if (currentOverlayId !== null) {
@@ -61,12 +64,28 @@ export function Modal(props: ModalProps) {
       ref={ref}
       class="modal"
       aria-labelledby={titleId}
+      onCancel={(e) => {
+        if (!isDismissible()) {
+          e.preventDefault();
+        }
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Escape" && !isDismissible()) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }}
       onClose={() => {
-        releaseOverlay();
         if (closingProgrammatically) {
+          releaseOverlay();
           closingProgrammatically = false;
           return;
         }
+        if (!isDismissible()) {
+          ref.showModal();
+          return;
+        }
+        releaseOverlay();
         props.onClose();
       }}
     >
@@ -81,8 +100,18 @@ export function Modal(props: ModalProps) {
           <div class="modal-action">{props.actions}</div>
         </Show>
       </div>
-      <form method="dialog" class="modal-backdrop">
-        <button aria-label="Close">close</button>
+      <form
+        method="dialog"
+        class="modal-backdrop"
+        onSubmit={(e) => {
+          if (!isDismissible()) {
+            e.preventDefault();
+          }
+        }}
+      >
+        <button aria-label="Close" disabled={!isDismissible()}>
+          close
+        </button>
       </form>
       <ToastRegion scope={overlayId()} />
     </dialog>
