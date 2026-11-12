@@ -101,9 +101,18 @@ test("home: navigation, heading, and mode controls", async ({ page }) => {
 
   const mode = (v: string) =>
     page.locator(`input[name="home-mode"][value="${v}"]`);
-  for (const v of ["image", "video", "text-to-video", "audio"]) {
+  for (const v of ["auto", "image", "video", "text-to-video", "audio"]) {
     await expect(mode(v)).toBeVisible();
   }
+
+  await expect(mode("auto")).toBeChecked();
+  await expect(page.locator('select[name="home-count"]')).toHaveCount(0);
+  await expect(page.locator('select[name="home-resolution"]')).toHaveCount(0);
+  await expect(page.locator('select[name="home-preset"]')).toHaveCount(0);
+  await expect(page.locator('select[name="home-duration"]')).toHaveCount(0);
+  await expect(
+    page.getByText("Auto picks the format and settings from your description."),
+  ).toBeVisible();
 
   await mode("audio").check();
   await expect(page.locator('select[name="home-duration"]')).toBeVisible();
@@ -145,6 +154,7 @@ test("home: payload capture and 503 error handling in image mode", async ({
   await page.goto("/");
   const prompt = page.locator("#home-prompt");
   await expect(prompt).toBeVisible({ timeout: 10000 });
+  await page.locator('input[name="home-mode"][value="image"]').check();
   await prompt.fill("a serene mountain lake");
 
   const resSelect = page.locator('select[name="home-resolution"]');
@@ -184,6 +194,7 @@ test("home: successful image create clears prompt, shows toast with View link, a
   await page.goto("/");
   const prompt = page.locator("#home-prompt");
   await expect(prompt).toBeVisible({ timeout: 10000 });
+  await page.locator('input[name="home-mode"][value="image"]').check();
   await prompt.fill("a prompt that succeeds");
 
   await page.locator("#home-generate").click();
@@ -293,6 +304,7 @@ test("home: Ctrl+Enter submits once and fast double click sends only one request
   await page.goto("/");
   const prompt = page.locator("#home-prompt");
   await expect(prompt).toBeVisible({ timeout: 10000 });
+  await page.locator('input[name="home-mode"][value="image"]').check();
   await prompt.fill("ctrl enter prompt");
 
   // Ctrl+Enter submits once
@@ -330,6 +342,7 @@ test("home: enhance prompt first toggle behavior, warning on failure, and persis
   await page.goto("/");
   const prompt = page.locator("#home-prompt");
   await expect(prompt).toBeVisible({ timeout: 10000 });
+  await page.locator('input[name="home-mode"][value="image"]').check();
   const toggle = page.getByLabel("Enhance prompt first");
   await expect(toggle).not.toBeChecked();
 
@@ -836,4 +849,413 @@ test("home: form accessibility sets aria-busy, announces busy status, and keeps 
     "stub error after busy",
   );
   await expect(form).not.toHaveAttribute("aria-busy", "true");
+});
+
+test("home: auto mode is default when nothing stored, and stored mode wins after reload", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const mode = (v: string) =>
+    page.locator(`input[name="home-mode"][value="${v}"]`);
+  await expect(mode("auto")).toBeChecked();
+  await page.reload();
+  await expect(mode("auto")).toBeChecked();
+
+  await mode("video").check();
+  await expect(mode("video")).toBeChecked();
+  await page.reload();
+  await expect(mode("video")).toBeChecked();
+});
+
+test("home: auto mode image plan routes to image create, displays summary chips, shows toast, and clears prompt", async ({
+  page,
+}) => {
+  let intentBody: { text?: string } | null = null;
+  let capturedCreate: Record<string, string> | null = null;
+  const stubJobId = "stub-auto-image-job-1";
+
+  await page.route("**/api/intent", async (route) => {
+    intentBody = (await route.request().postDataJSON()) as { text?: string };
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        plan: {
+          kind: "image",
+          prompt: "a fox, watercolor",
+          count: 2,
+          resolution: "9_16_HD",
+          style_preset: "none",
+          duration_seconds: 0,
+        },
+      }),
+    });
+  });
+
+  await mockJobRoutes(page, stubJobId, "image");
+  await page.route("**/api/jobs/images", async (route) => {
+    capturedCreate = await parseFormData(route.request());
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ message: "job queued", jobId: stubJobId }),
+    });
+  });
+
+  await page.goto("/");
+  const prompt = page.locator("#home-prompt");
+  await expect(prompt).toBeVisible({ timeout: 10000 });
+  await prompt.fill("two portrait watercolor foxes");
+
+  await page.locator("#home-generate").click();
+
+  await expect.poll(() => intentBody).not.toBeNull();
+  expect(intentBody).toEqual({ text: "two portrait watercolor foxes" });
+
+  await expect.poll(() => capturedCreate).not.toBeNull();
+  expect(capturedCreate).toMatchObject({
+    prompt: "a fox, watercolor",
+    batch_size: "2",
+    resolution: "9_16_HD",
+  });
+
+  await expect(
+    page.locator(".badge").filter({ hasText: "Image" }),
+  ).toBeVisible();
+  await expect(
+    page.locator(".badge").filter({ hasText: "2 × 9:16 (HD)" }),
+  ).toBeVisible();
+
+  const toast = page.getByRole("status").filter({ hasText: /^Queued: Image/ });
+  await expect(toast).toBeVisible();
+  await expect(prompt).toHaveValue("");
+});
+
+test("home: auto mode video plan routes to text-to-video without style_preset", async ({
+  page,
+}) => {
+  let capturedVideo: Record<string, string> | null = null;
+  const stubJobId = "stub-auto-video-job-1";
+
+  await page.route("**/api/intent", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        plan: {
+          kind: "video",
+          prompt: "a fox running",
+          count: 1,
+          resolution: "720p",
+          style_preset: "none",
+          duration_seconds: 4,
+        },
+      }),
+    });
+  });
+
+  await mockJobRoutes(page, stubJobId, "video");
+  await page.route("**/api/jobs/videos", async (route) => {
+    capturedVideo = await parseFormData(route.request());
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ message: "job queued", jobId: stubJobId }),
+    });
+  });
+
+  await page.goto("/");
+  const prompt = page.locator("#home-prompt");
+  await expect(prompt).toBeVisible({ timeout: 10000 });
+  await prompt.fill("a 4 second clip of a fox running");
+
+  await page.locator("#home-generate").click();
+
+  await expect.poll(() => capturedVideo).not.toBeNull();
+  expect(capturedVideo).toMatchObject({
+    prompt: "a fox running",
+    clip_duration: "4",
+    resolution: "720p",
+  });
+  expect(capturedVideo!.style_preset).toBeUndefined();
+
+  const toast = page.getByRole("status").filter({ hasText: /^Queued: Video/ });
+  await expect(toast).toBeVisible();
+});
+
+test("home: auto mode audio plan routes to audio endpoint with instrumental_prompt and duration", async ({
+  page,
+}) => {
+  let capturedAudio: Record<string, string> | null = null;
+  const stubJobId = "stub-auto-audio-job-1";
+
+  await page.route("**/api/intent", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        plan: {
+          kind: "audio",
+          prompt: "gentle piano melody",
+          count: 1,
+          resolution: "720p",
+          style_preset: "none",
+          duration_seconds: 90,
+        },
+      }),
+    });
+  });
+
+  await mockJobRoutes(page, stubJobId, "audio");
+  await page.route("**/api/jobs/audio", async (route) => {
+    capturedAudio = await parseFormData(route.request());
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ message: "job queued", jobId: stubJobId }),
+    });
+  });
+
+  await page.goto("/");
+  const prompt = page.locator("#home-prompt");
+  await expect(prompt).toBeVisible({ timeout: 10000 });
+  await prompt.fill("gentle piano melody for 90 seconds");
+
+  await page.locator("#home-generate").click();
+
+  await expect.poll(() => capturedAudio).not.toBeNull();
+  expect(capturedAudio).toMatchObject({
+    instrumental_prompt: "gentle piano melody",
+    duration: "90",
+  });
+
+  const toast = page.getByRole("status").filter({ hasText: /^Queued: Audio/ });
+  await expect(toast).toBeVisible();
+});
+
+test("home: auto mode planner failure (503 and 502) shows error toast, switches to image mode, preserves prompt, and sends no create request", async ({
+  page,
+}) => {
+  let createRequests = 0;
+  await page.route("**/api/jobs/**", async (route) => {
+    createRequests++;
+    await route.fulfill({ status: 503, body: "{}" });
+  });
+
+  // 1. Helper's 503
+  await page.goto("/");
+  const prompt = page.locator("#home-prompt");
+  await expect(prompt).toBeVisible({ timeout: 10000 });
+  await prompt.fill("prompt that fails with 503");
+
+  await page.locator("#home-generate").click();
+
+  await expect(
+    page.getByText(
+      "Could not plan that automatically. Pick a format and try again.",
+    ),
+  ).toBeVisible();
+  await expect(
+    page.locator('input[name="home-mode"][value="image"]'),
+  ).toBeChecked();
+  await expect(prompt).toHaveValue("prompt that fails with 503");
+  expect(createRequests).toBe(0);
+
+  // 2. Mocked 502
+  await page.route("**/api/intent", async (route) => {
+    await route.fulfill({
+      status: 502,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "Planner unavailable" }),
+    });
+  });
+
+  await page.locator('input[name="home-mode"][value="auto"]').check();
+  await prompt.fill("prompt that fails with 502");
+  await page.locator("#home-generate").click();
+
+  await expect(
+    page.getByText(
+      "Could not plan that automatically. Pick a format and try again.",
+    ),
+  ).toBeVisible();
+  await expect(
+    page.locator('input[name="home-mode"][value="image"]'),
+  ).toBeChecked();
+  await expect(prompt).toHaveValue("prompt that fails with 502");
+  expect(createRequests).toBe(0);
+});
+
+test("home: auto mode malformed plan answer is treated as planner failure", async ({
+  page,
+}) => {
+  let responsePayload: unknown = {};
+  await page.route("**/api/intent", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(responsePayload),
+    });
+  });
+
+  await page.goto("/");
+  const prompt = page.locator("#home-prompt");
+  await expect(prompt).toBeVisible({ timeout: 10000 });
+
+  // 1. Empty object
+  responsePayload = {};
+  await prompt.fill("malformed empty plan");
+  await page.locator("#home-generate").click();
+
+  await expect(
+    page.getByText(
+      "Could not plan that automatically. Pick a format and try again.",
+    ),
+  ).toBeVisible();
+  await expect(
+    page.locator('input[name="home-mode"][value="image"]'),
+  ).toBeChecked();
+  await expect(prompt).toHaveValue("malformed empty plan");
+
+  // 2. { plan: null }
+  responsePayload = { plan: null };
+  await page.locator('input[name="home-mode"][value="auto"]').check();
+  await prompt.fill("malformed null plan");
+  await page.locator("#home-generate").click();
+
+  await expect(
+    page.getByText(
+      "Could not plan that automatically. Pick a format and try again.",
+    ),
+  ).toBeVisible();
+  await expect(
+    page.locator('input[name="home-mode"][value="image"]'),
+  ).toBeChecked();
+  await expect(prompt).toHaveValue("malformed null plan");
+});
+
+test("home: enhance prompt first toggle is disabled in auto mode and no enhance request is sent", async ({
+  page,
+}) => {
+  let enhanceCalled = false;
+  await page.route("**/api/enhance**", async (route) => {
+    enhanceCalled = true;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ enhanced: "SHOULD NOT BE USED" }),
+    });
+  });
+  await page.route("**/api/intent", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        plan: {
+          kind: "image",
+          prompt: "fox",
+          count: 1,
+          resolution: "720p",
+          style_preset: "none",
+          duration_seconds: 0,
+        },
+      }),
+    });
+  });
+  await page.route("**/api/jobs/images", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ jobId: "job-auto-no-enhance", message: "queued" }),
+    });
+  });
+
+  await page.addInitScript(() => {
+    localStorage.setItem("home:enhance", "1");
+  });
+
+  await page.goto("/");
+  const toggle = page.getByLabel("Enhance prompt first");
+  await expect(toggle).toBeDisabled();
+
+  const prompt = page.locator("#home-prompt");
+  await prompt.fill("fox without enhance");
+  await page.locator("#home-generate").click();
+
+  await expect(
+    page.getByRole("status").filter({ hasText: /^Queued: Image/ }),
+  ).toBeVisible();
+  expect(enhanceCalled).toBe(false);
+});
+
+test("home: while planning the button shows Planning… and is disabled, and fast double click sends one intent request", async ({
+  page,
+}) => {
+  let intentCount = 0;
+  let finishIntent: (() => void) | null = null;
+
+  await page.route("**/api/intent", async (route) => {
+    intentCount++;
+    await new Promise<void>((resolve) => {
+      finishIntent = resolve;
+    });
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        plan: {
+          kind: "image",
+          prompt: "fox",
+          count: 1,
+          resolution: "720p",
+          style_preset: "none",
+          duration_seconds: 0,
+        },
+      }),
+    });
+  });
+  await page.route("**/api/jobs/images", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ jobId: "job-double-click", message: "queued" }),
+    });
+  });
+
+  await page.goto("/");
+  const prompt = page.locator("#home-prompt");
+  await expect(prompt).toBeVisible({ timeout: 10000 });
+  await prompt.fill("fox in snow");
+
+  await page.evaluate(() => {
+    const btn = document.getElementById("home-generate") as HTMLButtonElement;
+    btn.click();
+    btn.click();
+  });
+
+  const generateBtn = page.locator("#home-generate");
+  await expect(generateBtn).toContainText("Planning…");
+  await expect(generateBtn).toBeDisabled();
+  expect(intentCount).toBe(1);
+
+  finishIntent!();
+  await expect(
+    page.getByRole("status").filter({ hasText: /^Queued: Image/ }),
+  ).toBeVisible();
+  expect(intentCount).toBe(1);
+});
+
+test("home: More options in auto mode navigates to /create/image with prompt filled in", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const prompt = page.locator("#home-prompt");
+  await expect(prompt).toBeVisible({ timeout: 10000 });
+  await prompt.fill("auto mode handoff draft");
+
+  await page.getByRole("link", { name: "More options" }).click();
+  await expect(page).toHaveURL(/\/create\/image/);
+  await expect(page.locator('textarea[name="prompt"]')).toHaveValue(
+    "auto mode handoff draft",
+  );
 });

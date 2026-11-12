@@ -1,5 +1,5 @@
 import { ApiError, apiSend } from "./api-client";
-import type { GenerationDefaults } from "./defaults";
+import { labelOf, RESOLUTIONS, type GenerationDefaults } from "./defaults";
 import type { JobKind } from "./job-view";
 
 export type CreateKind =
@@ -372,4 +372,87 @@ export async function submitCreateJob(
     throw new ApiError(500, "The server did not return a job id");
   }
   return { jobId: res.jobId };
+}
+
+export type Plan = {
+  kind: "image" | "video" | "audio";
+  prompt: string;
+  count: number;
+  resolution: string;
+  style_preset: string;
+  duration_seconds: number;
+};
+
+export function isPlan(val: unknown): val is Plan {
+  if (!val || typeof val !== "object") return false;
+  const p = val as Record<string, unknown>;
+  if (p.kind !== "image" && p.kind !== "video" && p.kind !== "audio") {
+    return false;
+  }
+  if (typeof p.prompt !== "string" || !p.prompt.trim()) return false;
+  if (typeof p.count !== "number" || !Number.isFinite(p.count) || p.count < 1) {
+    return false;
+  }
+  if (typeof p.resolution !== "string" || !p.resolution.trim()) return false;
+  if (typeof p.style_preset !== "string" || !p.style_preset.trim()) {
+    return false;
+  }
+  if (
+    typeof p.duration_seconds !== "number" ||
+    !Number.isFinite(p.duration_seconds) ||
+    p.duration_seconds < 0
+  ) {
+    return false;
+  }
+  return true;
+}
+
+export function planToCreate(
+  plan: Plan,
+  d: GenerationDefaults,
+): {
+  kind: "image" | "text-to-video" | "audio";
+  values: Record<string, string>;
+} {
+  switch (plan.kind) {
+    case "image":
+      return {
+        kind: "image",
+        values: quickCreateValues("image", plan.prompt, d, {
+          resolution: plan.resolution,
+          style_preset: plan.style_preset,
+          batch_size: String(plan.count),
+        }),
+      };
+    case "video":
+      return {
+        kind: "text-to-video",
+        values: quickCreateValues("text-to-video", plan.prompt, d, {
+          resolution: plan.resolution,
+          clip_duration: String(plan.duration_seconds),
+        }),
+      };
+    case "audio":
+      return {
+        kind: "audio",
+        values: quickCreateValues("audio", plan.prompt, d, {
+          duration: String(plan.duration_seconds),
+        }),
+      };
+  }
+}
+
+export function planSummary(plan: Plan): string {
+  switch (plan.kind) {
+    case "image": {
+      const base = `Image · ${plan.count} × ${labelOf(RESOLUTIONS, plan.resolution)}`;
+      return plan.style_preset && plan.style_preset !== "none"
+        ? `${base} · ${plan.style_preset}`
+        : base;
+    }
+    case "video":
+      return `Video · ${plan.duration_seconds}s · ${labelOf(RESOLUTIONS, plan.resolution)}`;
+    case "audio":
+      return `Audio · ${plan.duration_seconds}s`;
+  }
 }

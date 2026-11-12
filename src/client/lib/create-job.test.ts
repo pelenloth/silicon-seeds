@@ -4,12 +4,16 @@ import {
   AUDIO_DEFAULTS,
   CREATE_KINDS,
   firstInvalidInOrder,
+  isPlan,
   mapServerErrors,
   orderedFieldNamesFromDescriptors,
+  planSummary,
+  planToCreate,
   quickCreateValues,
   submitCreateJob,
   toFormData,
   validateCreateFields,
+  type Plan,
 } from "./create-job";
 import { FALLBACK_DEFAULTS } from "./defaults";
 
@@ -338,5 +342,85 @@ describe("mapServerErrors", () => {
     );
     expect(out2.fieldErrors).toEqual({});
     expect(out2.formError).toBe("Unknown Param: Must be positive");
+  });
+});
+
+describe("plans", () => {
+  const base: Plan = {
+    kind: "image",
+    prompt: "a fox",
+    count: 4,
+    resolution: "9_16_HD",
+    style_preset: "watercolor",
+    duration_seconds: 0,
+  };
+  test("image plan", () => {
+    const out = planToCreate(base, D);
+    expect(out.kind).toBe("image");
+    expect(out.values).toMatchObject({
+      prompt: "a fox",
+      batch_size: "4",
+      resolution: "9_16_HD",
+      style_preset: "watercolor",
+    });
+    expect(planSummary(base)).toBe("Image · 4 × 9:16 (HD) · watercolor");
+    expect(
+      planSummary({
+        ...base,
+        count: 1,
+        style_preset: "none",
+        resolution: "720p",
+      }),
+    ).toBe("Image · 1 × 720p");
+  });
+  test("video plan goes to text-to-video", () => {
+    const plan: Plan = {
+      ...base,
+      kind: "video",
+      count: 1,
+      resolution: "720p",
+      duration_seconds: 4,
+    };
+    const out = planToCreate(plan, D);
+    expect(out.kind).toBe("text-to-video");
+    expect(out.values).toMatchObject({
+      prompt: "a fox",
+      resolution: "720p",
+      clip_duration: "4",
+    });
+    expect(out.values.style_preset).toBeUndefined();
+    expect(planSummary(plan)).toBe("Video · 4s · 720p");
+  });
+  test("audio plan", () => {
+    const plan: Plan = {
+      ...base,
+      kind: "audio",
+      count: 1,
+      duration_seconds: 90,
+    };
+    const out = planToCreate(plan, D);
+    expect(out.kind).toBe("audio");
+    expect(out.values).toMatchObject({
+      instrumental_prompt: "a fox",
+      lyric_prompt: "",
+      duration: "90",
+    });
+    expect(planSummary(plan)).toBe("Audio · 90s");
+  });
+  test("isPlan validates plan shape and rejects missing, malformed, or unknown kinds", () => {
+    expect(isPlan(base)).toBe(true);
+    expect(isPlan({ ...base, kind: "video", duration_seconds: 5 })).toBe(true);
+    expect(isPlan({ ...base, kind: "audio", duration_seconds: 60 })).toBe(true);
+    expect(isPlan(null)).toBe(false);
+    expect(isPlan(undefined)).toBe(false);
+    expect(isPlan({})).toBe(false);
+    expect(isPlan({ ...base, kind: "text-to-video" })).toBe(false);
+    expect(isPlan({ ...base, kind: "compose" })).toBe(false);
+    expect(isPlan({ ...base, prompt: "   " })).toBe(false);
+    expect(isPlan({ ...base, count: 0 })).toBe(false);
+    expect(isPlan({ ...base, count: "4" })).toBe(false);
+    expect(isPlan({ ...base, resolution: "" })).toBe(false);
+    expect(isPlan({ ...base, style_preset: "" })).toBe(false);
+    expect(isPlan({ ...base, duration_seconds: -1 })).toBe(false);
   });
 });

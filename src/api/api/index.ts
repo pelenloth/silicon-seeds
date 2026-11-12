@@ -20,6 +20,7 @@ import { tts_profiles, tts_profiles_options } from "./tts";
 import settingsRoutes from "../settings";
 import stylePresetsRoutes from "../style-presets";
 import enhanceRoutes from "../enhance";
+import intentRoutes from "../intent";
 import lorasRoutes from "../loras";
 import comfyuiRoutes from "../comfyui";
 import { zValidator } from "@hono/zod-validator";
@@ -335,6 +336,7 @@ app.get("/jobs/:jobId/media", async (c) => {
 app.route("/settings", settingsRoutes);
 app.route("/style-presets", stylePresetsRoutes);
 app.route("/enhance", enhanceRoutes);
+app.route("/intent", intentRoutes);
 app.route("/loras", lorasRoutes);
 app.route("/comfyui", comfyuiRoutes);
 

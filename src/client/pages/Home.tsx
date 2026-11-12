@@ -29,8 +29,12 @@ import {
 } from "../lib/api-client";
 import {
   CREATE_KINDS,
+  isPlan,
+  planSummary,
+  planToCreate,
   quickCreateValues,
   submitCreateJob,
+  type Plan,
 } from "../lib/create-job";
 import { RESOLUTIONS, type GenerationDefaults } from "../lib/defaults";
 import {
@@ -55,10 +59,12 @@ import {
 import { generationDefaults, loadDefaults } from "../stores/settings";
 import { toast } from "../stores/toast";
 
-type HomeMode = "image" | "video" | "text-to-video" | "audio";
+type HomeMode = "auto" | "image" | "video" | "text-to-video" | "audio";
+type ManualHomeMode = Exclude<HomeMode, "auto">;
 type KeyedMediaItem = MediaItem & { id: string };
 
 const MODE_OPTIONS: readonly { value: HomeMode; label: string }[] = [
+  { value: "auto", label: "Auto" },
   { value: "image", label: "Image" },
   { value: "video", label: "Video" },
   { value: "text-to-video", label: "Text to Video" },
@@ -85,6 +91,7 @@ function readInitialMode(): HomeMode {
   try {
     const raw = localStorage.getItem("home:mode");
     if (
+      raw === "auto" ||
       raw === "image" ||
       raw === "video" ||
       raw === "text-to-video" ||
@@ -93,7 +100,7 @@ function readInitialMode(): HomeMode {
       return raw;
     }
   } catch {}
-  return "image";
+  return "auto";
 }
 
 function readInitialEnhance(): boolean {
@@ -104,7 +111,7 @@ function readInitialEnhance(): boolean {
   return false;
 }
 
-function enhanceKindForMode(mode: HomeMode): EnhanceKind {
+function enhanceKindForMode(mode: ManualHomeMode): EnhanceKind {
   switch (mode) {
     case "image":
       return "image_prompt";
@@ -249,13 +256,17 @@ export default function Home() {
   const [duration, setDurationSignal] = createSignal("60");
   const [enhanceFirst, setEnhanceFirstSignal] =
     createSignal(readInitialEnhance());
-  const [busy, setBusy] = createSignal<"" | "Enhancing…" | "Queueing…">("");
+  const [busy, setBusy] = createSignal<
+    "" | "Planning…" | "Enhancing…" | "Queueing…"
+  >("");
   const [error, setError] = createSignal<string | null>(null);
+  const [planChips, setPlanChips] = createSignal<string[]>([]);
 
   let resolutionTouched = false;
   let presetTouched = false;
   let inFlight = false;
   let enhanceAbort: AbortController | null = null;
+  let intentAbort: AbortController | null = null;
 
   const applyDefaultsIfUntouched = (d: GenerationDefaults) => {
     if (disposed) return;
@@ -276,6 +287,7 @@ export default function Home() {
   const setPrompt = (val: string) => {
     setPromptSignal(val);
     if (error()) setError(null);
+    if (planChips().length > 0) setPlanChips([]);
     if (val) {
       saveDraft("/", { prompt: val });
     } else {
@@ -285,6 +297,7 @@ export default function Home() {
 
   const setMode = (next: string) => {
     if (
+      next !== "auto" &&
       next !== "image" &&
       next !== "video" &&
       next !== "text-to-video" &&
@@ -293,6 +306,7 @@ export default function Home() {
       return;
     }
     setModeSignal(next);
+    if (planChips().length > 0) setPlanChips([]);
     try {
       localStorage.setItem("home:mode", next);
     } catch {}
@@ -305,8 +319,8 @@ export default function Home() {
     } catch {}
   };
 
-  const overrides = (): Record<string, string> => {
-    switch (mode()) {
+  const overridesForMode = (m: ManualHomeMode): Record<string, string> => {
+    switch (m) {
       case "image":
         return {
           resolution: resolution(),
@@ -329,14 +343,27 @@ export default function Home() {
     }
   };
 
+  const moreOptionsRoute = () => {
+    const currentMode = mode();
+    return currentMode === "auto"
+      ? "/create/image"
+      : CREATE_KINDS[currentMode].route;
+  };
+
   const handOff = () => {
     const currentMode = mode();
+    if (currentMode === "auto") {
+      setPrefill("/create/image", {
+        prompt: prompt(),
+      });
+      return;
+    }
     const route = CREATE_KINDS[currentMode].route;
     const promptField =
       currentMode === "audio" ? "instrumental_prompt" : "prompt";
     setPrefill(route, {
       [promptField]: prompt(),
-      ...overrides(),
+      ...overridesForMode(currentMode),
     });
   };
 
@@ -352,13 +379,69 @@ export default function Home() {
     }
 
     setError(null);
+    setPlanChips([]);
     inFlight = true;
     const currentMode = mode();
-    const currentOverrides = overrides();
-    const currentPreset = preset();
-    let finalText = rawPrompt;
 
     try {
+      if (currentMode === "auto") {
+        setBusy("Planning…");
+        const ctrl = new AbortController();
+        intentAbort = ctrl;
+        const timer = setTimeout(() => ctrl.abort(), 50_000);
+        let plan: Plan | null = null;
+        try {
+          const res = await apiSend<{ plan?: unknown }>(
+            "POST",
+            "/api/intent",
+            { text: rawPrompt },
+            { signal: ctrl.signal },
+          );
+          if (isPlan(res?.plan)) {
+            plan = res.plan;
+          }
+        } catch {
+          if (disposed) return;
+          plan = null;
+        } finally {
+          clearTimeout(timer);
+          if (intentAbort === ctrl) {
+            intentAbort = null;
+          }
+        }
+
+        if (disposed) return;
+        if (!plan) {
+          toast.error(
+            "Could not plan that automatically. Pick a format and try again.",
+          );
+          setMode("image");
+          return;
+        }
+
+        const summary = planSummary(plan);
+        setPlanChips(summary.split(" · "));
+        setBusy("Queueing…");
+        const { kind, values } = planToCreate(plan, generationDefaults());
+        const { jobId } = await submitCreateJob(kind, values);
+        if (!disposed) {
+          setPromptSignal("");
+          clearDraft("/");
+        }
+        void refreshJobs();
+        toast.success(`Queued: ${summary}`, {
+          action: {
+            label: "View",
+            href: `/jobs/${encodeURIComponent(jobId)}`,
+          },
+        });
+        return;
+      }
+
+      const currentOverrides = overridesForMode(currentMode);
+      const currentPreset = preset();
+      let finalText = rawPrompt;
+
       if (enhanceFirst()) {
         setBusy("Enhancing…");
         const ctrl = new AbortController();
@@ -548,6 +631,7 @@ export default function Home() {
   onCleanup(() => {
     disposed = true;
     enhanceAbort?.abort();
+    intentAbort?.abort();
   });
 
   return (
@@ -582,6 +666,17 @@ export default function Home() {
               {error()}
             </p>
           </Show>
+          <Show when={planChips().length > 0}>
+            <div class="mt-2 flex flex-wrap items-center gap-1.5">
+              <For each={planChips()}>
+                {(chip) => (
+                  <span class="badge badge-soft badge-primary badge-sm">
+                    {chip}
+                  </span>
+                )}
+              </For>
+            </div>
+          </Show>
           <div class="mt-3 flex flex-wrap items-center gap-2">
             <Segmented
               label="Mode"
@@ -591,6 +686,11 @@ export default function Home() {
               options={MODE_OPTIONS}
               class="max-w-full overflow-x-auto scroll-thin"
             />
+            <Show when={mode() === "auto"}>
+              <span class="text-xs text-base-content/60">
+                Auto picks the format and settings from your description.
+              </span>
+            </Show>
             <Show
               when={
                 mode() === "image" ||
@@ -667,17 +767,24 @@ export default function Home() {
             </Show>
           </div>
           <div class="mt-3 flex flex-wrap items-center gap-3 border-t border-base-300 pt-3">
-            <label class="flex cursor-pointer items-center gap-2 text-xs">
+            <label
+              class="flex items-center gap-2 text-xs"
+              classList={{
+                "cursor-pointer": mode() !== "auto",
+                "cursor-not-allowed opacity-60": mode() === "auto",
+              }}
+            >
               <input
                 type="checkbox"
                 class="toggle toggle-primary toggle-xs"
                 checked={enhanceFirst()}
+                disabled={mode() === "auto"}
                 onChange={(e) => setEnhanceFirst(e.currentTarget.checked)}
               />
               Enhance prompt first
             </label>
             <A
-              href={CREATE_KINDS[mode()].route}
+              href={moreOptionsRoute()}
               class="link link-hover text-xs"
               onClick={handOff}
             >
