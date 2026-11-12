@@ -1083,6 +1083,7 @@ test("home: auto mode planner failure (503 and 502) shows error toast, switches 
     page.locator('input[name="home-mode"][value="image"]'),
   ).toBeChecked();
   await expect(prompt).toHaveValue("prompt that fails with 502");
+  await expect(page.locator("#home-generate")).toBeEnabled();
   expect(createRequests).toBe(0);
 });
 
@@ -1555,7 +1556,7 @@ test("home: enhance timeout falls back to original text, shows warning toast, an
   expect(createPrompts).toEqual(["raw sunset prompt"]);
 });
 
-test("home: planner 502 after user switches to Video keeps Video selected and queues nothing", async ({
+test("home: switching to Video while planning keeps Video and queues nothing", async ({
   page,
 }) => {
   let createCalls = 0;
@@ -1565,11 +1566,13 @@ test("home: planner 502 after user switches to Video keeps Video selected and qu
     await new Promise<void>((r) => {
       respond502 = r;
     });
-    await route.fulfill({
-      status: 502,
-      contentType: "application/json",
-      body: JSON.stringify({ error: "Planner unavailable" }),
-    });
+    await route
+      .fulfill({
+        status: 502,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "Planner unavailable" }),
+      })
+      .catch(() => {});
   });
   await page.route("**/api/jobs/**", async (route) => {
     if (route.request().method() === "POST") {

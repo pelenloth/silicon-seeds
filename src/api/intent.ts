@@ -9,8 +9,8 @@ import {
   buildIntentPrompt,
   IntentSchema,
   normalizePlan,
-  type RawIntent,
 } from "../prompts/intent";
+import { planWithTimeout } from "./plan-timeout";
 import { validationHook } from "./validation";
 
 const BodySchema = z.object({
@@ -19,58 +19,6 @@ const BodySchema = z.object({
 
 const INTENT_TIMEOUT_MS = 45_000;
 const INTENT_MAX_BODY_BYTES = 32 * 1024;
-
-export type PlanWithTimeoutOptions = {
-  timeoutMs?: number;
-  signal?: AbortSignal;
-  structured?: (
-    prompt: string,
-    schema: typeof IntentSchema,
-    opts?: { signal?: AbortSignal },
-  ) => Promise<{ parsed: RawIntent } | null>;
-};
-
-export async function planWithTimeout(
-  prompt: string,
-  opts?: PlanWithTimeoutOptions,
-): Promise<{ parsed: RawIntent } | null> {
-  const timeoutMs = opts?.timeoutMs ?? INTENT_TIMEOUT_MS;
-  const structuredFn = opts?.structured ?? LLM.structured;
-  const ctrl = new AbortController();
-  let timer: ReturnType<typeof setTimeout> | null = null;
-
-  const onClientAbort = () => {
-    ctrl.abort();
-  };
-
-  if (opts?.signal) {
-    if (opts.signal.aborted) {
-      ctrl.abort();
-    } else {
-      opts.signal.addEventListener("abort", onClientAbort, { once: true });
-    }
-  }
-
-  const timeoutPromise = new Promise<null>((resolve) => {
-    timer = setTimeout(() => {
-      Logger.warn("Intent planner timed out", { timeoutMs });
-      ctrl.abort();
-      resolve(null);
-    }, timeoutMs);
-  });
-
-  try {
-    return await Promise.race([
-      structuredFn(prompt, IntentSchema, { signal: ctrl.signal }),
-      timeoutPromise,
-    ]);
-  } finally {
-    if (timer !== null) clearTimeout(timer);
-    if (opts?.signal) {
-      opts.signal.removeEventListener("abort", onClientAbort);
-    }
-  }
-}
 
 const app = new Hono();
 
@@ -89,9 +37,18 @@ app.post(
         DB.Settings.getAll(),
       ]);
       const names = presets.map((p) => p.name);
-      const res = await planWithTimeout(buildIntentPrompt(text, names), {
-        signal: c.req.raw.signal,
-      });
+      const prompt = buildIntentPrompt(text, names);
+      const res = await planWithTimeout(
+        (signal) => LLM.structured(prompt, IntentSchema, { signal }),
+        {
+          timeoutMs: INTENT_TIMEOUT_MS,
+          signal: c.req.raw.signal,
+          onTimeout: () =>
+            Logger.warn("Intent planner timed out", {
+              timeoutMs: INTENT_TIMEOUT_MS,
+            }),
+        },
+      );
       if (!res?.parsed) {
         Logger.warn("Intent planner returned no parsed plan");
         return c.json({ error: "Planner unavailable" }, 502);

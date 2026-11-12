@@ -19,10 +19,9 @@ test("safety: second page in the same context is blocked from triggering generat
       ["POST", "/api/comfyui"],
       ["GET", "/api/jobs/text"],
     ] as const;
-    const f = "fetch" as const;
     const out: { status: number; body: unknown }[] = [];
     for (const [method, url] of endpoints) {
-      const res = await window[f](url, { method });
+      const res = await fetch(url, { method }); // e2e-guard: in-page fetch
       out.push({ status: res.status, body: await res.json() });
     }
     return out;
@@ -42,8 +41,7 @@ test("safety: blocked POST from the page is recorded by the guard and returns 50
 }) => {
   await page.goto("/");
   const res = await page.evaluate(async () => {
-    const f = "fetch" as const;
-    const r = await window[f]("/api/jobs/images", { method: "POST" });
+    const r = await fetch("/api/jobs/images", { method: "POST" }); // e2e-guard: in-page fetch
     return { status: r.status, body: await r.json() };
   });
   expect(res.status).toBe(503);
@@ -112,12 +110,12 @@ test("safety: page and context request contexts and Request objects are guarded 
     (r) => r.url().endsWith("/api/jobs/images") && r.method() === "POST",
   );
   await page.evaluate(async () => {
-    const f = "fetch" as const;
-    await window[f]("/api/jobs/images", {
+    const init = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: "{}",
-    });
+    };
+    await fetch("/api/jobs/images", init); // e2e-guard: in-page fetch
   });
   const pwPostRequest = await reqPromise;
 

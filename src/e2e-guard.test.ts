@@ -1,8 +1,12 @@
+// Tripwire scanner for honest mistakes in e2e specs. String indirection is out
+// of scope; the runtime guard in e2e/helpers/no-generation.ts is the actual
+// protection (in-page requests go through the context routes).
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { describe, expect, test } from "bun:test";
 
 const E2E_DIR = join(process.cwd(), "e2e");
+const IN_PAGE_FETCH_MARKER = "// e2e-guard: in-page fetch";
 
 function listTsFiles(dir: string): string[] {
   const out: string[] = [];
@@ -38,6 +42,28 @@ function importsTestFromPlaywright(src: string): boolean {
   return false;
 }
 
+function hasForbiddenFetch(src: string): boolean {
+  for (const line of src.split(/\r?\n/)) {
+    if (!/\bfetch\s*\(/.test(line)) continue;
+    if (/\.\s*fetch\s*\(/.test(line)) return true;
+    if (!line.includes(IN_PAGE_FETCH_MARKER)) return true;
+  }
+  return false;
+}
+
+function hasRequestDestructuring(src: string): boolean {
+  const destructureRe = /\{([^}]*)\}\s*=\s*(?:page|context)\b/g;
+  let m: RegExpExecArray | null;
+  while ((m = destructureRe.exec(src)) !== null) {
+    const props = (m[1] ?? "").split(",");
+    for (const prop of props) {
+      const propName = prop.split(/[:=]/)[0]?.trim();
+      if (propName === "request") return true;
+    }
+  }
+  return false;
+}
+
 export function scanE2eSource(
   src: string,
   rel = "e2e/example.spec.ts",
@@ -57,13 +83,17 @@ export function scanE2eSource(
       );
     }
 
-    if (/\bfetch\s*\(/.test(src)) {
+    if (hasForbiddenFetch(src)) {
       issues.push(
-        `${rel} calls fetch(; use request.get() or stub page routes instead so the generation guard is not bypassed.`,
+        `${rel} calls fetch(; use request.get() or stub page routes instead so the generation guard is not bypassed (or mark in-page evaluate lines with ${IN_PAGE_FETCH_MARKER}).`,
       );
     }
 
-    if (/\.\s*request\b(?!\s*\()/.test(src)) {
+    if (
+      /\.\s*request\b(?!\s*\()/.test(src) ||
+      hasRequestDestructuring(src) ||
+      /\[\s*["']request["']\s*\]/.test(src)
+    ) {
       issues.push(
         `${rel} accesses .request; use the guarded request fixture from "./helpers/test" instead of page.request, context.request, or playwright.request.`,
       );
@@ -77,12 +107,12 @@ export function scanE2eSource(
   }
 
   if (
-    /\b(?:browser\.(?:newContext|newPage)|request\.newContext|(?:chromium|firefox|webkit)\.launch)\s*\(/.test(
+    /\b(?:browser\.(?:newContext|newPage)|request\.newContext|(?:chromium|firefox|webkit)\.(?:launch|launchPersistentContext|connectOverCDP|connect))\s*\(/.test(
       src,
     )
   ) {
     issues.push(
-      `${rel} creates an unguarded context or page (browser.newContext, browser.newPage, request.newContext, or launch); use the fixtures from "./helpers/test" instead.`,
+      `${rel} creates an unguarded context or page (browser.newContext, browser.newPage, request.newContext, launch, launchPersistentContext, connectOverCDP, or connect); use the fixtures from "./helpers/test" instead.`,
     );
   }
 
@@ -114,10 +144,25 @@ describe("e2e generation guard", () => {
       ["route.continue(", "await route" + ".continue();"],
       ["request.post(", "await request" + ".post('/api/jobs');"],
       ["route.fetch(", "await route" + ".fetch();"],
+      [
+        "marked route.fetch(",
+        "await route" + `.fetch(); ${IN_PAGE_FETCH_MARKER}`,
+      ],
       ["bare fetch(", "await " + "fetch('http://localhost:3000/api/jobs');"],
       ["browser.newContext(", "await browser" + ".newContext();"],
       ["browser.newPage(", "await browser" + ".newPage();"],
       ["chromium.launch(", "await chromium" + ".launch();"],
+      [
+        "chromium.launchPersistentContext(",
+        "await chromium" + ".launchPersistentContext('/tmp/u');",
+      ],
+      [
+        "chromium.connectOverCDP(",
+        "await chromium" + ".connectOverCDP('http://localhost:9222');",
+      ],
+      ["chromium.connect(", "await chromium" + ".connect('ws://host');"],
+      ["firefox.connect(", "await firefox" + ".connect('ws://host');"],
+      ["webkit.connect(", "await webkit" + ".connect('ws://host');"],
       ["request.newContext(", "await request" + ".newContext();"],
       ["playwright.request", "const r = playwright" + ".request;"],
       ["page.request", "await page" + ".request.get('/api/jobs');"],
@@ -126,6 +171,13 @@ describe("e2e generation guard", () => {
         "aliased page/context .request",
         "const p = page; await p" + ".request.get('/api/jobs');",
       ],
+      ["destructure request from page", "const { " + "request } = page;"],
+      [
+        "destructure request from context with alias",
+        "const { " + "request: api } = context;",
+      ],
+      ['bracket access ["request"]', 'const r = page["' + 'request"];'],
+      ["bracket access ['request']", "const r = context['" + "request'];"],
     ];
 
     for (const [label, sample] of badSamples) {
@@ -145,6 +197,9 @@ describe("e2e generation guard", () => {
       "    await route.fallback();",
       "  });",
       '  await request.get("/api/jobs");',
+      "  await page.evaluate(async () => {",
+      `    await ${"fetch"}("/api/jobs/images", { method: "POST" }); ${IN_PAGE_FETCH_MARKER}`,
+      "  });",
       "});",
     ].join("\n");
     expect(scanE2eSource(cleanSample)).toEqual([]);

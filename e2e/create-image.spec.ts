@@ -137,8 +137,7 @@ test("create image: blockGeneration blocks unstubbed generation and enhance requ
   });
 
   const resJobs = await page.evaluate(async () => {
-    const f = "fetch" as const;
-    const r = await window[f]("/api/jobs/images", { method: "POST" });
+    const r = await fetch("/api/jobs/images", { method: "POST" }); // e2e-guard: in-page fetch
     return { status: r.status, body: await r.json() };
   });
   expect(resJobs).toEqual({
@@ -147,8 +146,7 @@ test("create image: blockGeneration blocks unstubbed generation and enhance requ
   });
 
   const resEnhance = await page.evaluate(async () => {
-    const f = "fetch" as const;
-    const r = await window[f]("/api/enhance?prompt=hi");
+    const r = await fetch("/api/enhance?prompt=hi"); // e2e-guard: in-page fetch
     return { status: r.status, body: await r.json() };
   });
   expect(resEnhance).toEqual({
