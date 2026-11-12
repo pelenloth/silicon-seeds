@@ -44,7 +44,9 @@ test("shell: labeled nav, active item, titles, palette, activity, new menu, coll
   const palette = page.getByRole("dialog", { name: "Command palette" });
   await expect(palette).toBeVisible();
   await palette.getByRole("combobox").fill("sett");
-  await expect(palette.getByRole("option", { name: "Settings" })).toBeVisible();
+  await expect(
+    palette.getByRole("option", { name: "Settings", exact: true }),
+  ).toBeVisible();
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(/\/settings/);
   await expect(palette).toBeHidden();

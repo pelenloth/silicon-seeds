@@ -23,10 +23,12 @@ function ctx(over: Partial<PaletteContext> = {}) {
 }
 
 describe("palette", () => {
-  test("without a query: every route, jobs and themes, no quick create", () => {
+  test("without a query: every route, settings sections, jobs and themes, no quick create", () => {
     const { c } = ctx();
     const cmds = filterCommands(buildCommands(c), "");
-    expect(cmds.filter((x) => x.group === "Go to").length).toBe(ROUTES.length);
+    expect(cmds.filter((x) => x.group === "Go to").length).toBe(
+      ROUTES.length + 4,
+    );
     expect(cmds.filter((x) => x.group === "Jobs").map((x) => x.label)).toEqual([
       "Desert Dunes",
       "Night City",
@@ -35,6 +37,26 @@ describe("palette", () => {
       ["Theme: System", "Theme: Dracula"],
     );
     expect(cmds.some((x) => x.group === "Create")).toBe(false);
+  });
+  test("includes settings section commands that navigate to the right tab", () => {
+    const { c, calls } = ctx();
+    const cmds = buildCommands(c);
+    const settingsCmds = cmds.filter((x) => x.label.startsWith("Settings: "));
+    expect(settingsCmds.map((x) => x.label)).toEqual([
+      "Settings: Defaults",
+      "Settings: LoRAs",
+      "Settings: Style presets",
+      "Settings: Appearance",
+    ]);
+    for (const sc of settingsCmds) {
+      sc.run();
+    }
+    expect(calls).toEqual([
+      "nav:/settings?tab=defaults",
+      "nav:/settings?tab=loras",
+      "nav:/settings?tab=presets",
+      "nav:/settings?tab=appearance",
+    ]);
   });
   test("filtering matches every token, case-insensitively", () => {
     const { c } = ctx({ query: "text vid" });

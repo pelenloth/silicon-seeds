@@ -54,6 +54,41 @@ export function buildCommands(ctx: PaletteContext): Command[] {
       run: () => ctx.navigate(r.path),
     });
   }
+  const settingsSections = [
+    {
+      id: "goto-settings-defaults",
+      label: "Settings: Defaults",
+      path: "/settings?tab=defaults",
+      keywords: "defaults",
+    },
+    {
+      id: "goto-settings-loras",
+      label: "Settings: LoRAs",
+      path: "/settings?tab=loras",
+      keywords: "loras",
+    },
+    {
+      id: "goto-settings-presets",
+      label: "Settings: Style presets",
+      path: "/settings?tab=presets",
+      keywords: "presets style",
+    },
+    {
+      id: "goto-settings-appearance",
+      label: "Settings: Appearance",
+      path: "/settings?tab=appearance",
+      keywords: "appearance theme",
+    },
+  ] as const;
+  for (const s of settingsSections) {
+    out.push({
+      id: s.id,
+      group: "Go to",
+      label: s.label,
+      keywords: s.keywords,
+      run: () => ctx.navigate(s.path),
+    });
+  }
   for (const j of ctx.jobs) {
     out.push({
       id: `job-${j.id}`,
