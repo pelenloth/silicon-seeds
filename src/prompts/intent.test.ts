@@ -534,3 +534,52 @@ describe("detectKind: a video phrase must lead the prompt", () => {
     expect(detectKind("album covers for a jazz band", "video")).toBe("image");
   });
 });
+
+describe("detectKind: a video phrase is the request only after plain request framing", () => {
+  type K = "image" | "video" | "audio";
+  const cases: readonly [string, string | undefined, K][] = [
+    // scene descriptions: the phrase is not the request
+    ["a man watching a video of his wedding", "image", "image"],
+    ["a man watching a video of his wedding", undefined, "image"],
+    ["a man watching a video of his wedding", "video", "video"],
+    ["a girl recording a clip of her cat", "image", "image"],
+    ["an old projector showing a movie of a wedding", "image", "image"],
+    ["a tv playing a movie of a western", "image", "image"],
+    ["a phone displaying a gif of a dancing cat", "image", "image"],
+    ["a photo of a man watching a video of his wedding", "video", "image"],
+    // requests: the phrase wins over the planner's image
+    ["I'd like a video of a cat riding a bike", "image", "video"],
+    ["I’d like a video of a cat", "image", "video"],
+    ["I'd like a video of a cat riding a bike", undefined, "video"],
+    ["I would like a short clip of rain", "image", "video"],
+    ["please make me a 10 second video of a fox", "image", "video"],
+    ["can you create a 5-second looping gif of a candle", "image", "video"],
+    ["Hey, could you generate a 4k drone video of the alps?", "image", "video"],
+    ["render a video of a spaceship", "image", "video"],
+    ["a cinematic slow-motion video of waves", "image", "video"],
+    ["a black and white time lapse video of clouds", "image", "video"],
+    ["two short clips of a kitten", "image", "video"],
+    ["a 720p 30fps video of traffic", "image", "video"],
+    // unknown words leave it to the planner
+    ["a breathtaking video of the alps", "image", "image"],
+    ["a breathtaking video of the alps", "video", "video"],
+    ["I'm looking for a video of a cat", "image", "image"],
+    ["I'm looking for a video of a cat", "video", "video"],
+    // style words
+    ["oil painting style animation of a storm", "video", "video"],
+    ["oil painting style animation of a storm", "image", "image"],
+    ["a watercolor illustration-style video of a fox", "video", "video"],
+    ["a cat in oil painting style", "video", "image"],
+    ["a poster in sketch style", "video", "image"],
+  ];
+
+  test("table of prompts and hints", () => {
+    for (const [text, hint, expected] of cases) {
+      expect([text, hint, detectKind(text, hint)]).toEqual([
+        text,
+        hint,
+        expected,
+      ]);
+    }
+  });
+});

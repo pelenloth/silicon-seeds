@@ -212,8 +212,16 @@ const PORTRAIT_ORIENTATION_RE =
 const PORTRAIT_NOUN_RE =
   /\b(?:a|an|the|my|his|her|their|our|your)\s+(?:\w+\s+){0,2}portraits?\b|\bportraits?\s+of\b|\bself[\s-]portraits?\b/;
 
+// An image noun followed by "style" describes a look ("painting style", "illustration-style").
+const IMAGE_NOUN_STYLE_RE = new RegExp(
+  `\\b(?:${IMAGE_NOUNS.map((w) => `${w}s?`).join("|")})[\\s-]+(?:style|styled|aesthetic)\\b`,
+  "g",
+);
+
 function hasExplicitImageNoun(norm: string): boolean {
-  const stripped = norm.replace(PORTRAIT_ORIENTATION_RE, " ");
+  const stripped = norm
+    .replace(PORTRAIT_ORIENTATION_RE, " ")
+    .replace(IMAGE_NOUN_STYLE_RE, " ");
   return IMAGE_NOUN_RE.test(stripped) || PORTRAIT_NOUN_RE.test(stripped);
 }
 
@@ -223,18 +231,169 @@ function withoutVideoFalsePositives(norm: string): string {
     .replace(ANIMATED_FALSE_POSITIVE_RE, " ");
 }
 
-// A head ending in one of these makes the video the context of something else
-// ("a poster for a video of ...", "a still from a movie of ...").
-const CONTEXT_PREPOSITION_TAIL_RE =
-  /\b(?:for|from|of|in|inside|about|like|on|to|with)(?:\s+(?:a|an|the|my|our|your|his|her|their|this|that|some))?\s*$/;
+// Words that may stand before a video request phrase and still leave it the request.
+const REQUEST_FRAMING_WORDS = new Set([
+  // greeting and politeness
+  "please",
+  "pls",
+  "plz",
+  "kindly",
+  "hey",
+  "hi",
+  "hello",
+  "ok",
+  "okay",
+  "so",
+  "now",
+  "just",
+  "also",
+  "then",
+  "and",
+  // who asks
+  "i",
+  "i'd",
+  "i'll",
+  "we",
+  "we'd",
+  "we'll",
+  "you",
+  "u",
+  "me",
+  "us",
+  "can",
+  "could",
+  "would",
+  "will",
+  "let's",
+  "lets",
+  // request verbs
+  "want",
+  "wanna",
+  "need",
+  "like",
+  "love",
+  "wish",
+  "to",
+  "make",
+  "create",
+  "generate",
+  "produce",
+  "give",
+  "show",
+  "get",
+  "do",
+  "render",
+  "see",
+  "have",
+  "shoot",
+  "film",
+  "record",
+  // articles and counts
+  "a",
+  "an",
+  "the",
+  "some",
+  "another",
+  "single",
+  "one",
+  "two",
+  "three",
+  "four",
+  "five",
+  "six",
+  "seven",
+  "eight",
+  "nine",
+  "ten",
+  // length
+  "second",
+  "seconds",
+  "sec",
+  "secs",
+  "minute",
+  "minutes",
+  "min",
+  "mins",
+  "half",
+  "long",
+  "short",
+  "quick",
+  "brief",
+  // plain qualities of a video
+  "small",
+  "little",
+  "tiny",
+  "new",
+  "cool",
+  "nice",
+  "funny",
+  "fun",
+  "cute",
+  "beautiful",
+  "simple",
+  "cinematic",
+  "slow",
+  "motion",
+  "slow-motion",
+  "slow-mo",
+  "slowmo",
+  "stop",
+  "stop-motion",
+  "time",
+  "lapse",
+  "time-lapse",
+  "timelapse",
+  "looping",
+  "looped",
+  "loop",
+  "seamless",
+  "realistic",
+  "photorealistic",
+  "animated",
+  "music",
+  "drone",
+  "aerial",
+  "vertical",
+  "horizontal",
+  "portrait",
+  "landscape",
+  "widescreen",
+  "square",
+  "high",
+  "low",
+  "quality",
+  "resolution",
+  "high-quality",
+  "high-resolution",
+  "hd",
+  "uhd",
+  "black",
+  "white",
+  "color",
+  "colour",
+  "colorful",
+  "3d",
+  "2d",
+]);
 
-// A video request phrase is the request only when it leads the prompt: the
-// text before it names no image and does not end in a context preposition.
+// A number with an optional length unit, a resolution or a frame rate.
+const REQUEST_FRAMING_TOKEN_RE =
+  /^(?:\d+(?:\.\d+)?(?:-?(?:s|sec|secs|second|seconds|min|mins|minute|minutes))?|(?:480|720|1080)p|[48]k|\d+fps)$/;
+
+// A video request phrase is the request only when every word before it is
+// request framing. Any other word (a subject, a scene verb, an image noun, a
+// preposition) leaves the phrase as plain video evidence for the planner.
 function leadsWithVideoRequest(clean: string): boolean {
   const match = VIDEO_REQUEST_OVERRIDE_RE.exec(clean);
   if (!match) return false;
-  const head = clean.slice(0, match.index).trim();
-  return !hasExplicitImageNoun(head) && !CONTEXT_PREPOSITION_TAIL_RE.test(head);
+  const head = clean.slice(0, match.index).replace(/\u2019/g, "'");
+  return head
+    .split(/\s+/)
+    .map((t) => t.replace(/^[^a-z0-9']+|[^a-z0-9']+$/g, ""))
+    .filter((t) => t !== "")
+    .every(
+      (t) => REQUEST_FRAMING_WORDS.has(t) || REQUEST_FRAMING_TOKEN_RE.test(t),
+    );
 }
 
 function hasVideoRequestPhrase(norm: string): boolean {
