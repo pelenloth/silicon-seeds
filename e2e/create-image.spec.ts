@@ -494,3 +494,173 @@ test("create image: focused last control in Advanced does not intersect sticky s
     }
   }
 });
+
+test("create image: result panel retries empty media when job is complete and shows tile without reload", async ({
+  page,
+}) => {
+  await page.clock.install();
+  const jobId = "stub-retry-media-job";
+  const nowIso = new Date().toISOString();
+  let mediaCalls = 0;
+
+  await page.route(`**/api/jobs/${jobId}`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        job: {
+          id: jobId,
+          name: "Retry Media Job",
+          status: "complete",
+          created_at: nowIso,
+          kind: "image",
+          progress: {
+            total: 1,
+            complete: 1,
+            running: 0,
+            pending: 0,
+            failed: 0,
+          },
+          thumb: null,
+        },
+        events: [
+          {
+            id: "evt-1",
+            jobId,
+            type: "new_image_prompt",
+            mode: "image",
+            status: "complete",
+            created_at: nowIso,
+          },
+        ],
+      }),
+    });
+  });
+
+  await page.route(`**/api/jobs/${jobId}/media**`, async (route) => {
+    mediaCalls++;
+    const items =
+      mediaCalls >= 3
+        ? [
+            {
+              meta_id: "m1",
+              event_id: "evt-1",
+              filename: "retry-success.png",
+              subfolder: "",
+              type: "output",
+              created_at: nowIso,
+              job_id: jobId,
+              job_name: "Retry Media Job",
+              mediaType: "image",
+            },
+          ]
+        : [];
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ items, total: items.length, hasMore: false }),
+    });
+  });
+
+  await page.goto(`/create/image?job_id=${jobId}`);
+  const panel = page.locator("#result-panel");
+  await expect(panel).toContainText("Retry Media Job", { timeout: 10000 });
+  await expect(panel).toContainText("Loading outputs");
+  await expect(panel.getByText("0 outputs")).toHaveCount(0);
+
+  await expect.poll(() => mediaCalls).toBe(1);
+  await page.clock.fastForward(1100);
+  await expect.poll(() => mediaCalls).toBe(2);
+  await page.clock.fastForward(2100);
+  await expect.poll(() => mediaCalls).toBe(3);
+
+  await expect(panel.locator("button[aria-label^='Open ']")).toHaveCount(1);
+  await expect(panel).toContainText("1 output");
+  await expect(panel).not.toContainText("0s");
+});
+
+test("create image: result panel stops after bounded retries and shows Outputs are not available yet with Reload button", async ({
+  page,
+}) => {
+  await page.clock.install();
+  const jobId = "stub-exhausted-media-job";
+  const nowIso = new Date().toISOString();
+  let mediaCalls = 0;
+  let returnItemOnReload = false;
+
+  await page.route(`**/api/jobs/${jobId}`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        job: {
+          id: jobId,
+          name: "Exhausted Media Job",
+          status: "complete",
+          created_at: nowIso,
+          kind: "image",
+          progress: {
+            total: 1,
+            complete: 1,
+            running: 0,
+            pending: 0,
+            failed: 0,
+          },
+          thumb: null,
+        },
+        events: [
+          {
+            id: "evt-1",
+            jobId,
+            type: "new_image_prompt",
+            mode: "image",
+            status: "complete",
+            created_at: nowIso,
+          },
+        ],
+      }),
+    });
+  });
+
+  await page.route(`**/api/jobs/${jobId}/media**`, async (route) => {
+    mediaCalls++;
+    const items = returnItemOnReload
+      ? [
+          {
+            meta_id: "m1",
+            event_id: "evt-1",
+            filename: "reloaded.png",
+            subfolder: "",
+            type: "output",
+            created_at: nowIso,
+            job_id: jobId,
+            job_name: "Exhausted Media Job",
+            mediaType: "image",
+          },
+        ]
+      : [];
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ items, total: items.length, hasMore: false }),
+    });
+  });
+
+  await page.goto(`/create/image?job_id=${jobId}`);
+  const panel = page.locator("#result-panel");
+  await expect(panel).toContainText("Exhausted Media Job", { timeout: 10000 });
+  await expect.poll(() => mediaCalls).toBe(1);
+
+  for (const [idx, ms] of [1100, 2100, 4100, 8100].entries()) {
+    await page.clock.fastForward(ms);
+    await expect.poll(() => mediaCalls).toBe(idx + 2);
+  }
+
+  await expect(panel.getByText("Outputs are not available yet.")).toBeVisible();
+  const reloadBtn = panel.getByRole("button", { name: "Reload" });
+  await expect(reloadBtn).toBeVisible();
+
+  returnItemOnReload = true;
+  await reloadBtn.click();
+  await expect(panel.locator("button[aria-label^='Open ']")).toHaveCount(1);
+});

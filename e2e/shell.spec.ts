@@ -190,6 +190,19 @@ test("shell: deep links are served to clients that do not ask for HTML", async (
   expect(missing.status()).toBe(404);
 });
 
+async function expectThreeSamples<T>(
+  sample: () => Promise<T>,
+  expected: T,
+  intervalMs = 150,
+) {
+  for (let i = 0; i < 3; i++) {
+    if (i > 0) {
+      await new Promise((r) => setTimeout(r, intervalMs));
+    }
+    expect(await sample()).toBe(expected);
+  }
+}
+
 test("shell: navigating to a new pathname resets #app-main scrollTop to 0", async ({
   page,
 }) => {
@@ -212,8 +225,7 @@ test("shell: navigating to a new pathname resets #app-main scrollTop to 0", asyn
     a?.click();
   });
   await expect(page).toHaveURL(/\/dev\/kit\?tab=failed/);
-  await page.waitForTimeout(300);
-  expect(await main.evaluate((el) => el.scrollTop)).toBe(50);
+  await expectThreeSamples(() => main.evaluate((el) => el.scrollTop), 50);
 
   await page.locator("#sidebar-jobs-summary").click();
   await expect(page).toHaveURL(/\/jobs/);
@@ -233,8 +245,7 @@ test("shell: navigating to a new pathname resets #app-main scrollTop to 0", asyn
     a.remove();
   });
   await expect(page).toHaveURL(/\/jobs\?status=failed/);
-  await page.waitForTimeout(300);
-  expect(await main.evaluate((el) => el.scrollTop)).toBe(50);
+  await expectThreeSamples(() => main.evaluate((el) => el.scrollTop), 50);
 });
 
 test("shell: clicking the second job row at desktop width keeps focus inside #job-list", async ({
@@ -253,18 +264,15 @@ test("shell: clicking the second job row at desktop width keeps focus inside #jo
   const secondPath = secondHref.split("?")[0];
   await rows.nth(1).click();
   await expect(page).toHaveURL(new RegExp(secondPath));
-  await expect
-    .poll(() =>
-      page.evaluate(() => {
-        const list = document.getElementById("job-list");
-        return Boolean(
-          list &&
-          document.activeElement &&
-          list.contains(document.activeElement),
-        );
-      }),
-    )
-    .toBe(true);
+  const focusInList = () =>
+    page.evaluate(() => {
+      const list = document.getElementById("job-list");
+      return Boolean(
+        list && document.activeElement && list.contains(document.activeElement),
+      );
+    });
+  await expect.poll(focusInList).toBe(true);
+  await expectThreeSamples(focusInList, true);
 });
 
 test("shell: mobile Activity panel fits inside viewport and Escape returns focus to trigger", async ({

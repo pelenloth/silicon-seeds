@@ -92,11 +92,14 @@ export function JobOverview(props: JobOverviewProps) {
         value: Number.isNaN(ts) ? j.created_at : new Date(ts).toLocaleString(),
       });
     }
-    const dur = formatDuration(
-      jobDurationMs(j.created_at, props.events, j.status, nowTick()),
+    const durMs = jobDurationMs(
+      j.created_at,
+      props.events,
+      j.status,
+      nowTick(),
     );
-    if (dur && dur !== "0s") {
-      rows.push({ label: "Duration", value: dur });
+    if (durMs !== null) {
+      rows.push({ label: "Elapsed", value: formatDuration(durMs) });
     }
     if (j.resolution) {
       rows.push({ label: "Resolution", value: j.resolution });

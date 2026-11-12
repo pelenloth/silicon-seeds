@@ -235,11 +235,18 @@ app.get("/jobs/:jobId/media", async (c) => {
     if (!cleanSubfolder) return `${outputDir}/${filename}`;
     return `${outputDir}/${cleanSubfolder}/${filename}`;
   }
-  function getAssetPathInternal(subfolder: string, filename: string) {
+  function getAssetPathInternal(
+    subfolder: string,
+    filename: string,
+    mediaType?: "image" | "video" | "audio",
+  ) {
     const contentDir = Bun.env.CONTENT_LIBRARY_DIR?.replace(/\/$/, "") ?? "";
     if (contentDir) {
       const cleanSubfolder = subfolder.replace(/^\/+|\/+$/g, "").trim();
-      if (!cleanSubfolder) return `${contentDir}/${filename}`;
+      if (!cleanSubfolder) {
+        if (mediaType) return `${contentDir}/${mediaType}/${filename}`;
+        return `${contentDir}/${filename}`;
+      }
       return `${contentDir}/${cleanSubfolder}/${filename}`;
     }
     return getOutputAssetPath(subfolder, filename);
@@ -296,10 +303,20 @@ app.get("/jobs/:jobId/media", async (c) => {
         const mediaType = mediaTypeFromFilename(row.filename);
         if (!mediaType) return null;
         if (effectiveType && mediaType !== effectiveType) return null;
-        const primaryPath = getAssetPathInternal(row.subfolder, row.filename);
+        const primaryPath = getAssetPathInternal(
+          row.subfolder,
+          row.filename,
+          mediaType,
+        );
+        const directContentPath = getAssetPathInternal(
+          row.subfolder,
+          row.filename,
+        );
         const fallbackPath = getOutputAssetPath(row.subfolder, row.filename);
         let exists = await Bun.file(primaryPath).exists();
-        if (!exists && primaryPath !== fallbackPath)
+        if (!exists && directContentPath !== primaryPath)
+          exists = await Bun.file(directContentPath).exists();
+        if (!exists && fallbackPath !== primaryPath)
           exists = await Bun.file(fallbackPath).exists();
         if (!exists) return null;
         return {
@@ -327,7 +344,9 @@ app.get("/jobs/:jobId/media", async (c) => {
     scannedCount: results.length,
     scanLimit,
   });
-  return c.json({ items: slice, total, hasMore });
+  return c.json({ items: slice, total, hasMore }, 200, {
+    "Cache-Control": "no-store",
+  });
 });
 
 app.route("/settings", settingsRoutes);

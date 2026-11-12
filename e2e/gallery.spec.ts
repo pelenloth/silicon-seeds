@@ -29,18 +29,18 @@ test("gallery: filters, grid, lightbox, no autoplay", async ({ page }) => {
     .toBe(true);
 
   if ((await page.locator("#gallery-grid video").count()) > 0) {
-    await expect
-      .poll(() =>
-        page.evaluate(
-          () =>
-            [
-              ...document.querySelectorAll<HTMLVideoElement>(
-                "#gallery-grid video",
-              ),
-            ].filter((v) => !v.paused).length,
-        ),
-      )
-      .toBe(0);
+    const countPlaying = () =>
+      page.evaluate(
+        () =>
+          [
+            ...document.querySelectorAll<HTMLVideoElement>(
+              "#gallery-grid video",
+            ),
+          ].filter((v) => !v.paused).length,
+      );
+    expect(await countPlaying()).toBe(0);
+    await page.waitForTimeout(500);
+    expect(await countPlaying()).toBe(0);
   }
 
   await radio("audio").check();

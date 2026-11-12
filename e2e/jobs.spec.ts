@@ -330,8 +330,17 @@ test("jobs: stale detail response from earlier job does not overwrite newer job"
   };
   test.skip(jobs.length < 2, "fewer than 2 jobs in this database");
   const jobA = jobs[0];
-  const jobB = jobs[1];
+  const jobB = jobs.slice(1).find((j) => j.name !== jobA.name) ?? jobs[1];
+  test.skip(
+    jobA.name === jobB.name,
+    "the two jobs share a name so stale overwrite cannot be observed by heading",
+  );
   const detailA = await (await request.get(`/api/jobs/${jobA.id}`)).json();
+
+  let resolveDelayedA!: () => void;
+  const delayedADone = new Promise<void>((resolve) => {
+    resolveDelayedA = resolve;
+  });
 
   const urlPatternA = `**/api/jobs/${encodeURIComponent(jobA.id)}`;
   await page.route(urlPatternA, async (route) => {
@@ -341,6 +350,7 @@ test("jobs: stale detail response from earlier job does not overwrite newer job"
       contentType: "application/json",
       body: JSON.stringify(detailA),
     });
+    resolveDelayedA();
   });
 
   await page.setViewportSize({ width: 1280, height: 800 });
@@ -353,7 +363,7 @@ test("jobs: stale detail response from earlier job does not overwrite newer job"
   await expect(page).toHaveURL(
     new RegExp(`/jobs/${encodeURIComponent(jobB.id)}`),
   );
-  await page.waitForTimeout(900);
+  await delayedADone;
   await expect(
     page.locator("#job-detail").getByRole("heading", { level: 2 }),
   ).toHaveText(jobB.name);
@@ -383,6 +393,7 @@ test("jobs: media cap shows Showing the first N and Show all requests limit=1000
   }));
 
   const requestedLimits: string[] = [];
+  let hasMoreAt1000 = true;
   const mediaPattern = `**/api/jobs/${encodeURIComponent(job.id)}/media**`;
   await page.route(mediaPattern, async (route) => {
     const url = new URL(route.request().url());
@@ -394,7 +405,7 @@ test("jobs: media cap shows Showing the first N and Show all requests limit=1000
       body: JSON.stringify({
         items: stubItems,
         total: 4,
-        hasMore: lim !== "1000",
+        hasMore: lim === "1000" ? hasMoreAt1000 : true,
       }),
     });
   });
@@ -417,8 +428,12 @@ test("jobs: media cap shows Showing the first N and Show all requests limit=1000
   await expect(showAllBtn).toBeVisible();
   await showAllBtn.click();
   await expect.poll(() => requestedLimits.includes("1000")).toBe(true);
-  await expect(detail.getByText("Showing the first 3")).toHaveCount(0);
+  await expect(showAllBtn).toHaveCount(0);
+  await expect(
+    detail.getByText("Showing the first 1000 outputs."),
+  ).toBeVisible();
 
+  hasMoreAt1000 = false;
   const countBeforeRefetch = requestedLimits.length;
   await page.evaluate((id) => {
     window.dispatchEvent(
@@ -429,6 +444,9 @@ test("jobs: media cap shows Showing the first N and Show all requests limit=1000
     .poll(() => requestedLimits.length)
     .toBeGreaterThan(countBeforeRefetch);
   expect(requestedLimits[requestedLimits.length - 1]).toBe("1000");
+  await expect(detail.getByText("Showing the first 1000 outputs.")).toHaveCount(
+    0,
+  );
   await page.unroute(mediaPattern);
 });
 
@@ -464,34 +482,106 @@ test("jobs: media load error shows inline Try again in Media tab instead of No m
   await page.unroute(mediaPattern);
 });
 
-test("jobs: status filter chips fit inside the list header at 1440x900", async ({
+test("jobs: status filter chips fit inside the list header at 1440x900 and 390x844", async ({
   page,
 }) => {
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto("/jobs");
-  const filterNav = page.locator("#job-filter");
-  await expect(filterNav).toBeVisible({ timeout: 10000 });
-  await expect(
-    page
-      .locator('#job-list a[href^="/jobs/"]')
-      .first()
-      .or(page.getByText(/No jobs yet/i)),
-  ).toBeVisible({ timeout: 10000 });
+  const nowIso = new Date().toISOString();
+  const stubJobs = (
+    ["active", "complete", "failed", "paused", "cancelled"] as const
+  ).map((status, idx) => ({
+    id: `stub-status-${status}`,
+    name: `Stub ${status} job`,
+    status,
+    created_at: new Date(Date.now() - idx * 1000).toISOString(),
+    kind: "image",
+    progress: {
+      total: 1,
+      complete: status === "complete" ? 1 : 0,
+      running: status === "active" ? 1 : 0,
+      pending: 0,
+      failed: status === "failed" ? 1 : 0,
+    },
+    thumb: null,
+  }));
 
-  const lastChip = filterNav.getByRole("link").last();
-  await expect(lastChip).toBeVisible();
+  await page.route("**/api/jobs", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname !== "/api/jobs") {
+      await route.fallback();
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ jobs: stubJobs }),
+    });
+  });
 
-  const headerBox = await filterNav.boundingBox();
-  const chipBox = await lastChip.boundingBox();
-  expect(headerBox).not.toBeNull();
-  expect(chipBox).not.toBeNull();
+  await page.route("**/api/jobs/stub-status-**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith("/media")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ items: [], total: 0, hasMore: false }),
+      });
+      return;
+    }
+    const id = url.pathname.split("/").pop() ?? "stub-status-active";
+    const match = stubJobs.find((j) => j.id === id) ?? stubJobs[0];
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        job: match,
+        events: [
+          {
+            id: `evt-${id}`,
+            jobId: id,
+            type: "new_image_prompt",
+            mode: "image",
+            status: match.status === "complete" ? "complete" : "pending",
+            created_at: nowIso,
+          },
+        ],
+      }),
+    });
+  });
 
-  expect(chipBox!.x).toBeGreaterThanOrEqual(headerBox!.x);
-  expect(chipBox!.y).toBeGreaterThanOrEqual(headerBox!.y);
-  expect(chipBox!.x + chipBox!.width).toBeLessThanOrEqual(
-    headerBox!.x + headerBox!.width,
-  );
-  expect(chipBox!.y + chipBox!.height).toBeLessThanOrEqual(
-    headerBox!.y + headerBox!.height,
-  );
+  for (const size of [
+    { width: 1440, height: 900 },
+    { width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(size);
+    await page.goto("/jobs");
+    const filterNav = page.locator("#job-filter");
+    await expect(filterNav).toBeVisible({ timeout: 10000 });
+    const chips = filterNav.getByRole("link");
+    await expect(chips).toHaveCount(6);
+
+    const headerBox = await filterNav.boundingBox();
+    expect(headerBox).not.toBeNull();
+
+    for (let i = 0; i < 6; i++) {
+      const chip = chips.nth(i);
+      await expect(chip).toBeVisible();
+      const chipBox = await chip.boundingBox();
+      expect(chipBox).not.toBeNull();
+      expect(chipBox!.x).toBeGreaterThanOrEqual(headerBox!.x - 1);
+      expect(chipBox!.y).toBeGreaterThanOrEqual(headerBox!.y - 1);
+      expect(chipBox!.x + chipBox!.width).toBeLessThanOrEqual(
+        headerBox!.x + headerBox!.width + 1,
+      );
+      expect(chipBox!.y + chipBox!.height).toBeLessThanOrEqual(
+        headerBox!.y + headerBox!.height + 1,
+      );
+    }
+
+    const listFits = await page
+      .locator("#job-list")
+      .evaluate((el) => el.scrollWidth <= el.clientWidth);
+    expect(listFits).toBe(true);
+
+    await expect(page.locator("#new-menu-button")).toBeInViewport();
+  }
 });

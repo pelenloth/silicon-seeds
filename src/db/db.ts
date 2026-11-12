@@ -16,6 +16,8 @@ import { JobUpdates } from "../sse/job-updates";
 import { Lora } from "../styles/presets";
 import { Utils } from "../utils/utils";
 import { clampGalleryLimit, pickGalleryPage } from "../media/gallery-page";
+import { finalizeDecision } from "../jobs/job-summary";
+import { JOB_CANCELLED_ERROR } from "../shared/job-cancel";
 
 export interface DbSchema {
   settings: {
@@ -333,7 +335,7 @@ export namespace DB {
             .set({
               status: JobStatus.Failed,
               claimed_at: null,
-              error: "job cancelled by user",
+              error: JOB_CANCELLED_ERROR,
             })
             .where("job_id", "=", id)
             .where((eb) =>
@@ -520,7 +522,13 @@ export namespace DB {
       const settledActiveJobs = await db
         .selectFrom("jobs")
         .innerJoin("events", "events.job_id", "jobs.id")
-        .select(["jobs.id", "jobs.workflow"])
+        .select([
+          "jobs.id",
+          "jobs.workflow",
+          "jobs.image_model",
+          "jobs.video_model",
+          "jobs.audio_model",
+        ])
         .distinct()
         .where("jobs.status", "=", JobLifecycleStatus.Active)
         .where((eb) =>
@@ -542,46 +550,18 @@ export namespace DB {
         .execute();
 
       for (const job of settledActiveJobs) {
-        const failedEvent = await db
+        const events = await db
           .selectFrom("events")
-          .select("id")
+          .select(["type", "status"])
           .where("job_id", "=", job.id)
-          .where("status", "=", JobStatus.Failed)
-          .executeTakeFirst();
+          .execute();
 
-        if (failedEvent) {
+        const decision = finalizeDecision({ job, events });
+        if (decision === "failed") {
           await updateStatus(job.id, JobLifecycleStatus.Failed);
-          continue;
+        } else if (decision === "complete") {
+          await completeJob(job.id);
         }
-
-        if (job.workflow === "compose") {
-          const imageEvent = await db
-            .selectFrom("events")
-            .select("id")
-            .where("job_id", "=", job.id)
-            .where("type", "=", Event.NewImagePrompt)
-            .executeTakeFirst();
-
-          if (!imageEvent) {
-            continue;
-          }
-        }
-
-        if (job.workflow === "video") {
-          const videoEvent = await db
-            .selectFrom("events")
-            .select("id")
-            .where("job_id", "=", job.id)
-            .where("type", "=", Event.NewVideoPrompt)
-            .where("status", "=", JobStatus.Complete)
-            .executeTakeFirst();
-
-          if (!videoEvent) {
-            continue;
-          }
-        }
-
-        await completeJob(job.id);
       }
     }
   }

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   aggregateProgress,
   deriveJobKind,
+  finalizeDecision,
   mediaTypeFromFilename,
   pickThumb,
   type EventSig,
@@ -194,5 +195,114 @@ describe("media helpers", () => {
       total: 1,
       hasMore: false,
     });
+  });
+});
+
+describe("finalizeDecision", () => {
+  test("standalone audio settled -> complete", () => {
+    expect(
+      finalizeDecision({
+        job: {
+          workflow: "compose",
+          audio_model: "ace-step-1.5",
+          image_model: null,
+          video_model: null,
+        },
+        events: [{ type: "new_audio_prompt", status: "complete" }],
+      }),
+    ).toBe("complete");
+  });
+
+  test("Compose job with only a complete text event -> wait", () => {
+    expect(
+      finalizeDecision({
+        job: {
+          workflow: "compose",
+          audio_model: "sa3",
+          image_model: "z-image-turbo",
+          video_model: "wan2.2",
+        },
+        events: [{ type: "new_text_prompt", status: "complete" }],
+      }),
+    ).toBe("wait");
+  });
+
+  test("Compose job with a narration audio event, image_model set, no image event yet -> wait", () => {
+    expect(
+      finalizeDecision({
+        job: {
+          workflow: "compose",
+          audio_model: "sa3",
+          image_model: "z-image-turbo",
+          video_model: "wan2.2",
+        },
+        events: [{ type: "new_audio_prompt", status: "complete" }],
+      }),
+    ).toBe("wait");
+  });
+
+  test("Compose job with image events -> complete", () => {
+    expect(
+      finalizeDecision({
+        job: {
+          workflow: "compose",
+          audio_model: "sa3",
+          image_model: "z-image-turbo",
+          video_model: "wan2.2",
+        },
+        events: [
+          { type: "new_text_prompt", status: "complete" },
+          { type: "new_audio_prompt", status: "complete" },
+          { type: "new_image_prompt", status: "complete" },
+        ],
+      }),
+    ).toBe("complete");
+  });
+
+  test("video workflow without a complete video event -> wait", () => {
+    expect(
+      finalizeDecision({
+        job: {
+          workflow: "video",
+          image_model: "z-image-turbo",
+          video_model: "ltx2.3",
+        },
+        events: [{ type: "new_image_prompt", status: "complete" }],
+      }),
+    ).toBe("wait");
+    expect(
+      finalizeDecision({
+        job: {
+          workflow: "video",
+          image_model: "z-image-turbo",
+          video_model: "ltx2.3",
+        },
+        events: [
+          { type: "new_image_prompt", status: "complete" },
+          { type: "new_video_prompt", status: "complete" },
+        ],
+      }),
+    ).toBe("complete");
+  });
+
+  test("any failed event -> failed", () => {
+    expect(
+      finalizeDecision({
+        job: {
+          workflow: "compose",
+          audio_model: "ace-step-1.5",
+        },
+        events: [{ type: "new_audio_prompt", status: "failed" }],
+      }),
+    ).toBe("failed");
+    expect(
+      finalizeDecision({
+        job: {
+          workflow: "video",
+          video_model: "ltx2.3",
+        },
+        events: [{ type: "new_image_prompt", status: "failed" }],
+      }),
+    ).toBe("failed");
   });
 });

@@ -13,6 +13,7 @@ import {
   formatRelativeTime,
   galleryPageDecision,
   isCancelledEvent,
+  JOB_CANCELLED_ERROR,
   jobDurationMs,
   jobKindMeta,
   jobStatusMeta,
@@ -23,6 +24,8 @@ import {
   plural,
   shouldApplyResponse,
   shouldMoveMobileFocusForActive,
+  shouldPreviewOnFocus,
+  shouldRetryMedia,
   shouldShowNewMedia,
   splitPrompt,
   summarizeEvents,
@@ -170,12 +173,15 @@ describe("time", () => {
       "Sep 27, 2025",
     );
   });
-  test("jobDurationMs: finished jobs end at the last event, active jobs at now", () => {
+  test("jobDurationMs: active jobs return elapsed ms, finished/other statuses return null", () => {
     const created = ago(100_000);
     const events = [{ created_at: ago(90_000) }, { created_at: ago(43_000) }];
-    expect(jobDurationMs(created, events, "complete", NOW)).toBe(57_000);
     expect(jobDurationMs(created, events, "active", NOW)).toBe(100_000);
-    expect(jobDurationMs(created, [], "complete", NOW)).toBe(0);
+    expect(jobDurationMs(created, events, "complete", NOW)).toBeNull();
+    expect(jobDurationMs(created, [], "complete", NOW)).toBeNull();
+    expect(jobDurationMs(created, events, "failed", NOW)).toBeNull();
+    expect(jobDurationMs(created, events, "paused", NOW)).toBeNull();
+    expect(jobDurationMs(created, events, "cancelled", NOW)).toBeNull();
   });
 });
 
@@ -668,5 +674,91 @@ describe("cancelled events, plural and shouldShowNewMedia", () => {
     );
     expect(shouldMoveMobileFocusForActive({ activeIn: "detail" })).toBe(false);
     expect(shouldMoveMobileFocusForActive({ activeIn: "other" })).toBe(false);
+  });
+
+  test("JOB_CANCELLED_ERROR matches server cancel sentinel", () => {
+    // Must stay in sync with src/db/db.ts cancelJob
+    expect(JOB_CANCELLED_ERROR).toBe("job cancelled by user");
+  });
+
+  test("shouldPreviewOnFocus: touch then focus -> no preview; next focus with no pointer -> preview; mouse -> preview", () => {
+    expect(shouldPreviewOnFocus("touch")).toBe(false);
+    expect(shouldPreviewOnFocus(null)).toBe(true);
+    expect(shouldPreviewOnFocus("mouse")).toBe(true);
+  });
+
+  test("shouldRetryMedia retries with bounded backoff (1s, 2s, 4s, 8s; then stop) when settled job has fewer items than completed media events", () => {
+    expect(
+      shouldRetryMedia({
+        status: "complete",
+        completeEvents: 1,
+        items: 0,
+        attempt: 0,
+      }),
+    ).toBe(true);
+    expect(
+      shouldRetryMedia({
+        status: "complete",
+        completeEvents: 1,
+        items: 0,
+        attempt: 3,
+      }),
+    ).toBe(true);
+    expect(
+      shouldRetryMedia({
+        status: "complete",
+        completeEvents: 1,
+        items: 0,
+        attempt: 4,
+      }),
+    ).toBe(false);
+    expect(
+      shouldRetryMedia({
+        status: "complete",
+        completeEvents: 1,
+        items: 1,
+        attempt: 0,
+      }),
+    ).toBe(false);
+    expect(
+      shouldRetryMedia({
+        status: "complete",
+        completeEvents: 2,
+        items: 1,
+        attempt: 0,
+      }),
+    ).toBe(true);
+    expect(
+      shouldRetryMedia({
+        status: "failed",
+        completeEvents: 1,
+        items: 0,
+        attempt: 0,
+      }),
+    ).toBe(true);
+    expect(
+      shouldRetryMedia({
+        status: "cancelled",
+        completeEvents: 1,
+        items: 0,
+        attempt: 0,
+      }),
+    ).toBe(true);
+    expect(
+      shouldRetryMedia({
+        status: "active",
+        completeEvents: 1,
+        items: 0,
+        attempt: 0,
+      }),
+    ).toBe(false);
+    expect(
+      shouldRetryMedia({
+        status: "complete",
+        completeEvents: 0,
+        items: 0,
+        attempt: 0,
+      }),
+    ).toBe(false);
   });
 });

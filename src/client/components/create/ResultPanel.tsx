@@ -14,11 +14,13 @@ import { apiGet, mediaUrl, type MediaItem } from "../../lib/api-client";
 import { CREATE_KINDS, type CreateKind } from "../../lib/create-job";
 import {
   eventKind,
-  formatDuration,
   isCancelledEvent,
-  jobDurationMs,
   jobStatusMeta,
+  MEDIA_RETRY_BACKOFF_MS,
+  mediaKindLabel,
+  mediaTitle,
   plural,
+  shouldRetryMedia,
   summarizeEvents,
   type EventKind,
   type JobAction,
@@ -27,7 +29,6 @@ import {
 } from "../../lib/job-view";
 import { onJobUpdate } from "../../lib/sse";
 import { jobs, runJobAction } from "../../stores/jobs";
-import { nowTick } from "../../stores/shell";
 import { Icons, KIND_ICONS } from "../Icons";
 import { EmptyState } from "../ui/EmptyState";
 import { Lightbox } from "../ui/Lightbox";
@@ -70,6 +71,9 @@ export function ResultPanel(props: ResultPanelProps) {
   const [refetchError, setRefetchError] = createSignal(false);
   const [actionPending, setActionPending] = createSignal(false);
   const [lightboxKey, setLightboxKey] = createSignal<string | null>(null);
+  const [mediaLoadedForJob, setMediaLoadedForJob] = createSignal(false);
+  const [mediaRetrying, setMediaRetrying] = createSignal(false);
+  const [mediaExhausted, setMediaExhausted] = createSignal(false);
 
   let disposed = false;
   let detailSeq = 0;
@@ -77,6 +81,10 @@ export function ResultPanel(props: ResultPanelProps) {
   let mediaSeq = 0;
   let lastAppliedMediaSeq = 0;
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  let retryAttempt = 0;
+  let mediaInFlight = false;
+  let mediaPendingRefetch = false;
   let prevJobId: string | undefined = "\0";
 
   const clearDebounce = () => {
@@ -86,120 +94,18 @@ export function ResultPanel(props: ResultPanelProps) {
     }
   };
 
+  const clearRetryTimer = () => {
+    if (retryTimer !== null) {
+      clearTimeout(retryTimer);
+      retryTimer = null;
+    }
+  };
+
   onCleanup(() => {
     disposed = true;
     clearDebounce();
+    clearRetryTimer();
   });
-
-  const fetchDetail = async (targetId: string) => {
-    const seq = ++detailSeq;
-    if (!jobStore[0] || jobStore[0].id !== targetId) {
-      setDetailLoading(true);
-    }
-    try {
-      const data = await apiGet<{ job: JobSummary; events: JobEvent[] }>(
-        `/api/jobs/${encodeURIComponent(targetId)}`,
-      );
-      if (disposed || targetId !== props.jobId || seq <= lastAppliedDetailSeq) {
-        return;
-      }
-      lastAppliedDetailSeq = seq;
-      if (data?.job) {
-        setJobStore(reconcile([data.job], { key: "id", merge: true }));
-      }
-      setEventsStore(reconcile(data?.events ?? [], { key: "id", merge: true }));
-      setLoadError(null);
-      setRefetchError(false);
-      setDetailLoading(false);
-    } catch (err) {
-      if (disposed || targetId !== props.jobId || seq <= lastAppliedDetailSeq) {
-        return;
-      }
-      setDetailLoading(false);
-      if (
-        jobStore[0]?.id === targetId ||
-        jobs().some((j) => j.id === targetId)
-      ) {
-        setRefetchError(true);
-      } else {
-        setLoadError(err instanceof Error ? err.message : "Failed to load job");
-      }
-    }
-  };
-
-  const fetchMedia = async (targetId: string) => {
-    const seq = ++mediaSeq;
-    try {
-      const data = await apiGet<{ items: MediaItem[] }>(
-        `/api/jobs/${encodeURIComponent(targetId)}/media?limit=100`,
-      );
-      if (disposed || targetId !== props.jobId || seq <= lastAppliedMediaSeq) {
-        return;
-      }
-      lastAppliedMediaSeq = seq;
-      const nextItems: KeyedMediaItem[] = (data?.items ?? []).map((it) => ({
-        ...it,
-        id: mediaItemKey(it),
-        jobId: targetId,
-      }));
-      setMediaStore(reconcile(nextItems, { key: "id", merge: true }));
-    } catch {
-      if (disposed || targetId !== props.jobId || seq <= lastAppliedMediaSeq) {
-        return;
-      }
-      if (
-        jobStore[0]?.id === targetId ||
-        mediaStore.some((m) => m.jobId === targetId)
-      ) {
-        setRefetchError(true);
-      }
-    }
-  };
-
-  const refetchAll = () => {
-    clearDebounce();
-    const id = props.jobId;
-    if (!id) return;
-    void fetchDetail(id);
-    void fetchMedia(id);
-  };
-
-  createEffect(() => {
-    const currentId = props.jobId;
-    if (currentId === prevJobId) return;
-    prevJobId = currentId;
-    clearDebounce();
-    lastAppliedDetailSeq = detailSeq;
-    lastAppliedMediaSeq = mediaSeq;
-    setJobStore([]);
-    setEventsStore([]);
-    setMediaStore([]);
-    setLoadError(null);
-    setRefetchError(false);
-    setLightboxKey(null);
-    if (!currentId) {
-      setDetailLoading(false);
-      return;
-    }
-    setDetailLoading(true);
-    void fetchDetail(currentId);
-    void fetchMedia(currentId);
-  });
-
-  const scheduleDebouncedRefetch = () => {
-    if (debounceTimer !== null) return;
-    const scheduledId = props.jobId;
-    if (!scheduledId) return;
-    debounceTimer = setTimeout(() => {
-      debounceTimer = null;
-      if (!disposed && props.jobId === scheduledId) {
-        void fetchDetail(scheduledId);
-        void fetchMedia(scheduledId);
-      }
-    }, 400);
-  };
-
-  onJobUpdate(() => props.jobId, scheduleDebouncedRefetch);
 
   const job = createMemo<JobSummary | undefined>(() => {
     const id = props.jobId;
@@ -231,6 +137,232 @@ export function ResultPanel(props: ResultPanelProps) {
     return eventsStore.filter((e) => !e.jobId || e.jobId === id);
   });
 
+  const completedMediaEventsCount = (): number => {
+    const j = job();
+    if (!j) return 0;
+    const evts = currentEvents();
+    if (evts.length > 0) {
+      return evts.filter(
+        (e) => e.status === "complete" && eventKind(e.type) !== "text",
+      ).length;
+    }
+    if (
+      props.kind === "image" ||
+      props.kind === "video" ||
+      props.kind === "text-to-video" ||
+      props.kind === "audio"
+    ) {
+      return j.progress.complete;
+    }
+    return 0;
+  };
+
+  const evaluateMediaRetry = () => {
+    const j = job();
+    if (!j || !mediaLoadedForJob()) return;
+    const completeEvents = completedMediaEventsCount();
+    const items = currentMedia().length;
+    if (items >= completeEvents && completeEvents >= 0) {
+      clearRetryTimer();
+      retryAttempt = 0;
+      setMediaRetrying(false);
+      setMediaExhausted(false);
+      return;
+    }
+    const settled =
+      j.status === "complete" ||
+      j.status === "failed" ||
+      j.status === "cancelled";
+    if (!settled) {
+      clearRetryTimer();
+      retryAttempt = 0;
+      setMediaRetrying(false);
+      setMediaExhausted(false);
+      return;
+    }
+    if (retryTimer !== null || mediaInFlight) return;
+    if (
+      shouldRetryMedia({
+        status: j.status,
+        completeEvents,
+        items,
+        attempt: retryAttempt,
+      })
+    ) {
+      const delay =
+        MEDIA_RETRY_BACKOFF_MS[retryAttempt] ??
+        MEDIA_RETRY_BACKOFF_MS[MEDIA_RETRY_BACKOFF_MS.length - 1];
+      retryAttempt++;
+      setMediaRetrying(true);
+      setMediaExhausted(false);
+      const targetId = j.id;
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        if (!disposed && props.jobId === targetId) {
+          void fetchMedia(targetId);
+        }
+      }, delay);
+    } else if (completeEvents >= 1 && items < completeEvents) {
+      setMediaRetrying(false);
+      setMediaExhausted(true);
+    }
+  };
+
+  const fetchDetail = async (targetId: string) => {
+    const seq = ++detailSeq;
+    if (!jobStore[0] || jobStore[0].id !== targetId) {
+      setDetailLoading(true);
+    }
+    try {
+      const data = await apiGet<{ job: JobSummary; events: JobEvent[] }>(
+        `/api/jobs/${encodeURIComponent(targetId)}`,
+      );
+      if (disposed || targetId !== props.jobId || seq <= lastAppliedDetailSeq) {
+        return;
+      }
+      lastAppliedDetailSeq = seq;
+      if (data?.job) {
+        setJobStore(reconcile([data.job], { key: "id", merge: true }));
+      }
+      setEventsStore(reconcile(data?.events ?? [], { key: "id", merge: true }));
+      setLoadError(null);
+      setRefetchError(false);
+      setDetailLoading(false);
+      evaluateMediaRetry();
+    } catch (err) {
+      if (disposed || targetId !== props.jobId || seq <= lastAppliedDetailSeq) {
+        return;
+      }
+      setDetailLoading(false);
+      if (
+        jobStore[0]?.id === targetId ||
+        jobs().some((j) => j.id === targetId)
+      ) {
+        setRefetchError(true);
+      } else {
+        setLoadError(err instanceof Error ? err.message : "Failed to load job");
+      }
+    }
+  };
+
+  const fetchMedia = async (targetId: string) => {
+    if (mediaInFlight) {
+      mediaPendingRefetch = true;
+      return;
+    }
+    mediaInFlight = true;
+    mediaPendingRefetch = false;
+    const seq = ++mediaSeq;
+    try {
+      const data = await apiGet<{ items: MediaItem[] }>(
+        `/api/jobs/${encodeURIComponent(targetId)}/media?limit=100`,
+      );
+      if (disposed || targetId !== props.jobId || seq <= lastAppliedMediaSeq) {
+        return;
+      }
+      lastAppliedMediaSeq = seq;
+      const nextItems: KeyedMediaItem[] = (data?.items ?? []).map((it) => ({
+        ...it,
+        id: mediaItemKey(it),
+        jobId: targetId,
+      }));
+      setMediaStore(reconcile(nextItems, { key: "id", merge: true }));
+      setMediaLoadedForJob(true);
+    } catch {
+      if (disposed || targetId !== props.jobId || seq <= lastAppliedMediaSeq) {
+        return;
+      }
+      setMediaLoadedForJob(true);
+      if (
+        jobStore[0]?.id === targetId ||
+        mediaStore.some((m) => m.jobId === targetId)
+      ) {
+        setRefetchError(true);
+      }
+    } finally {
+      mediaInFlight = false;
+      if (!disposed && targetId === props.jobId) {
+        if (mediaPendingRefetch) {
+          mediaPendingRefetch = false;
+          void fetchMedia(targetId);
+        } else {
+          evaluateMediaRetry();
+        }
+      }
+    }
+  };
+
+  const refetchAll = () => {
+    clearDebounce();
+    clearRetryTimer();
+    retryAttempt = 0;
+    setMediaExhausted(false);
+    const id = props.jobId;
+    if (!id) return;
+    void fetchDetail(id);
+    void fetchMedia(id);
+  };
+
+  const reloadMediaOnly = () => {
+    clearRetryTimer();
+    retryAttempt = 0;
+    setMediaExhausted(false);
+    setMediaRetrying(true);
+    const id = props.jobId;
+    if (!id) return;
+    void fetchMedia(id);
+  };
+
+  createEffect(() => {
+    const currentId = props.jobId;
+    if (currentId === prevJobId) return;
+    prevJobId = currentId;
+    clearDebounce();
+    clearRetryTimer();
+    retryAttempt = 0;
+    mediaInFlight = false;
+    mediaPendingRefetch = false;
+    lastAppliedDetailSeq = detailSeq;
+    lastAppliedMediaSeq = mediaSeq;
+    setJobStore([]);
+    setEventsStore([]);
+    setMediaStore([]);
+    setLoadError(null);
+    setRefetchError(false);
+    setLightboxKey(null);
+    setMediaLoadedForJob(false);
+    setMediaRetrying(false);
+    setMediaExhausted(false);
+    if (!currentId) {
+      setDetailLoading(false);
+      return;
+    }
+    setDetailLoading(true);
+    void fetchDetail(currentId);
+    void fetchMedia(currentId);
+  });
+
+  createEffect(() => {
+    const j = job();
+    if (!j || !mediaLoadedForJob()) return;
+    evaluateMediaRetry();
+  });
+
+  const scheduleDebouncedRefetch = () => {
+    if (debounceTimer !== null) return;
+    const scheduledId = props.jobId;
+    if (!scheduledId) return;
+    debounceTimer = setTimeout(() => {
+      debounceTimer = null;
+      if (!disposed && props.jobId === scheduledId) {
+        void fetchDetail(scheduledId);
+        void fetchMedia(scheduledId);
+      }
+    }, 400);
+  };
+
+  onJobUpdate(() => props.jobId, scheduleDebouncedRefetch);
+
   const lightboxIndex = createMemo<number | null>(() => {
     const key = lightboxKey();
     if (!key) return null;
@@ -258,6 +390,20 @@ export function ResultPanel(props: ResultPanelProps) {
     return evt?.error?.trim() || "Generation failed";
   };
 
+  const isWaitingForOutputs = () => {
+    const j = job();
+    if (!j) return false;
+    const settled =
+      j.status === "complete" ||
+      j.status === "failed" ||
+      j.status === "cancelled";
+    if (!settled) return false;
+    const expected = completedMediaEventsCount();
+    if (expected < 1) return false;
+    if (currentMedia().length >= expected) return false;
+    return !mediaLoadedForJob() || mediaRetrying();
+  };
+
   const statusLine = () => {
     const j = job();
     if (!j) return "";
@@ -271,10 +417,10 @@ export function ResultPanel(props: ResultPanelProps) {
         return `${j.progress.complete} of ${j.progress.total} · ${label}`;
       }
       case "complete": {
-        const dur = formatDuration(
-          jobDurationMs(j.created_at, currentEvents(), j.status, nowTick()),
-        );
-        return `${plural(currentMedia().length, "output")} · ${dur}`;
+        if (currentMedia().length === 0 && isWaitingForOutputs()) {
+          return "Loading outputs";
+        }
+        return plural(currentMedia().length, "output");
       }
       case "failed":
         return failedError();
@@ -384,12 +530,25 @@ export function ResultPanel(props: ResultPanelProps) {
         >
           {(currentJob) => {
             const isKindMismatch = () => currentJob().kind !== pageJobKind();
-            const skeletonImageCount = () =>
-              currentJob().status === "active"
-                ? Math.max(currentJob().progress.total - imageItems().length, 0)
-                : 0;
+            const skeletonImageCount = () => {
+              if (currentJob().status === "active") {
+                return Math.max(
+                  currentJob().progress.total - imageItems().length,
+                  0,
+                );
+              }
+              if (isWaitingForOutputs()) {
+                return Math.max(
+                  completedMediaEventsCount() - imageItems().length,
+                  0,
+                );
+              }
+              return 0;
+            };
             const totalImageTiles = () =>
               imageItems().length + skeletonImageCount();
+            const showMissingOutputsMessage = () =>
+              mediaExhausted() && currentMedia().length === 0;
 
             return (
               <Show
@@ -456,7 +615,9 @@ export function ResultPanel(props: ResultPanelProps) {
                       when={
                         !(
                           currentJob().status === "failed" &&
-                          currentMedia().length === 0
+                          currentMedia().length === 0 &&
+                          !isWaitingForOutputs() &&
+                          !mediaExhausted()
                         )
                       }
                       fallback={
@@ -466,177 +627,220 @@ export function ResultPanel(props: ResultPanelProps) {
                         />
                       }
                     >
-                      <Switch>
-                        <Match when={props.kind === "image"}>
-                          <div
-                            class={`grid gap-2 ${totalImageTiles() === 1 ? "grid-cols-1" : "grid-cols-2"}`}
-                          >
-                            <For each={imageItems()}>
-                              {(item) => (
-                                <MediaTile
-                                  item={item}
-                                  aspect="video"
-                                  onOpen={() => openLightboxForItem(item)}
-                                />
-                              )}
-                            </For>
-                            <For
-                              each={Array.from(
-                                { length: skeletonImageCount() },
-                                (_, i) => i,
-                              )}
+                      <Show
+                        when={!showMissingOutputsMessage()}
+                        fallback={
+                          <div class="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
+                            <p class="text-sm text-base-content/80">
+                              Outputs are not available yet.
+                            </p>
+                            <button
+                              type="button"
+                              class="btn btn-xs"
+                              onClick={reloadMediaOnly}
                             >
-                              {() => (
-                                <div class="skeleton aspect-video rounded-box" />
-                              )}
-                            </For>
+                              Reload
+                            </button>
                           </div>
-                        </Match>
-                        <Match
-                          when={
-                            props.kind === "video" ||
-                            props.kind === "text-to-video"
-                          }
-                        >
-                          <div class="flex flex-col gap-4">
-                            <Show
-                              when={videoItems()[videoItems().length - 1]}
-                              fallback={
-                                <div class="skeleton aspect-video w-full rounded-box" />
-                              }
+                        }
+                      >
+                        <Switch>
+                          <Match when={props.kind === "image"}>
+                            <div
+                              class={`grid gap-2 ${totalImageTiles() === 1 ? "grid-cols-1" : "grid-cols-2"}`}
                             >
-                              {(newestVideo) => (
-                                <MediaTile
-                                  item={newestVideo()}
-                                  aspect="video"
-                                  onOpen={() =>
-                                    openLightboxForItem(newestVideo())
-                                  }
-                                />
-                              )}
-                            </Show>
-                            <Show
-                              when={
-                                props.kind === "video" &&
-                                imageItems().length > 0
-                              }
-                            >
-                              <div class="space-y-2">
-                                <div class="section-label">
-                                  Intermediate image (used for I2V)
-                                </div>
-                                <div class="max-w-xs">
+                              <For each={imageItems()}>
+                                {(item) => (
                                   <MediaTile
-                                    item={imageItems()[0]}
+                                    item={item}
                                     aspect="video"
-                                    onOpen={() =>
-                                      openLightboxForItem(imageItems()[0])
-                                    }
+                                    onOpen={() => openLightboxForItem(item)}
                                   />
-                                </div>
-                              </div>
-                            </Show>
-                          </div>
-                        </Match>
-                        <Match when={props.kind === "audio"}>
-                          <div class="flex flex-col gap-2">
-                            <For each={audioItems()}>
-                              {(item) => (
-                                <div class="panel p-3">
-                                  <div class="flex items-center justify-between gap-2">
-                                    <p class="truncate font-mono text-xs">
-                                      {item.filename}
-                                    </p>
-                                    <button
-                                      type="button"
-                                      class="btn btn-ghost btn-xs"
-                                      onClick={() => openLightboxForItem(item)}
-                                    >
-                                      Open
-                                    </button>
-                                  </div>
-                                  <audio
-                                    controls
-                                    preload="none"
-                                    src={mediaUrl(item)}
-                                    class="mt-2 w-full"
-                                  />
-                                </div>
-                              )}
-                            </For>
-                            <Show
-                              when={
-                                currentJob().status === "active" &&
-                                audioItems().length === 0
-                              }
-                            >
-                              <div class="skeleton h-14 w-full rounded-box" />
-                            </Show>
-                          </div>
-                        </Match>
-                        <Match when={props.kind === "compose"}>
-                          <div class="flex flex-col gap-4">
-                            <ul class="divide-y divide-base-300 rounded-box border border-base-300">
+                                )}
+                              </For>
                               <For
-                                each={COMPOSE_STEPS.filter(
-                                  (s) =>
-                                    summarizeEvents(currentEvents()).byKind[
-                                      s.kind
-                                    ] > 0,
+                                each={Array.from(
+                                  { length: skeletonImageCount() },
+                                  (_, i) => i,
                                 )}
                               >
-                                {(step) => {
-                                  const stepEvents = () =>
-                                    currentEvents().filter(
-                                      (e) => eventKind(e.type) === step.kind,
-                                    );
-                                  const allComplete = () =>
-                                    stepEvents().length > 0 &&
-                                    stepEvents().every(
-                                      (e) => e.status === "complete",
-                                    );
-                                  const anyRunning = () =>
-                                    stepEvents().some(
-                                      (e) => e.status === "running",
-                                    );
-                                  return (
-                                    <li class="flex items-center justify-between gap-2 px-3 py-2 text-sm">
-                                      <span>{step.label}</span>
-                                      <span class="flex items-center gap-2 text-xs text-base-content/60 tabular-nums">
-                                        <span>{stepEvents().length}</span>
-                                        <Show
-                                          when={allComplete()}
-                                          fallback={
-                                            <Show when={anyRunning()}>
-                                              <span class="loading loading-spinner loading-xs text-primary" />
-                                            </Show>
-                                          }
-                                        >
-                                          <Icons.Check class="size-4 text-success" />
-                                        </Show>
-                                      </span>
-                                    </li>
-                                  );
-                                }}
+                                {() => (
+                                  <div class="skeleton aspect-video rounded-box" />
+                                )}
                               </For>
-                            </ul>
-                            <Show
-                              when={
-                                currentJob().status === "complete" &&
-                                videoItems()[videoItems().length - 1]
-                              }
-                            >
-                              {(finalCut) => (
-                                <MediaTile
-                                  item={finalCut()}
-                                  aspect="video"
-                                  onOpen={() => openLightboxForItem(finalCut())}
-                                />
-                              )}
-                            </Show>
-                          </div>
-                        </Match>
-                      </Switch>
+                            </div>
+                          </Match>
+                          <Match
+                            when={
+                              props.kind === "video" ||
+                              props.kind === "text-to-video"
+                            }
+                          >
+                            <div class="flex flex-col gap-4">
+                              <Show
+                                when={videoItems()[videoItems().length - 1]}
+                                fallback={
+                                  <Show
+                                    when={
+                                      currentJob().status === "active" ||
+                                      isWaitingForOutputs()
+                                    }
+                                  >
+                                    <div class="skeleton aspect-video w-full rounded-box" />
+                                  </Show>
+                                }
+                              >
+                                {(newestVideo) => (
+                                  <MediaTile
+                                    item={newestVideo()}
+                                    aspect="video"
+                                    onOpen={() =>
+                                      openLightboxForItem(newestVideo())
+                                    }
+                                  />
+                                )}
+                              </Show>
+                              <Show
+                                when={
+                                  props.kind === "video" &&
+                                  imageItems().length > 0
+                                }
+                              >
+                                <div class="space-y-2">
+                                  <div class="section-label">
+                                    Intermediate image (used for I2V)
+                                  </div>
+                                  <div class="max-w-xs">
+                                    <MediaTile
+                                      item={imageItems()[0]}
+                                      aspect="video"
+                                      onOpen={() =>
+                                        openLightboxForItem(imageItems()[0])
+                                      }
+                                    />
+                                  </div>
+                                </div>
+                              </Show>
+                            </div>
+                          </Match>
+                          <Match when={props.kind === "audio"}>
+                            <div class="flex flex-col gap-2">
+                              <For each={audioItems()}>
+                                {(item) => (
+                                  <div class="panel p-3">
+                                    <div class="flex items-center justify-between gap-2">
+                                      <div class="min-w-0">
+                                        <p
+                                          class="truncate text-sm font-medium"
+                                          title={item.filename}
+                                        >
+                                          {mediaTitle({
+                                            ...item,
+                                            job_name:
+                                              item.job_name ??
+                                              currentJob().name,
+                                          })}
+                                        </p>
+                                        <p class="text-xs text-base-content/50">
+                                          {mediaKindLabel(item)}
+                                        </p>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        class="btn btn-ghost btn-xs shrink-0"
+                                        onClick={() =>
+                                          openLightboxForItem(item)
+                                        }
+                                      >
+                                        Open
+                                      </button>
+                                    </div>
+                                    <audio
+                                      controls
+                                      preload="metadata"
+                                      src={mediaUrl(item)}
+                                      class="mt-2 w-full"
+                                    />
+                                  </div>
+                                )}
+                              </For>
+                              <Show
+                                when={
+                                  (currentJob().status === "active" ||
+                                    isWaitingForOutputs()) &&
+                                  audioItems().length === 0
+                                }
+                              >
+                                <div class="skeleton h-14 w-full rounded-box" />
+                              </Show>
+                            </div>
+                          </Match>
+                          <Match when={props.kind === "compose"}>
+                            <div class="flex flex-col gap-4">
+                              <ul class="divide-y divide-base-300 rounded-box border border-base-300">
+                                <For
+                                  each={COMPOSE_STEPS.filter(
+                                    (s) =>
+                                      summarizeEvents(currentEvents()).byKind[
+                                        s.kind
+                                      ] > 0,
+                                  )}
+                                >
+                                  {(step) => {
+                                    const stepEvents = () =>
+                                      currentEvents().filter(
+                                        (e) => eventKind(e.type) === step.kind,
+                                      );
+                                    const allComplete = () =>
+                                      stepEvents().length > 0 &&
+                                      stepEvents().every(
+                                        (e) => e.status === "complete",
+                                      );
+                                    const anyRunning = () =>
+                                      stepEvents().some(
+                                        (e) => e.status === "running",
+                                      );
+                                    return (
+                                      <li class="flex items-center justify-between gap-2 px-3 py-2 text-sm">
+                                        <span>{step.label}</span>
+                                        <span class="flex items-center gap-2 text-xs text-base-content/60 tabular-nums">
+                                          <span>{stepEvents().length}</span>
+                                          <Show
+                                            when={allComplete()}
+                                            fallback={
+                                              <Show when={anyRunning()}>
+                                                <span class="loading loading-spinner loading-xs text-primary" />
+                                              </Show>
+                                            }
+                                          >
+                                            <Icons.Check class="size-4 text-success" />
+                                          </Show>
+                                        </span>
+                                      </li>
+                                    );
+                                  }}
+                                </For>
+                              </ul>
+                              <Show
+                                when={
+                                  currentJob().status === "complete" &&
+                                  videoItems()[videoItems().length - 1]
+                                }
+                              >
+                                {(finalCut) => (
+                                  <MediaTile
+                                    item={finalCut()}
+                                    aspect="video"
+                                    onOpen={() =>
+                                      openLightboxForItem(finalCut())
+                                    }
+                                  />
+                                )}
+                              </Show>
+                            </div>
+                          </Match>
+                        </Switch>
+                      </Show>
                     </Show>
                   </div>
                   <footer class="flex flex-wrap items-center justify-end gap-2 border-t border-base-300 px-4 py-3">

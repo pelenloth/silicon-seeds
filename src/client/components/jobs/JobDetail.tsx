@@ -453,15 +453,13 @@ export function JobDetail(props: JobDetailProps) {
             const canDelete = () =>
               availableJobActions(currentJob().status).includes("delete");
             const durationText = () => {
-              const d = formatDuration(
-                jobDurationMs(
-                  currentJob().created_at,
-                  eventsStore,
-                  currentJob().status,
-                  nowTick(),
-                ),
+              const ms = jobDurationMs(
+                currentJob().created_at,
+                eventsStore,
+                currentJob().status,
+                nowTick(),
               );
-              return d && d !== "0s" ? d : null;
+              return ms !== null ? formatDuration(ms) : null;
             };
             const outputsText = () =>
               mediaHasMore()
@@ -627,12 +625,15 @@ export function JobDetail(props: JobDetailProps) {
                       <JobMedia
                         media={mediaStore}
                         hasMore={mediaHasMore()}
+                        capped={mediaLimit() >= 1000}
                         loaded={mediaLoaded()}
                         error={mediaLoadError()}
                         refetchError={mediaRefetchError()}
                         onRetry={() => void fetchMedia(props.id)}
                         onOpen={openLightboxForItem}
-                        onShowAll={handleShowAllMedia}
+                        onShowAll={
+                          mediaLimit() >= 1000 ? undefined : handleShowAllMedia
+                        }
                       />
                     </Match>
                     <Match when={props.tab === "events"}>

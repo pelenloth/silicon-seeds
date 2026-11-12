@@ -6,6 +6,7 @@ import { MediaTile } from "../ui/MediaTile";
 export type JobMediaProps = {
   media: MediaItem[];
   hasMore?: boolean;
+  capped?: boolean;
   loaded: boolean;
   error?: string | null;
   refetchError?: boolean;
@@ -88,8 +89,12 @@ export function JobMedia(props: JobMediaProps) {
           </Show>
           <Show when={props.hasMore}>
             <div class="flex items-center justify-between rounded-box border border-base-300 bg-base-100 px-3 py-2 text-xs text-base-content/70">
-              <span>Showing the first {props.media.length}</span>
-              <Show when={props.onShowAll}>
+              <span>
+                {props.capped
+                  ? "Showing the first 1000 outputs."
+                  : `Showing the first ${props.media.length}`}
+              </span>
+              <Show when={!props.capped && props.onShowAll}>
                 {(showAll) => (
                   <button
                     type="button"

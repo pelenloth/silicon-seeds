@@ -191,6 +191,7 @@ export function Lightbox(props: LightboxProps) {
                         src={src()}
                         controls
                         autoplay
+                        preload="metadata"
                         onError={() => setFailed(true)}
                       />
                     </Match>

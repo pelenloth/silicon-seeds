@@ -1,4 +1,7 @@
 import type { MediaType } from "./api-client";
+import { JOB_CANCELLED_ERROR } from "../../shared/job-cancel";
+
+export { JOB_CANCELLED_ERROR };
 
 export type JobKind = "image" | "video" | "audio" | "compose";
 export type Tone = "neutral" | "info" | "success" | "warning" | "error";
@@ -97,7 +100,7 @@ export function isCancelledEvent(event: {
 }): boolean {
   return (
     event.status === "failed" &&
-    (event.error ?? "").trim().toLowerCase() === "job cancelled by user"
+    (event.error ?? "").trim().toLowerCase() === JOB_CANCELLED_ERROR
   );
 }
 
@@ -249,22 +252,14 @@ export function summarizeEvents(
 
 export function jobDurationMs(
   createdAt: string,
-  events: readonly { created_at: string }[],
+  _events: readonly { created_at: string }[],
   status: string,
   now: number,
-): number {
+): number | null {
+  if (status !== "active") return null;
   const start = Date.parse(createdAt);
-  if (Number.isNaN(start)) return 0;
-  if (status === "active") {
-    return Math.max(0, now - start);
-  }
-  if (events.length === 0) return 0;
-  let maxEnd = start;
-  for (const e of events) {
-    const t = Date.parse(e.created_at);
-    if (!Number.isNaN(t) && t > maxEnd) maxEnd = t;
-  }
-  return Math.max(0, maxEnd - start);
+  if (Number.isNaN(start)) return null;
+  return Math.max(0, now - start);
 }
 
 export function formatDuration(ms: number): string {
@@ -610,4 +605,28 @@ export function shouldMoveMobileFocusForActive(opts: {
     opts.activeIn === "list" ||
     opts.activeIn === "skeleton-back"
   );
+}
+
+export function shouldPreviewOnFocus(lastPointerType: string | null): boolean {
+  return lastPointerType !== "touch";
+}
+
+export const MEDIA_RETRY_BACKOFF_MS: readonly number[] = [
+  1000, 2000, 4000, 8000,
+];
+
+export function shouldRetryMedia(opts: {
+  status: string;
+  completeEvents: number;
+  items: number;
+  attempt: number;
+}): boolean {
+  const settled =
+    opts.status === "complete" ||
+    opts.status === "failed" ||
+    opts.status === "cancelled";
+  if (!settled) return false;
+  if (opts.completeEvents < 1) return false;
+  if (opts.items >= opts.completeEvents) return false;
+  return opts.attempt >= 0 && opts.attempt < MEDIA_RETRY_BACKOFF_MS.length;
 }

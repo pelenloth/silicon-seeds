@@ -144,3 +144,53 @@ export function takePage<T>(
     hasMore: items.length > end || hitScanCap,
   };
 }
+
+export type FinalizeDecisionInput = {
+  job: {
+    workflow?: string | null;
+    image_model?: string | null;
+    video_model?: string | null;
+    audio_model?: string | null;
+  };
+  events: readonly {
+    type: string;
+    status: string;
+  }[];
+};
+
+export function isStandaloneAudioJob(
+  job: FinalizeDecisionInput["job"],
+  events: FinalizeDecisionInput["events"],
+): boolean {
+  return Boolean(
+    job.audio_model &&
+    !job.image_model &&
+    !job.video_model &&
+    events.length > 0 &&
+    events.every((e) => e.type === "new_audio_prompt"),
+  );
+}
+
+export function finalizeDecision(
+  input: FinalizeDecisionInput,
+): "complete" | "failed" | "wait" {
+  const { job, events } = input;
+  if (events.some((e) => e.status === "failed")) {
+    return "failed";
+  }
+  if (job.workflow === "video") {
+    const hasCompleteVideo = events.some(
+      (e) => e.type === "new_video_prompt" && e.status === "complete",
+    );
+    if (!hasCompleteVideo) {
+      return "wait";
+    }
+  }
+  if (job.workflow === "compose") {
+    const hasImageEvent = events.some((e) => e.type === "new_image_prompt");
+    if (!hasImageEvent && !isStandaloneAudioJob(job, events)) {
+      return "wait";
+    }
+  }
+  return "complete";
+}

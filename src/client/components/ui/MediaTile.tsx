@@ -9,7 +9,11 @@ import {
   Switch,
 } from "solid-js";
 import { mediaUrl, thumbUrl, type MediaItem } from "../../lib/api-client";
-import { mediaKindLabel, mediaTitle } from "../../lib/job-view";
+import {
+  mediaKindLabel,
+  mediaTitle,
+  shouldPreviewOnFocus,
+} from "../../lib/job-view";
 import { Icons } from "../Icons";
 
 export type MediaTileProps = {
@@ -144,7 +148,9 @@ export function MediaTile(props: MediaTileProps) {
   };
 
   const onFocus = (e: FocusEvent & { currentTarget: HTMLButtonElement }) => {
-    if (lastPointerType === "touch") return;
+    const pointerType = lastPointerType;
+    lastPointerType = null;
+    if (!shouldPreviewOnFocus(pointerType)) return;
     try {
       if (!e.currentTarget.matches(":focus-visible")) return;
     } catch {
@@ -163,6 +169,11 @@ export function MediaTile(props: MediaTileProps) {
     setPlaying(false);
   };
 
+  const onBlur = () => {
+    lastPointerType = null;
+    stopVideo();
+  };
+
   return (
     <button
       type="button"
@@ -173,7 +184,7 @@ export function MediaTile(props: MediaTileProps) {
       onPointerEnter={onPointerEnter}
       onPointerLeave={stopVideo}
       onFocus={onFocus}
-      onBlur={stopVideo}
+      onBlur={onBlur}
       class={`group relative block w-full overflow-hidden rounded-box border border-base-300 bg-base-300 ${ASPECT[props.aspect ?? "photo"]} ${props.class ?? ""}`}
     >
       <Show
