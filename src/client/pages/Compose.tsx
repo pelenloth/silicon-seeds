@@ -1,4 +1,11 @@
-import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js";
 import { Icons } from "../components/Icons";
 import LoraSelector from "../components/LoraSelector";
 import StylePresetSelect from "../components/StylePresetSelect";
@@ -40,6 +47,7 @@ export default function Compose() {
   const [voiceOptions, setVoiceOptions] = createSignal<readonly VoiceOption[]>([
     DEFAULT_VOICE_OPTION,
   ]);
+  const [voicesLoaded, setVoicesLoaded] = createSignal(false);
   const [fileName, setFileName] = createSignal("");
   let fileInput: HTMLInputElement | undefined;
   let formEl: HTMLFormElement | undefined;
@@ -122,6 +130,14 @@ export default function Compose() {
     },
   });
 
+  const displayedVoiceOptions = createMemo<readonly VoiceOption[]>(() => {
+    const opts = voiceOptions();
+    if (voicesLoaded()) return opts;
+    const current = f.values.voice_id;
+    if (!current || opts.some((o) => o.value === current)) return opts;
+    return [...opts, { value: current, label: current }];
+  });
+
   const syncVoiceSelection = (opts: readonly VoiceOption[]) => {
     const first = opts[0]?.value ?? DEFAULT_VOICE_OPTION.value;
     const current = f.values.voice_id;
@@ -144,11 +160,13 @@ export default function Compose() {
         : [];
       const next = mapped.length > 0 ? mapped : [DEFAULT_VOICE_OPTION];
       setVoiceOptions(next);
+      setVoicesLoaded(true);
       syncVoiceSelection(next);
     } catch {
       if (disposed) return;
       const next = [DEFAULT_VOICE_OPTION];
       setVoiceOptions(next);
+      setVoicesLoaded(true);
       syncVoiceSelection(next);
     }
   };
@@ -162,6 +180,7 @@ export default function Compose() {
   });
 
   createEffect(() => {
+    if (!voicesLoaded()) return;
     syncVoiceSelection(voiceOptions());
   });
 
@@ -175,7 +194,9 @@ export default function Compose() {
   const handleReset = () => {
     clearFile();
     f.reset();
-    syncVoiceSelection(voiceOptions());
+    if (voicesLoaded()) {
+      syncVoiceSelection(voiceOptions());
+    }
   };
 
   const clipDuration = () => Number(f.values.clip_duration) || 5;
@@ -271,7 +292,7 @@ export default function Compose() {
                 name="voice_id"
                 value={f.values.voice_id}
                 onChange={(v) => f.set("voice_id", v)}
-                options={voiceOptions()}
+                options={displayedVoiceOptions()}
                 error={f.errors().voice_id}
               />
               <Field

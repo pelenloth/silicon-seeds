@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { expectThreeSamples } from "./helpers/no-generation";
 
 test("shell: labeled nav, active item, titles, palette, activity, new menu, collapse", async ({
   page,
@@ -189,19 +190,6 @@ test("shell: deep links are served to clients that do not ask for HTML", async (
   });
   expect(missing.status()).toBe(404);
 });
-
-async function expectThreeSamples<T>(
-  sample: () => Promise<T>,
-  expected: T,
-  intervalMs = 150,
-) {
-  for (let i = 0; i < 3; i++) {
-    if (i > 0) {
-      await new Promise((r) => setTimeout(r, intervalMs));
-    }
-    expect(await sample()).toBe(expected);
-  }
-}
 
 test("shell: navigating to a new pathname resets #app-main scrollTop to 0", async ({
   page,

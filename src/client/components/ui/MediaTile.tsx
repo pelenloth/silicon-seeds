@@ -10,6 +10,7 @@ import {
 } from "solid-js";
 import { mediaUrl, thumbUrl, type MediaItem } from "../../lib/api-client";
 import {
+  createPointerLatch,
   mediaKindLabel,
   mediaTitle,
   shouldPreviewOnFocus,
@@ -47,7 +48,7 @@ export function MediaTile(props: MediaTileProps) {
   let v: HTMLVideoElement | undefined;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let thumbAttemptedRetry = false;
-  let lastPointerType: string | null = null;
+  const pointerLatch = createPointerLatch();
 
   const [failed, setFailed] = createSignal(false);
   const [thumbRetry, setThumbRetry] = createSignal(false);
@@ -139,7 +140,11 @@ export function MediaTile(props: MediaTileProps) {
   };
 
   const onPointerDown = (e: PointerEvent) => {
-    lastPointerType = e.pointerType || null;
+    pointerLatch.note(e.pointerType || null);
+  };
+
+  const onPointerCancel = () => {
+    pointerLatch.clear();
   };
 
   const onPointerEnter = (e: PointerEvent) => {
@@ -148,8 +153,7 @@ export function MediaTile(props: MediaTileProps) {
   };
 
   const onFocus = (e: FocusEvent & { currentTarget: HTMLButtonElement }) => {
-    const pointerType = lastPointerType;
-    lastPointerType = null;
+    const pointerType = pointerLatch.consume();
     if (!shouldPreviewOnFocus(pointerType)) return;
     try {
       if (!e.currentTarget.matches(":focus-visible")) return;
@@ -170,7 +174,7 @@ export function MediaTile(props: MediaTileProps) {
   };
 
   const onBlur = () => {
-    lastPointerType = null;
+    pointerLatch.clear();
     stopVideo();
   };
 
@@ -181,6 +185,7 @@ export function MediaTile(props: MediaTileProps) {
       title={title()}
       onClick={() => props.onOpen?.()}
       onPointerDown={onPointerDown}
+      onPointerCancel={onPointerCancel}
       onPointerEnter={onPointerEnter}
       onPointerLeave={stopVideo}
       onFocus={onFocus}

@@ -12,6 +12,7 @@ declare global {
       list: () => FakeStreamSummary[];
       emitOnLatest: (name: string, data?: unknown) => void;
       failLatest: () => void;
+      suspendFutureConnects: () => void;
     };
   }
 }
@@ -20,6 +21,7 @@ test.beforeEach(async ({ page }) => {
   await blockGeneration(page);
   await page.addInitScript(() => {
     type Listener = (evt: MessageEvent) => void;
+    let suspendFuture = false;
     class FakeEventSource {
       static CONNECTING = 0;
       static OPEN = 1;
@@ -35,8 +37,9 @@ test.beforeEach(async ({ page }) => {
       constructor(url: string) {
         this.url = url;
         instances.push(this);
+        if (suspendFuture) return;
         queueMicrotask(() => {
-          if (this.closed) return;
+          if (this.closed || suspendFuture) return;
           this.readyState = 1;
           this.onopen?.(new Event("open"));
           this.emit("connected", { jobId: "*" });
@@ -89,6 +92,9 @@ test.beforeEach(async ({ page }) => {
       failLatest: () => {
         const last = instances[instances.length - 1];
         last?.fail();
+      },
+      suspendFutureConnects: () => {
+        suspendFuture = true;
       },
     };
   });
@@ -291,4 +297,210 @@ test("live updates: no storm when healthy stream emits ping every 15s for 2 minu
   expect(mock!.jobsListRequests()).toBe(1);
   const streams = await page.evaluate(() => window.__streams?.list() ?? []);
   expect(streams.length).toBe(1);
+});
+
+test("live updates: switching from job A to job B while A's media is delayed never runs two media requests for B at once", async ({
+  page,
+  request,
+}) => {
+  const galleryRes = await request.get("/api/gallery/items?limit=1");
+  const galleryData = (await galleryRes.json()) as {
+    items?: Record<string, unknown>[];
+  };
+  const sampleItem = galleryData.items?.[0];
+  test.skip(!sampleItem, "gallery is empty");
+
+  const nowIso = new Date().toISOString();
+  const jobA = "live-switch-job-a";
+  const jobB = "live-switch-job-b";
+
+  let releaseAMedia!: () => void;
+  let aMediaStartedResolve!: () => void;
+  const aMediaStarted = new Promise<void>((resolve) => {
+    aMediaStartedResolve = resolve;
+  });
+  const aMediaGate = new Promise<void>((resolve) => {
+    releaseAMedia = resolve;
+  });
+
+  let bInFlight = 0;
+  let maxBInFlight = 0;
+  let bMediaCount = 0;
+  let releaseFirstB!: () => void;
+  let firstBStartedResolve!: () => void;
+  const firstBStarted = new Promise<void>((resolve) => {
+    firstBStartedResolve = resolve;
+  });
+  const firstBGate = new Promise<void>((resolve) => {
+    releaseFirstB = resolve;
+  });
+
+  await page.route(`**/api/jobs/${jobA}`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        job: {
+          id: jobA,
+          name: "Job A",
+          status: "active",
+          created_at: nowIso,
+          kind: "image",
+          progress: {
+            total: 1,
+            complete: 0,
+            running: 1,
+            pending: 0,
+            failed: 0,
+          },
+          thumb: null,
+        },
+        events: [],
+      }),
+    });
+  });
+
+  await page.route(`**/api/jobs/${jobA}/media**`, async (route) => {
+    aMediaStartedResolve();
+    await aMediaGate;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ items: [], total: 0, hasMore: false }),
+    });
+  });
+
+  await page.route(`**/api/jobs/${jobB}`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        job: {
+          id: jobB,
+          name: "Job B",
+          status: "complete",
+          created_at: nowIso,
+          kind: "image",
+          progress: {
+            total: 1,
+            complete: 1,
+            running: 0,
+            pending: 0,
+            failed: 0,
+          },
+          thumb: null,
+        },
+        events: [
+          {
+            id: "evt-b-1",
+            jobId: jobB,
+            type: "new_image_prompt",
+            mode: "image",
+            status: "complete",
+            created_at: nowIso,
+          },
+        ],
+      }),
+    });
+  });
+
+  await page.route(`**/api/jobs/${jobB}/media**`, async (route) => {
+    bMediaCount++;
+    const callIdx = bMediaCount;
+    bInFlight++;
+    if (bInFlight > maxBInFlight) {
+      maxBInFlight = bInFlight;
+    }
+    if (callIdx === 1) {
+      firstBStartedResolve();
+      await firstBGate;
+    } else {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    bInFlight--;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: [
+          {
+            ...sampleItem,
+            meta_id: "meta-b-1",
+            event_id: "evt-b-1",
+            job_id: jobB,
+            job_name: "Job B",
+            mediaType: "image",
+          },
+        ],
+        total: 1,
+        hasMore: false,
+      }),
+    });
+  });
+
+  await page.route("**/api/jobs/images", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ jobId: jobB, message: "queued" }),
+    });
+  });
+
+  await page.goto(`/create/image?job_id=${jobA}`);
+  await aMediaStarted;
+
+  // Switch to job B via form submit (updates ?job_id= to jobB)
+  const prompt = page.locator('textarea[name="prompt"]');
+  await expect(prompt).toBeVisible({ timeout: 10000 });
+  await prompt.fill("switch to B");
+  await page.locator("#submit-btn").click();
+  await firstBStarted;
+
+  // Now job A's delayed media response arrives while B's first media request is in flight,
+  // and a job-update for B triggers a refetch of B while B's first media request is still in flight.
+  releaseAMedia();
+  await new Promise((r) => setTimeout(r, 50));
+
+  await page.evaluate(
+    (id) => window.__streams?.emitOnLatest("job-update", { jobId: id }),
+    jobB,
+  );
+  await new Promise((r) => setTimeout(r, 500));
+
+  expect(maxBInFlight).toBe(1);
+  releaseFirstB();
+
+  const panel = page.locator("#result-panel");
+  await expect(panel).toContainText("Job B");
+  await expect(panel.locator("button[aria-label^='Open ']")).toHaveCount(1);
+  expect(maxBInFlight).toBe(1);
+});
+
+test("live updates: dead stream that never reconnects shows output via 10s poll and list-diff bump alone", async ({
+  page,
+  request,
+}) => {
+  await page.clock.install();
+  const jobId = "live-poll-only-job";
+  const mock = await setupMockJob(page, request, jobId);
+  test.skip(!mock, "gallery is empty");
+
+  await page.goto(`/create/image?job_id=${jobId}`);
+  const panel = page.locator("#result-panel");
+  await expect(panel).toContainText("Live Stream Test Job", { timeout: 10000 });
+  await expect(panel.getByText("Running")).toBeVisible();
+
+  await page.evaluate(() => {
+    window.__streams?.suspendFutureConnects();
+    window.__streams?.failLatest();
+  });
+
+  mock!.flipToComplete();
+
+  // Advance clock past the 10s poll interval + 400ms panel debounce
+  await page.clock.fastForward(11_000);
+  await page.clock.fastForward(1_000);
+
+  await expect(panel.getByText("Completed")).toBeVisible();
+  await expect(panel.locator("button[aria-label^='Open ']")).toHaveCount(1);
 });

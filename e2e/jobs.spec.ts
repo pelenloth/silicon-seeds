@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { expectThreeSamples } from "./helpers/no-generation";
 
 type Job = { id: string; name: string; status: string };
 
@@ -364,9 +365,14 @@ test("jobs: stale detail response from earlier job does not overwrite newer job"
     new RegExp(`/jobs/${encodeURIComponent(jobB.id)}`),
   );
   await delayedADone;
-  await expect(
-    page.locator("#job-detail").getByRole("heading", { level: 2 }),
-  ).toHaveText(jobB.name);
+  const heading = page
+    .locator("#job-detail")
+    .getByRole("heading", { level: 2 });
+  await expect(heading).toHaveText(jobB.name, { timeout: 10000 });
+  await expectThreeSamples(
+    async () => (await heading.textContent())?.trim() ?? "",
+    jobB.name,
+  );
   await page.unroute(urlPatternA);
 });
 

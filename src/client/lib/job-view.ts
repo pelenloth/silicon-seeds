@@ -611,6 +611,43 @@ export function shouldPreviewOnFocus(lastPointerType: string | null): boolean {
   return lastPointerType !== "touch";
 }
 
+export function createPointerLatch(
+  now: () => number = () => Date.now(),
+  ttlMs = 700,
+): {
+  note: (type: string | null | undefined) => void;
+  consume: () => string | null;
+  clear: () => void;
+} {
+  let storedType: string | null = null;
+  let storedAt = 0;
+
+  return {
+    note(type: string | null | undefined) {
+      if (!type) {
+        storedType = null;
+        storedAt = 0;
+        return;
+      }
+      storedType = type;
+      storedAt = now();
+    },
+    consume(): string | null {
+      const current = storedType;
+      const at = storedAt;
+      storedType = null;
+      storedAt = 0;
+      if (!current) return null;
+      if (now() - at > ttlMs) return null;
+      return current;
+    },
+    clear() {
+      storedType = null;
+      storedAt = 0;
+    },
+  };
+}
+
 export const MEDIA_RETRY_BACKOFF_MS: readonly number[] = [
   1000, 2000, 4000, 8000,
 ];
@@ -648,18 +685,19 @@ export function jobSignature(job: JobSummary): string {
 export function changedJobIds(
   prev: ReadonlyMap<string, string>,
   next: readonly JobSummary[],
+  skip?: ReadonlySet<string>,
 ): string[] {
   const changed: string[] = [];
   const seen = new Set<string>();
   for (const j of next) {
     seen.add(j.id);
     const sig = jobSignature(j);
-    if (prev.get(j.id) !== sig) {
+    if (prev.get(j.id) !== sig && !skip?.has(j.id)) {
       changed.push(j.id);
     }
   }
   for (const id of prev.keys()) {
-    if (!seen.has(id)) {
+    if (!seen.has(id) && !skip?.has(id)) {
       changed.push(id);
     }
   }

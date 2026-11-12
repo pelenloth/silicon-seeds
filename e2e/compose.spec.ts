@@ -321,3 +321,67 @@ test("compose: submit payload sends exact PostComposeSchema fields without or wi
   );
   expect(capturedFields!.script_file).toBe("File:uploaded-scene.md:32");
 });
+
+test("compose: saved draft voice_id is kept while profiles load and after they settle", async ({
+  page,
+}) => {
+  let profilesList = [
+    { id: "v1", name: "Ada", language: "en", voiceType: "preset" },
+    { id: "v2", name: "Ben", language: "de", voiceType: "cloned" },
+  ];
+
+  await page.route("**/api/tts/profiles", async (route) => {
+    await new Promise((r) => setTimeout(r, 500));
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(profilesList),
+    });
+  });
+
+  // 1. With a mocked list containing v2 and profiles delayed by 500ms:
+  // the select never shows the Kokoro default in between, ends on v2, and stored draft still says v2.
+  await page.goto("/compose");
+  await page.evaluate(() => {
+    sessionStorage.setItem(
+      "ss:draft:/compose",
+      JSON.stringify({ script: "draft script", voice_id: "v2" }),
+    );
+  });
+  await page.reload();
+
+  const voice = page.locator('select[name="voice_id"]');
+  await expect(voice).toBeVisible({ timeout: 10000 });
+
+  // Sample during the 500ms delay and after it settles
+  for (let i = 0; i < 6; i++) {
+    expect(await voice.inputValue()).toBe("v2");
+    await new Promise((r) => setTimeout(r, 120));
+  }
+
+  await expect(voice.locator('option[value="v2"]')).toHaveText(
+    "Ben (de, cloned)",
+  );
+  await expect(voice).toHaveValue("v2");
+
+  // Wait past the 300ms draft flush timer and verify stored draft still says v2
+  await new Promise((r) => setTimeout(r, 350));
+  const storedDraft = await page.evaluate(() => {
+    const raw = sessionStorage.getItem("ss:draft:/compose");
+    return raw ? (JSON.parse(raw) as Record<string, string>) : null;
+  });
+  expect(storedDraft?.voice_id).toBe("v2");
+
+  // 2. With a mocked list without v2: the first option is selected
+  profilesList = [
+    { id: "v1", name: "Ada", language: "en", voiceType: "preset" },
+  ];
+  await page.evaluate(() => {
+    sessionStorage.setItem(
+      "ss:draft:/compose",
+      JSON.stringify({ script: "draft script", voice_id: "v2" }),
+    );
+  });
+  await page.reload();
+  await expect(voice).toHaveValue("v1", { timeout: 10000 });
+});

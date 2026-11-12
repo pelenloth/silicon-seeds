@@ -4,6 +4,7 @@ import {
   canRegenerate,
   changedJobIds,
   countByStatus,
+  createPointerLatch,
   detectTransitions,
   eventDisplayStatus,
   eventKind,
@@ -690,6 +691,34 @@ describe("cancelled events, plural and shouldShowNewMedia", () => {
     expect(shouldPreviewOnFocus("mouse")).toBe(true);
   });
 
+  test("createPointerLatch: touch then focus at once -> no preview; touch, 1s later keyboard focus -> preview; touch then focus (consumed), then focus again -> preview; mouse then focus -> preview; clear drops latched touch", () => {
+    let clock = 1000;
+    const latch = createPointerLatch(() => clock);
+
+    // 1. touch then focus at once -> no preview
+    latch.note("touch");
+    expect(shouldPreviewOnFocus(latch.consume())).toBe(false);
+
+    // 2. touch, 1 s later keyboard focus -> preview
+    latch.note("touch");
+    clock += 1000;
+    expect(shouldPreviewOnFocus(latch.consume())).toBe(true);
+
+    // 3. touch then focus (consumed), then focus again -> preview
+    latch.note("touch");
+    expect(shouldPreviewOnFocus(latch.consume())).toBe(false);
+    expect(shouldPreviewOnFocus(latch.consume())).toBe(true);
+
+    // 4. mouse then focus -> preview
+    latch.note("mouse");
+    expect(shouldPreviewOnFocus(latch.consume())).toBe(true);
+
+    // pointercancel / blur clears the latch
+    latch.note("touch");
+    latch.clear();
+    expect(shouldPreviewOnFocus(latch.consume())).toBe(true);
+  });
+
   test("shouldRetryMedia retries with bounded backoff (1s, 2s, 4s, 8s; then stop) when settled job has fewer items than completed media events", () => {
     expect(
       shouldRetryMedia({
@@ -776,7 +805,7 @@ describe("live updates helpers (isStreamStale, jobSignature, changedJobIds)", ()
     expect(isStreamStale(10_000, 20_000, 10_000)).toBe(true);
   });
 
-  test("jobSignature and changedJobIds: unchanged list -> empty; status change; progress change; new job; removed job", () => {
+  test("jobSignature and changedJobIds: unchanged list -> empty; status change; progress change; new job; removed job; skip set omits already-bumped ids", () => {
     const j1 = job({
       id: "j1",
       status: "active",
@@ -800,6 +829,13 @@ describe("live updates helpers (isStreamStale, jobSignature, changedJobIds)", ()
     const j1Done = { ...j1, status: "complete" };
     expect(changedJobIds(prev, [j1Done, j2])).toEqual(["j1"]);
 
+    // skip set filters out ids already bumped by stream events
+    expect(changedJobIds(prev, [j1Done, j2], new Set(["j1"]))).toEqual([]);
+    const j2Failed = { ...j2, status: "failed" };
+    expect(changedJobIds(prev, [j1Done, j2Failed], new Set(["j1"]))).toEqual([
+      "j2",
+    ]);
+
     // progress change (each progress counter)
     for (const key of [
       "total",
@@ -821,5 +857,6 @@ describe("live updates helpers (isStreamStale, jobSignature, changedJobIds)", ()
 
     // removed job
     expect(changedJobIds(prev, [j1])).toEqual(["j2"]);
+    expect(changedJobIds(prev, [j1], new Set(["j2"]))).toEqual([]);
   });
 });

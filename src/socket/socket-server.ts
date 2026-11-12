@@ -88,6 +88,13 @@ export namespace SocketServer {
       const deferCompletion =
         event.type === Event.NewImagePrompt && event.mode === JobMode.Video;
 
+      if (!deferCompletion) {
+        await JobOrchestrator.update_schedule({
+          ...event,
+          status: JobStatus.Complete,
+        });
+      }
+
       // [STATE: save_content] — for image and video promptst
       if (
         event.type === Event.NewImagePrompt ||
@@ -131,13 +138,6 @@ export namespace SocketServer {
             filetype: fileType,
           }),
         ]);
-      }
-
-      if (!deferCompletion) {
-        await JobOrchestrator.update_schedule({
-          ...event,
-          status: JobStatus.Complete,
-        });
       }
 
       // [STATE: image_to_video] (deferred) — generate video prompt from image, schedule video event

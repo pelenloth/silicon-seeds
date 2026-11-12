@@ -1,4 +1,5 @@
 import {
+  children,
   createEffect,
   createSignal,
   Match,
@@ -39,6 +40,7 @@ export function PromptField(props: PromptFieldProps) {
   const [busy, setBusy] = createSignal(false);
   const [enhanceError, setEnhanceError] = createSignal<string | null>(null);
   const [chain, setChain] = createSignal(INITIAL_ENHANCE_CHAIN);
+  const resolved = children(() => props.children);
   let abortCtrl: AbortController | null = null;
   let disposed = false;
 
@@ -193,8 +195,8 @@ export function PromptField(props: PromptFieldProps) {
           "px-0": !!props.bare,
         }}
       />
-      <Show when={props.children}>
-        <div classList={{ "px-4": !props.bare }}>{props.children}</div>
+      <Show when={resolved()}>
+        <div classList={{ "px-4": !props.bare }}>{resolved()}</div>
       </Show>
       <div
         id={`${props.id}-note`}

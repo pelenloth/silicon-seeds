@@ -57,6 +57,7 @@ export function recentFinished(n: number): JobSummary[] {
 
 const prevStatuses = new Map<string, string>();
 const prevSignatures = new Map<string, string>();
+const streamBumpedIds = new Set<string>();
 let hasLoadedOnce = false;
 let nextRequestSeq = 0;
 let lastAppliedSeq = 0;
@@ -79,7 +80,10 @@ export async function refreshJobs(): Promise<void> {
     const transitions = hasLoadedOnce
       ? detectTransitions(prevStatuses, list)
       : [];
-    const changed = hasLoadedOnce ? changedJobIds(prevSignatures, list) : [];
+    const changed = hasLoadedOnce
+      ? changedJobIds(prevSignatures, list, streamBumpedIds)
+      : [];
+    streamBumpedIds.clear();
     hasLoadedOnce = true;
     prevStatuses.clear();
     prevSignatures.clear();
@@ -180,6 +184,7 @@ export function startJobsStore(): () => void {
       try {
         const parsed = JSON.parse(String(evt.data)) as { jobId?: unknown };
         if (typeof parsed.jobId === "string" && parsed.jobId) {
+          streamBumpedIds.add(parsed.jobId);
           setVersions(parsed.jobId, (v) => (v ?? 0) + 1);
         }
       } catch {}
@@ -207,7 +212,7 @@ export function startJobsStore(): () => void {
   if (typeof setInterval === "function") {
     intervalTimer = setInterval(() => {
       const now = Date.now();
-      if (es && !streamDown && isStreamStale(lastMessageAt, now)) {
+      if (es && isStreamStale(lastMessageAt, now)) {
         handleStreamFailure();
       }
       const isVisible =
@@ -236,6 +241,7 @@ export function startJobsStore(): () => void {
   const onWindowJobUpdate = (evt: Event) => {
     const detail = (evt as CustomEvent<{ jobId?: unknown }>).detail;
     if (detail && typeof detail.jobId === "string" && detail.jobId) {
+      streamBumpedIds.add(detail.jobId);
       setVersions(detail.jobId, (v) => (v ?? 0) + 1);
     }
     scheduleTrailingRefresh();

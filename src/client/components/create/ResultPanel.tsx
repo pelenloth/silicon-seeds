@@ -83,9 +83,9 @@ export function ResultPanel(props: ResultPanelProps) {
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let retryAttempt = 0;
-  let detailInFlight = false;
+  let detailInFlightSeq = 0;
   let detailPendingRefetch = false;
-  let mediaInFlight = false;
+  let mediaInFlightSeq = 0;
   let mediaPendingRefetch = false;
   let prevJobId: string | undefined = "\0";
 
@@ -182,7 +182,7 @@ export function ResultPanel(props: ResultPanelProps) {
       setMediaExhausted(false);
       return;
     }
-    if (retryTimer !== null || mediaInFlight) return;
+    if (retryTimer !== null || mediaInFlightSeq !== 0) return;
     if (
       shouldRetryMedia({
         status: j.status,
@@ -211,13 +211,13 @@ export function ResultPanel(props: ResultPanelProps) {
   };
 
   const fetchDetail = async (targetId: string) => {
-    if (detailInFlight) {
+    if (detailInFlightSeq !== 0) {
       detailPendingRefetch = true;
       return;
     }
-    detailInFlight = true;
-    detailPendingRefetch = false;
     const seq = ++detailSeq;
+    detailInFlightSeq = seq;
+    detailPendingRefetch = false;
     if (!jobStore[0] || jobStore[0].id !== targetId) {
       setDetailLoading(true);
     }
@@ -251,22 +251,24 @@ export function ResultPanel(props: ResultPanelProps) {
         setLoadError(err instanceof Error ? err.message : "Failed to load job");
       }
     } finally {
-      detailInFlight = false;
-      if (!disposed && targetId === props.jobId && detailPendingRefetch) {
-        detailPendingRefetch = false;
-        void fetchDetail(targetId);
+      if (detailInFlightSeq === seq) {
+        detailInFlightSeq = 0;
+        if (!disposed && targetId === props.jobId && detailPendingRefetch) {
+          detailPendingRefetch = false;
+          void fetchDetail(targetId);
+        }
       }
     }
   };
 
   const fetchMedia = async (targetId: string) => {
-    if (mediaInFlight) {
+    if (mediaInFlightSeq !== 0) {
       mediaPendingRefetch = true;
       return;
     }
-    mediaInFlight = true;
-    mediaPendingRefetch = false;
     const seq = ++mediaSeq;
+    mediaInFlightSeq = seq;
+    mediaPendingRefetch = false;
     try {
       const data = await apiGet<{ items: MediaItem[] }>(
         `/api/jobs/${encodeURIComponent(targetId)}/media?limit=100`,
@@ -294,13 +296,15 @@ export function ResultPanel(props: ResultPanelProps) {
         setRefetchError(true);
       }
     } finally {
-      mediaInFlight = false;
-      if (!disposed && targetId === props.jobId) {
-        if (mediaPendingRefetch) {
-          mediaPendingRefetch = false;
-          void fetchMedia(targetId);
-        } else {
-          evaluateMediaRetry();
+      if (mediaInFlightSeq === seq) {
+        mediaInFlightSeq = 0;
+        if (!disposed && targetId === props.jobId) {
+          if (mediaPendingRefetch) {
+            mediaPendingRefetch = false;
+            void fetchMedia(targetId);
+          } else {
+            evaluateMediaRetry();
+          }
         }
       }
     }
@@ -334,9 +338,9 @@ export function ResultPanel(props: ResultPanelProps) {
     clearDebounce();
     clearRetryTimer();
     retryAttempt = 0;
-    detailInFlight = false;
+    detailInFlightSeq = 0;
     detailPendingRefetch = false;
-    mediaInFlight = false;
+    mediaInFlightSeq = 0;
     mediaPendingRefetch = false;
     lastAppliedDetailSeq = detailSeq;
     lastAppliedMediaSeq = mediaSeq;

@@ -748,3 +748,49 @@ test("create image: 400 naming loras.1.strength with two LoRA rows focuses the s
   await expect(secondStrength).toBeVisible();
   await expect(secondStrength).toBeFocused();
 });
+
+test("create image: Reset ends the Enhance chain, clears Enhanced · Undo hint, and Inspire sends empty text", async ({
+  page,
+}) => {
+  const enhanceBodies: { text?: string; kind?: string }[] = [];
+  await page.route("**/api/enhance**", async (route) => {
+    try {
+      enhanceBodies.push(
+        JSON.parse(route.request().postData() ?? "{}") as {
+          text?: string;
+          kind?: string;
+        },
+      );
+    } catch {
+      enhanceBodies.push({});
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ enhanced: "fixed enhanced text" }),
+    });
+  });
+
+  await page.goto("/create/image");
+  const prompt = page.locator('textarea[name="prompt"]');
+  await expect(prompt).toBeVisible({ timeout: 10000 });
+
+  await prompt.fill("initial user prompt");
+  await page.getByRole("button", { name: "Prompt: Enhance" }).click();
+  await expect(prompt).toHaveValue("fixed enhanced text");
+  await expect(page.getByText(/Enhanced ·/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Undo" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Reset" }).click();
+  await expect(prompt).toHaveValue("");
+  await expect(page.getByText(/Enhanced ·/)).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Undo" })).toHaveCount(0);
+
+  const inspireBtn = page.getByRole("button", { name: "Prompt: Inspire" });
+  await expect(inspireBtn).toBeVisible();
+  await inspireBtn.click();
+  await expect(prompt).toHaveValue("fixed enhanced text");
+  expect(enhanceBodies).toHaveLength(2);
+  expect(enhanceBodies[0]?.text).toBe("initial user prompt");
+  expect(enhanceBodies[1]?.text).toBe("");
+});

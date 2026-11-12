@@ -1,4 +1,17 @@
-import type { Page, Route } from "@playwright/test";
+import { expect, type Page, type Route } from "@playwright/test";
+
+export async function expectThreeSamples<T>(
+  sample: () => Promise<T>,
+  expected: T,
+  intervalMs = 150,
+): Promise<void> {
+  for (let i = 0; i < 3; i++) {
+    if (i > 0) {
+      await new Promise((r) => setTimeout(r, intervalMs));
+    }
+    expect(await sample()).toBe(expected);
+  }
+}
 
 export async function blockGeneration(
   page: Page,
