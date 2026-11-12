@@ -274,9 +274,20 @@ test("create image: Enhance replaces untouched text with Undo, and preserves edi
   page,
 }) => {
   let enhanceCall = 0;
+  const enhanceBodies: { text?: string; kind?: string }[] = [];
   await page.route("**/api/enhance**", async (route) => {
     enhanceCall++;
     const currentCall = enhanceCall;
+    try {
+      enhanceBodies.push(
+        JSON.parse(route.request().postData() ?? "{}") as {
+          text?: string;
+          kind?: string;
+        },
+      );
+    } catch {
+      enhanceBodies.push({});
+    }
     await new Promise((r) => setTimeout(r, 300));
     await route.fulfill({
       status: 200,
@@ -294,15 +305,17 @@ test("create image: Enhance replaces untouched text with Undo, and preserves edi
   const prompt = page.locator('textarea[name="prompt"]');
   await expect(prompt).toBeVisible({ timeout: 10000 });
 
-  // (a) untouched text is replaced, a second Enhance replaces the first, and Undo restores the text replaced by the second Enhance
+  // (a) untouched text is replaced, a second Enhance sends the original text and replaces the first, and Undo restores the user's original text
   await prompt.fill("original fox");
   const enhanceBtn = page.getByRole("button", { name: "Prompt: Enhance" });
   await enhanceBtn.click();
   await expect(prompt).toHaveValue("enhanced masterpiece prompt");
   await enhanceBtn.click();
   await expect(prompt).toHaveValue("second enhanced prompt");
+  expect(enhanceBodies[0]?.text).toBe("original fox");
+  expect(enhanceBodies[1]?.text).toBe("original fox");
   await page.getByRole("button", { name: "Undo" }).click();
-  await expect(prompt).toHaveValue("enhanced masterpiece prompt");
+  await expect(prompt).toHaveValue("original fox");
 
   // (b) text typed during the request is kept and the info toast appears
   await enhanceBtn.click();
@@ -663,4 +676,75 @@ test("create image: result panel stops after bounded retries and shows Outputs a
   returnItemOnReload = true;
   await reloadBtn.click();
   await expect(panel.locator("button[aria-label^='Open ']")).toHaveCount(1);
+});
+
+test("create image: 400 naming loras.1.strength with two LoRA rows focuses the second row's strength input", async ({
+  page,
+}) => {
+  await page.route("**/api/loras", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        loras: [
+          {
+            id: "lora-1",
+            comfyui_name: "first-lora.safetensors",
+            display_name: "First LoRA",
+            trigger_word: null,
+            is_active: 1,
+            sort_order: 1,
+          },
+          {
+            id: "lora-2",
+            comfyui_name: "second-lora.safetensors",
+            display_name: "Second LoRA",
+            trigger_word: null,
+            is_active: 1,
+            sort_order: 2,
+          },
+        ],
+      }),
+    });
+  });
+
+  await page.route("**/api/jobs/images", async (route) => {
+    await route.fulfill({
+      status: 400,
+      contentType: "application/json",
+      body: JSON.stringify({
+        error: "LoRA strength out of range",
+        fields: {
+          "loras.1.strength": "LoRA strength must be between 0.1 and 2.0",
+        },
+      }),
+    });
+  });
+
+  await page.goto("/create/image");
+  const prompt = page.locator('textarea[name="prompt"]');
+  await expect(prompt).toBeVisible({ timeout: 10000 });
+  await prompt.fill("testing lora row focus");
+
+  const lorasSummary = page.locator("summary", { hasText: "LoRAs" });
+  await lorasSummary.click();
+  const select = page.getByRole("combobox", { name: "Select LoRA" });
+  const addBtn = page.getByRole("button", { name: "Add", exact: true });
+
+  await select.selectOption("first-lora.safetensors");
+  await addBtn.click();
+  await select.selectOption("second-lora.safetensors");
+  await addBtn.click();
+
+  await expect(page.locator('input[data-lora-index="0"]')).toBeVisible();
+  const secondStrength = page.locator('input[data-lora-index="1"]');
+  await expect(secondStrength).toBeVisible();
+
+  // Close the LoRAs section to also verify it opens and focuses row 1
+  await lorasSummary.click();
+  await expect(secondStrength).not.toBeVisible();
+
+  await page.locator("#submit-btn").click();
+  await expect(secondStrength).toBeVisible();
+  await expect(secondStrength).toBeFocused();
 });

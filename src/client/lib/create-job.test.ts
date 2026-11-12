@@ -5,6 +5,7 @@ import {
   CREATE_KINDS,
   firstInvalidInOrder,
   mapServerErrors,
+  orderedFieldNamesFromDescriptors,
   quickCreateValues,
   submitCreateJob,
   toFormData,
@@ -208,6 +209,73 @@ describe("validateCreateFields and firstInvalidInOrder", () => {
       ),
     ).toBe("loras.1.strength");
     expect(firstInvalidInOrder(["prompt", "batch_size"], {})).toBeNull();
+  });
+
+  test("LoRA focus target uses row key when any loras.N.strength error exists, and aggregate loras only when it is the sole LoRA error", () => {
+    const formDescriptors = [
+      { name: "prompt" },
+      { name: "style_guide" },
+      { name: "image_model" },
+      { name: "resolution" },
+      { name: "batch_size" },
+      { name: "style_preset" },
+      { isLoraSelect: true },
+      { loraIndex: "0" },
+      { loraIndex: "1" },
+      { loraIndex: "2" },
+    ];
+    const ordered = orderedFieldNamesFromDescriptors(formDescriptors);
+
+    // 1. Error in row 1 of 3 from real validateCreateFields
+    const row1Validation = validateCreateFields(
+      { prompt: "a fox", style_guide: "", batch_size: "1" },
+      {
+        required: [{ field: "prompt", message: "Prompt is required" }],
+        loras: [
+          { name: "first.safetensors", strength: 0.7 },
+          { name: "second.safetensors", strength: 2.5 },
+          { name: "third.safetensors", strength: 0.8 },
+        ],
+      },
+    );
+    expect(row1Validation.errors["loras.1.strength"]).toBeDefined();
+    expect(row1Validation.errors.loras).toBeDefined();
+    expect(firstInvalidInOrder(ordered, row1Validation.errors)).toBe(
+      "loras.1.strength",
+    );
+
+    // Also via mapServerErrors for loras.1.strength
+    const serverRow1 = mapServerErrors(
+      "Invalid LoRA",
+      { "loras.1.strength": "Strength out of range" },
+      { knownFields: ["prompt", "loras"] },
+    );
+    expect(firstInvalidInOrder(ordered, serverRow1.fieldErrors)).toBe(
+      "loras.1.strength",
+    );
+
+    // 2. Aggregate-only LoRA error
+    const serverAggregate = mapServerErrors(
+      "Too many LoRAs",
+      { loras: "At most 4 LoRAs allowed" },
+      { knownFields: ["prompt", "loras"] },
+    );
+    expect(firstInvalidInOrder(ordered, serverAggregate.fieldErrors)).toBe(
+      "loras",
+    );
+
+    // 3. Prompt error plus LoRA error (prompt wins because it comes first in the form)
+    const promptAndLora = validateCreateFields(
+      { prompt: "   ", style_guide: "", batch_size: "1" },
+      {
+        required: [{ field: "prompt", message: "Prompt is required" }],
+        loras: [
+          { name: "first.safetensors", strength: 0.7 },
+          { name: "second.safetensors", strength: 2.5 },
+        ],
+      },
+    );
+    expect(firstInvalidInOrder(ordered, promptAndLora.errors)).toBe("prompt");
   });
 });
 

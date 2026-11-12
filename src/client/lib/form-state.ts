@@ -212,3 +212,15 @@ export function createDraftTracker(opts: {
     },
   };
 }
+
+export function applyDefaultsIfUntouched<T extends Record<string, string>>(
+  nextFallback: T,
+  isUntouched: (key: string) => boolean,
+  apply: (key: keyof T & string, value: string) => void,
+): void {
+  for (const [k, v] of Object.entries(nextFallback)) {
+    if (isUntouched(k)) {
+      apply(k as keyof T & string, v);
+    }
+  }
+}

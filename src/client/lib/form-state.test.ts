@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  applyDefaultsIfUntouched,
   clearDraft,
   createDraftTracker,
   draftOf,
@@ -171,11 +172,13 @@ describe("form-state", () => {
       resolution: "1080p",
       image_model: "flux2-klein-9b",
     };
-    for (const [k, v] of Object.entries(nextDefaults)) {
-      if (tracker.isUntouched(k)) {
+    applyDefaultsIfUntouched(
+      nextDefaults,
+      (k) => tracker.isUntouched(k),
+      (k, v) => {
         (values as Record<string, string>)[k] = v;
-      }
-    }
+      },
+    );
     expect(values).toEqual({
       prompt: "",
       resolution: "1080p",

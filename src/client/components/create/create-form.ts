@@ -6,8 +6,10 @@ import {
   CREATE_KINDS,
   firstInvalidInOrder,
   mapServerErrors,
+  orderedFieldNamesFromDescriptors,
   submitCreateJob,
   validateCreateFields,
+  type ControlDescriptor,
   type CreateKind,
   type MaxLengthRule,
   type NumericRangeRule,
@@ -15,6 +17,7 @@ import {
 } from "../../lib/create-job";
 import type { GenerationDefaults } from "../../lib/defaults";
 import {
+  applyDefaultsIfUntouched as applyUntouchedDefaults,
   createDraftTracker,
   loadDraft,
   resolveInitialValues,
@@ -66,14 +69,7 @@ function parseLoras(raw: string | undefined): LoraSpec[] {
 }
 
 function orderedFieldNamesFromForm(form: HTMLFormElement): string[] {
-  const out: string[] = [];
-  const seen = new Set<string>();
-  const push = (name: string) => {
-    if (name && !seen.has(name)) {
-      seen.add(name);
-      out.push(name);
-    }
-  };
+  const descriptors: ControlDescriptor[] = [];
   for (let i = 0; i < form.elements.length; i++) {
     const el = form.elements[i];
     if (!(el instanceof HTMLElement)) continue;
@@ -81,20 +77,19 @@ function orderedFieldNamesFromForm(form: HTMLFormElement): string[] {
       el as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
     ).name;
     if (named) {
-      push(named);
+      descriptors.push({ name: named });
       continue;
     }
     const loraIdx =
       el.getAttribute("data-lora-index") ??
       el.closest("[data-lora-index]")?.getAttribute("data-lora-index");
     if (loraIdx !== null && loraIdx !== undefined) {
-      push(`loras.${loraIdx}.strength`);
-      push("loras");
+      descriptors.push({ loraIndex: loraIdx });
     } else if (el.getAttribute("aria-label") === "Select LoRA") {
-      push("loras");
+      descriptors.push({ isLoraSelect: true });
     }
   }
-  return out;
+  return orderedFieldNamesFromDescriptors(descriptors);
 }
 
 function findAndFocusControl(
@@ -111,7 +106,12 @@ function findAndFocusControl(
         `input[data-lora-index="${idx}"], [data-lora-index="${idx}"] input[aria-label^="Strength for "]`,
       ) ?? null;
   }
-  if (!el && (field === "loras" || field.startsWith("loras."))) {
+  if (!el && field === "loras") {
+    el =
+      form.querySelector<HTMLElement>(
+        'select[aria-label="Select LoRA"], input[aria-label^="Strength for "]',
+      ) ?? null;
+  } else if (!el && field.startsWith("loras.")) {
     el =
       form.querySelector<HTMLElement>(
         'input[aria-label^="Strength for "], select[aria-label="Select LoRA"]',
@@ -199,12 +199,13 @@ export function useCreateForm<T extends Record<string, string>>(
 
   const applyDefaultsIfUntouched = (d: GenerationDefaults) => {
     if (disposed) return;
-    const nextFallback = opts.fallback(d);
-    for (const [k, v] of Object.entries(nextFallback)) {
-      if (tracker.isUntouched(k)) {
+    applyUntouchedDefaults(
+      opts.fallback(d),
+      (k) => tracker.isUntouched(k),
+      (k, v) => {
         setValues(k as any, v as any);
-      }
-    }
+      },
+    );
   };
 
   void loadDefaults().then(applyDefaultsIfUntouched);
@@ -358,7 +359,11 @@ export function useCreateForm<T extends Record<string, string>>(
           toast.success("Queued", toastAction);
         });
     } catch (e) {
-      if (disposed) return;
+      const msg = e instanceof Error ? e.message : "Submission failed";
+      if (disposed) {
+        toast.error(`Could not queue the job: ${msg}`);
+        return;
+      }
       if (e instanceof ApiError) {
         const knownFields = [...Object.keys(initialFallback), "loras"];
         const mapped = mapServerErrors(e.message, e.fields, {
@@ -376,7 +381,7 @@ export function useCreateForm<T extends Record<string, string>>(
           findAndFocusControl(form, firstTarget);
         }
       } else {
-        setFormError(e instanceof Error ? e.message : "Submission failed");
+        setFormError(msg);
       }
     } finally {
       inFlight = false;

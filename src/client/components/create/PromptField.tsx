@@ -1,6 +1,18 @@
-import { createSignal, Match, onCleanup, Show, Switch } from "solid-js";
+import {
+  createEffect,
+  createSignal,
+  Match,
+  onCleanup,
+  Show,
+  Switch,
+} from "solid-js";
 import type { EnhanceKind } from "../../../prompts/enhance-prompts";
 import { ApiError, apiSend } from "../../lib/api-client";
+import {
+  enhanceChainReducer,
+  enhanceSourceText,
+  INITIAL_ENHANCE_CHAIN,
+} from "../../lib/enhance-chain";
 import { toast } from "../../stores/toast";
 import { Icons } from "../Icons";
 
@@ -24,9 +36,16 @@ export type PromptFieldProps = {
 export function PromptField(props: PromptFieldProps) {
   const [busy, setBusy] = createSignal(false);
   const [enhanceError, setEnhanceError] = createSignal<string | null>(null);
-  const [undoText, setUndoText] = createSignal<string | null>(null);
+  const [chain, setChain] = createSignal(INITIAL_ENHANCE_CHAIN);
   let abortCtrl: AbortController | null = null;
   let disposed = false;
+
+  createEffect(() => {
+    const val = props.value;
+    setChain((prev) =>
+      enhanceChainReducer(prev, { type: "sync-value", value: val }),
+    );
+  });
 
   onCleanup(() => {
     disposed = true;
@@ -36,7 +55,7 @@ export function PromptField(props: PromptFieldProps) {
   const enhance = async () => {
     if (!props.enhanceKind || busy()) return;
     const sentFieldValue = props.value;
-    const sourceText = undoText() ?? sentFieldValue;
+    const sourceText = enhanceSourceText(chain(), sentFieldValue);
     setEnhanceError(null);
     setBusy(true);
     abortCtrl?.abort();
@@ -75,7 +94,13 @@ export function PromptField(props: PromptFieldProps) {
           `Enhanced text was trimmed to ${props.maxLength} characters.`,
         );
       }
-      setUndoText(sentFieldValue);
+      setChain((prev) =>
+        enhanceChainReducer(prev, {
+          type: "enhance-result",
+          sentOrigin: sourceText,
+          resultText: next,
+        }),
+      );
       props.onInput(next);
     } catch (err) {
       if (disposed || (ctrl.signal.aborted && !timedOut)) return;
@@ -99,9 +124,9 @@ export function PromptField(props: PromptFieldProps) {
   };
 
   const handleUndo = () => {
-    const prev = undoText();
+    const prev = chain().origin;
     if (prev === null) return;
-    setUndoText(null);
+    setChain((c) => enhanceChainReducer(c, { type: "undo" }));
     setEnhanceError(null);
     props.onInput(prev);
   };
@@ -150,9 +175,12 @@ export function PromptField(props: PromptFieldProps) {
         required={props.required}
         aria-required={props.required ? "true" : undefined}
         onInput={(e) => {
-          setUndoText(null);
+          const val = e.currentTarget.value;
+          setChain((c) =>
+            enhanceChainReducer(c, { type: "user-input", value: val }),
+          );
           setEnhanceError(null);
-          props.onInput(e.currentTarget.value);
+          props.onInput(val);
         }}
         aria-invalid={props.error ? "true" : undefined}
         aria-describedby={`${props.id}-note`}
@@ -180,7 +208,7 @@ export function PromptField(props: PromptFieldProps) {
                 {enhanceError()}
               </span>
             </Match>
-            <Match when={undoText() !== null}>
+            <Match when={chain().origin !== null}>
               <span>
                 Enhanced ·{" "}
                 <button type="button" class="link" onClick={handleUndo}>

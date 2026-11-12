@@ -199,16 +199,56 @@ export function validateCreateFields<T extends Record<string, string>>(
   return { errors };
 }
 
+export type ControlDescriptor = {
+  name?: string;
+  loraIndex?: string;
+  isLoraSelect?: boolean;
+};
+
+export function orderedFieldNamesFromDescriptors(
+  descriptors: readonly ControlDescriptor[],
+): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const push = (name: string) => {
+    if (name && !seen.has(name)) {
+      seen.add(name);
+      out.push(name);
+    }
+  };
+  for (const desc of descriptors) {
+    if (desc.name) {
+      push(desc.name);
+      continue;
+    }
+    if (desc.loraIndex !== undefined && desc.loraIndex !== "") {
+      push(`loras.${desc.loraIndex}.strength`);
+      push("loras");
+    } else if (desc.isLoraSelect) {
+      push("loras");
+    }
+  }
+  return out;
+}
+
 export function firstInvalidInOrder(
   orderedNames: readonly string[],
   errors: Readonly<Record<string, string>>,
 ): string | null {
+  const hasSpecificLoraError = Object.keys(errors).some(
+    (k) => /^loras\.\d+\.strength$/.test(k) && Boolean(errors[k]),
+  );
+  const isEligible = (k: string) => {
+    if (!k || !Object.hasOwn(errors, k) || !errors[k]) return false;
+    if (k === "loras" && hasSpecificLoraError) return false;
+    return true;
+  };
   for (const name of orderedNames) {
-    if (name && Object.hasOwn(errors, name) && errors[name]) {
+    if (isEligible(name)) {
       return name;
     }
   }
-  const firstFallback = Object.keys(errors).find((k) => Boolean(errors[k]));
+  const firstFallback = Object.keys(errors).find(isEligible);
   return firstFallback ?? null;
 }
 

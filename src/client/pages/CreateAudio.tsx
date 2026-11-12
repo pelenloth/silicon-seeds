@@ -145,7 +145,7 @@ export default function CreateAudio() {
                 name="duration"
                 min={10}
                 max={720}
-                step={10}
+                step={1}
                 value={duration()}
                 onInput={(v) => f.set("duration", String(v))}
                 format={(v) => `${v}s`}

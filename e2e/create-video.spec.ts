@@ -64,3 +64,64 @@ test("create video: defaults, controls, validation (no generation)", async ({
     ),
   ).toBe(true);
 });
+
+test("create video: submit payload sends exact PostTextToVideoSchema fields (blocked with 503)", async ({
+  page,
+}) => {
+  let capturedFields: Record<string, string> | null = null;
+  await page.route("**/api/jobs/videos", async (route) => {
+    const req = route.request();
+    const buf = req.postDataBuffer();
+    const ct = req.headers()["content-type"] ?? "";
+    if (buf && ct) {
+      const fd = await new Response(new Uint8Array(buf), {
+        headers: { "content-type": ct },
+      }).formData();
+      const map: Record<string, string> = {};
+      fd.forEach((v, k) => {
+        map[k] = typeof v === "string" ? v : String(v);
+      });
+      capturedFields = map;
+    }
+    await route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "blocked by test" }),
+    });
+  });
+
+  await page.goto("/create/video");
+  const prompt = page.locator('textarea[name="prompt"]');
+  await expect(prompt).toBeVisible({ timeout: 10000 });
+  await prompt.fill("a lighthouse in a storm");
+  await page.getByText("Style guide", { exact: true }).click();
+  await page.locator('textarea[name="style_guide"]').fill("oil painting");
+  await page.locator('select[name="video_model"]').selectOption("ltx2.3");
+  await page.locator('select[name="resolution"]').selectOption("1080p");
+  await page.locator('input[name="clip_duration"][type="range"]').fill("6");
+  await page.getByText("Advanced", { exact: true }).click();
+  await page.locator('input[name="fps"][type="range"]').fill("24");
+
+  await page.locator("#submit-btn").click();
+  await expect.poll(() => capturedFields).not.toBeNull();
+  expect(Object.keys(capturedFields!).sort()).toEqual(
+    [
+      "prompt",
+      "video_model",
+      "resolution",
+      "clip_duration",
+      "fps",
+      "style_preset",
+      "style_guide",
+    ].sort(),
+  );
+  expect(capturedFields).toMatchObject({
+    prompt: "a lighthouse in a storm",
+    video_model: "ltx2.3",
+    resolution: "1080p",
+    clip_duration: "6",
+    fps: "24",
+    style_guide: "oil painting",
+  });
+  expect(capturedFields!.style_preset?.length).toBeGreaterThan(0);
+});
