@@ -10,7 +10,12 @@ import {
   Switch,
 } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
-import { apiGet, mediaUrl, type MediaItem } from "../../lib/api-client";
+import {
+  ApiError,
+  apiGet,
+  mediaUrl,
+  type MediaItem,
+} from "../../lib/api-client";
 import { CREATE_KINDS, type CreateKind } from "../../lib/create-job";
 import {
   eventKind,
@@ -71,6 +76,7 @@ export function ResultPanel(props: ResultPanelProps) {
   const [mediaLoadedForJob, setMediaLoadedForJob] = createSignal(false);
   const [mediaRetrying, setMediaRetrying] = createSignal(false);
   const [mediaExhausted, setMediaExhausted] = createSignal(false);
+  const [removed, setRemoved] = createSignal(false);
 
   let disposed = false;
   let detailSeq = 0;
@@ -108,7 +114,7 @@ export function ResultPanel(props: ResultPanelProps) {
 
   const job = createMemo<JobSummary | undefined>(() => {
     const id = props.jobId;
-    if (!id) return undefined;
+    if (!id || removed()) return undefined;
     const d = jobStore[0];
     const s = jobs().find((j) => j.id === id);
     if (d && d.id === id) {
@@ -207,7 +213,28 @@ export function ResultPanel(props: ResultPanelProps) {
     }
   };
 
+  // The job was deleted (a 404 on refetch): drop everything and stop polling.
+  const markRemoved = () => {
+    clearDebounce();
+    clearRetryTimer();
+    retryAttempt = 0;
+    detailPendingRefetch = false;
+    mediaPendingRefetch = false;
+    setRemoved(true);
+    setJobStore([]);
+    setEventsStore([]);
+    setMediaStore([]);
+    setLoadError(null);
+    setRefetchError(false);
+    setDetailLoading(false);
+    setLightboxKey(null);
+    setMediaLoadedForJob(true);
+    setMediaRetrying(false);
+    setMediaExhausted(false);
+  };
+
   const fetchDetail = async (targetId: string) => {
+    if (removed()) return;
     if (detailInFlightSeq !== 0) {
       detailPendingRefetch = true;
       return;
@@ -238,6 +265,10 @@ export function ResultPanel(props: ResultPanelProps) {
       if (disposed || targetId !== props.jobId || seq <= lastAppliedDetailSeq) {
         return;
       }
+      if (err instanceof ApiError && err.status === 404) {
+        markRemoved();
+        return;
+      }
       setDetailLoading(false);
       if (
         jobStore[0]?.id === targetId ||
@@ -250,7 +281,12 @@ export function ResultPanel(props: ResultPanelProps) {
     } finally {
       if (detailInFlightSeq === seq) {
         detailInFlightSeq = 0;
-        if (!disposed && targetId === props.jobId && detailPendingRefetch) {
+        if (
+          !disposed &&
+          !removed() &&
+          targetId === props.jobId &&
+          detailPendingRefetch
+        ) {
           detailPendingRefetch = false;
           void fetchDetail(targetId);
         }
@@ -259,6 +295,7 @@ export function ResultPanel(props: ResultPanelProps) {
   };
 
   const fetchMedia = async (targetId: string) => {
+    if (removed()) return;
     if (mediaInFlightSeq !== 0) {
       mediaPendingRefetch = true;
       return;
@@ -281,8 +318,12 @@ export function ResultPanel(props: ResultPanelProps) {
       }));
       setMediaStore(reconcile(nextItems, { key: "id", merge: true }));
       setMediaLoadedForJob(true);
-    } catch {
+    } catch (err) {
       if (disposed || targetId !== props.jobId || seq <= lastAppliedMediaSeq) {
+        return;
+      }
+      if (err instanceof ApiError && err.status === 404) {
+        markRemoved();
         return;
       }
       setMediaLoadedForJob(true);
@@ -295,7 +336,7 @@ export function ResultPanel(props: ResultPanelProps) {
     } finally {
       if (mediaInFlightSeq === seq) {
         mediaInFlightSeq = 0;
-        if (!disposed && targetId === props.jobId) {
+        if (!disposed && !removed() && targetId === props.jobId) {
           if (mediaPendingRefetch) {
             mediaPendingRefetch = false;
             void fetchMedia(targetId);
@@ -350,6 +391,7 @@ export function ResultPanel(props: ResultPanelProps) {
     setMediaLoadedForJob(false);
     setMediaRetrying(false);
     setMediaExhausted(false);
+    setRemoved(false);
     if (!currentId) {
       setDetailLoading(false);
       return;
@@ -371,7 +413,7 @@ export function ResultPanel(props: ResultPanelProps) {
     if (!scheduledId) return;
     debounceTimer = setTimeout(() => {
       debounceTimer = null;
-      if (!disposed && props.jobId === scheduledId) {
+      if (!disposed && !removed() && props.jobId === scheduledId) {
         void fetchDetail(scheduledId);
         void fetchMedia(scheduledId);
       }
@@ -533,7 +575,9 @@ export function ResultPanel(props: ResultPanelProps) {
                       class="flex-1"
                       icon={kindIcon()}
                       title={props.emptyTitle}
-                      description={props.emptyHint}
+                      description={
+                        removed() ? "This job was removed." : props.emptyHint
+                      }
                     />
                   }
                 >

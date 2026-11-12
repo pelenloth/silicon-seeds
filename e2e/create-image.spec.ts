@@ -789,3 +789,110 @@ test("create image: Reset ends the Enhance chain, clears Enhanced · Undo hint, 
   expect(enhanceBodies[0]?.text).toBe("initial user prompt");
   expect(enhanceBodies[1]?.text).toBe("");
 });
+
+test("create image: a job removed in another tab shows as gone in the result panel", async ({
+  page,
+}) => {
+  const jobId = "stub-removed-job";
+  const nowIso = new Date().toISOString();
+  let removed = false;
+  let detailCalls = 0;
+
+  await page.route("**/api/jobs", async (route) => {
+    if (route.request().method() !== "GET") {
+      await route.fallback();
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ jobs: [] }),
+    });
+  });
+
+  await page.route(`**/api/jobs/${jobId}`, async (route) => {
+    detailCalls++;
+    if (removed) {
+      await route.fulfill({
+        status: 404,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "Job not found" }),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        job: {
+          id: jobId,
+          name: "Soon Removed Job",
+          status: "active",
+          created_at: nowIso,
+          kind: "image",
+          progress: {
+            total: 1,
+            complete: 0,
+            running: 1,
+            pending: 0,
+            failed: 0,
+          },
+          thumb: null,
+        },
+        events: [
+          {
+            id: "evt-rm-1",
+            jobId,
+            type: "new_image_prompt",
+            mode: "image",
+            status: "running",
+            created_at: nowIso,
+          },
+        ],
+      }),
+    });
+  });
+
+  await page.route(`**/api/jobs/${jobId}/media**`, async (route) => {
+    if (removed) {
+      await route.fulfill({
+        status: 404,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "Job not found" }),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ items: [], total: 0, hasMore: false }),
+    });
+  });
+
+  await page.goto(`/create/image?job_id=${jobId}`);
+  const panel = page.locator("#result-panel");
+  await expect(panel).toContainText("Soon Removed Job", { timeout: 10000 });
+
+  removed = true;
+  await page.evaluate(
+    (id) =>
+      window.dispatchEvent(
+        new CustomEvent("job-update", { detail: { jobId: id } }),
+      ),
+    jobId,
+  );
+
+  await expect(panel).toContainText("This job was removed.", {
+    timeout: 10000,
+  });
+  await expect(panel).not.toContainText("Soon Removed Job");
+  await expect(panel).not.toContainText(/could not refresh/i);
+  await expect(
+    panel.getByRole("button", { name: /retry|try again/i }),
+  ).toHaveCount(0);
+  await expect(panel.getByRole("alert")).toHaveCount(0);
+
+  const callsAfter = detailCalls;
+  await page.waitForTimeout(1500);
+  expect(detailCalls).toBe(callsAfter);
+});
