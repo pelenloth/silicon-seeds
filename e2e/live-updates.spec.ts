@@ -1,5 +1,9 @@
-import { expect, test } from "@playwright/test";
-import { blockGeneration } from "./helpers/no-generation";
+import {
+  expect,
+  test,
+  type APIRequestContext,
+  type Page,
+} from "./helpers/test";
 
 type FakeStreamSummary = {
   url: string;
@@ -18,7 +22,6 @@ declare global {
 }
 
 test.beforeEach(async ({ page }) => {
-  await blockGeneration(page);
   await page.addInitScript(() => {
     type Listener = (evt: MessageEvent) => void;
     let suspendFuture = false;
@@ -101,8 +104,8 @@ test.beforeEach(async ({ page }) => {
 });
 
 async function setupMockJob(
-  page: import("@playwright/test").Page,
-  request: import("@playwright/test").APIRequestContext,
+  page: Page,
+  request: APIRequestContext,
   jobId: string,
 ) {
   const galleryRes = await request.get("/api/gallery/items?limit=1");

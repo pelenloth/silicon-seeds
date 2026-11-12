@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./helpers/test";
 
 test("gallery: filters, grid, lightbox, no autoplay", async ({ page }) => {
   await page.goto("/gallery");

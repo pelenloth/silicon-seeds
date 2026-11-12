@@ -83,20 +83,80 @@ describe("palette", () => {
       "theme:dracula",
     ]);
   });
-  test("quick create appears first for a typed prompt and survives filtering", () => {
+  test("quick create is for prompts, not searches, and appears after all other groups", () => {
     const made: string[] = [];
-    const { c } = ctx({
-      query: "a fox in snow",
-      quickCreate: (k, p) => made.push(`${k}:${p}`),
-    });
-    const cmds = filterCommands(buildCommands(c), "a fox in snow");
-    expect(cmds.slice(0, 3).map((x) => x.label)).toEqual([
+    const qc = (k: string, p: string) => made.push(`${k}:${p}`);
+
+    // 'sett' -> no quick-create entries, first option is the Settings page
+    const settCmds = filterCommands(
+      buildCommands(ctx({ query: "sett", quickCreate: qc }).c),
+      "sett",
+    );
+    expect(settCmds.some((x) => x.group === "Create")).toBe(false);
+    expect(settCmds[0]?.label).toBe("Settings");
+
+    // 'settings page' (2 words, 13 characters) -> none
+    const twoWords = filterCommands(
+      buildCommands(ctx({ query: "settings page", quickCreate: qc }).c),
+      "settings page",
+    );
+    expect(twoWords.some((x) => x.group === "Create")).toBe(false);
+
+    // 'a fox in snow' -> the three entries, after all other matches
+    const foxCmds = filterCommands(
+      buildCommands(ctx({ query: "a fox in snow", quickCreate: qc }).c),
+      "a fox in snow",
+    );
+    expect(foxCmds.map((x) => x.label)).toEqual([
       "Generate image: “a fox in snow”",
       "Generate video: “a fox in snow”",
       "Generate audio: “a fox in snow”",
     ]);
-    cmds[0].run();
+    foxCmds[0].run();
     expect(made).toEqual(["image:a fox in snow"]);
+
+    // Query that also matches a page, e.g. 'image of a fox' -> page comes first, Create entries after
+    const imageFoxCmds = filterCommands(
+      buildCommands(
+        ctx({
+          query: "image of a fox",
+          routes: [
+            ...ROUTES,
+            {
+              path: "/create/image",
+              title: "Image of a fox",
+              group: "create",
+              sidebarId: "sidebar-image",
+              icon: "Image",
+            },
+          ],
+          quickCreate: qc,
+        }).c,
+      ),
+      "image of a fox",
+    );
+    expect(imageFoxCmds[0]?.group).toBe("Go to");
+    expect(imageFoxCmds.slice(-3).map((x) => x.label)).toEqual([
+      "Generate image: “image of a fox”",
+      "Generate video: “image of a fox”",
+      "Generate audio: “image of a fox”",
+    ]);
+
+    // 16-character single word -> offered
+    const longSingle = "abcdefghijklmnop";
+    expect(longSingle.length).toBe(16);
+    const singleWordCmds = filterCommands(
+      buildCommands(ctx({ query: longSingle, quickCreate: qc }).c),
+      longSingle,
+    );
+    expect(singleWordCmds.filter((x) => x.group === "Create").length).toBe(3);
+
+    // whitespace-only -> none
+    const wsCmds = filterCommands(
+      buildCommands(ctx({ query: "     \t\n   ", quickCreate: qc }).c),
+      "     \t\n   ",
+    );
+    expect(wsCmds.some((x) => x.group === "Create")).toBe(false);
   });
   test("no quick create for short queries or when the context cannot create", () => {
     expect(

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./helpers/test";
 import { expectThreeSamples } from "./helpers/no-generation";
 
 test("shell: labeled nav, active item, titles, palette, activity, new menu, collapse", async ({
@@ -49,7 +49,7 @@ test("shell: labeled nav, active item, titles, palette, activity, new menu, coll
     exact: true,
   });
   await expect(settingsOpt).toBeVisible();
-  await settingsOpt.click();
+  await palette.getByRole("combobox").press("Enter");
   await expect(page).toHaveURL(/\/settings/);
   await expect(palette).toBeHidden();
 
@@ -229,6 +229,7 @@ test("shell: navigating to a new pathname resets #app-main scrollTop to 0", asyn
 
   await page.setViewportSize({ width: 900, height: 350 });
   await page.goto("/jobs");
+  await expect(page.locator("#job-list")).toBeVisible({ timeout: 10000 });
   await main.evaluate((el) => {
     const first = el.firstElementChild as HTMLElement | null;
     if (first) first.style.minHeight = "1000px";

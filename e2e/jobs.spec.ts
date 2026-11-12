@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./helpers/test";
 import { expectThreeSamples } from "./helpers/no-generation";
 
 type Job = { id: string; name: string; status: string };

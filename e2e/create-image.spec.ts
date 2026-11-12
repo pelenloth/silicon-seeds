@@ -1,9 +1,4 @@
-import { expect, test } from "@playwright/test";
-import { blockGeneration } from "./helpers/no-generation";
-
-test.beforeEach(async ({ page }) => {
-  await blockGeneration(page);
-});
+import { expect, test } from "./helpers/test";
 
 test("create image: saved defaults, controls, validation, draft, reset (no generation)", async ({
   page,
@@ -134,8 +129,8 @@ test("create image: result panel shows Starting your job while create request is
 
 test("create image: blockGeneration blocks unstubbed generation and enhance requests with 503", async ({
   page,
+  generationGuard,
 }) => {
-  const guard = await blockGeneration(page);
   await page.goto("/create/image");
   await expect(page.locator('textarea[name="prompt"]')).toBeVisible({
     timeout: 10000,
@@ -159,7 +154,7 @@ test("create image: blockGeneration blocks unstubbed generation and enhance requ
     body: { error: "blocked by test" },
   });
 
-  expect(guard.calls().length).toBeGreaterThanOrEqual(2);
+  expect(generationGuard.calls().length).toBeGreaterThanOrEqual(2);
 });
 
 test("create image: Ctrl+Enter in prompt submits once; Enter alone does not submit", async ({

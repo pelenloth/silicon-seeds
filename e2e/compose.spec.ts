@@ -1,9 +1,4 @@
-import { expect, test } from "@playwright/test";
-import { blockGeneration } from "./helpers/no-generation";
-
-test.beforeEach(async ({ page }) => {
-  await blockGeneration(page);
-});
+import { expect, test } from "./helpers/test";
 
 test("compose: defaults, controls, collapsibles, reset (no generation)", async ({
   page,
@@ -111,19 +106,23 @@ test("compose: Reset clears the chosen file", async ({ page }) => {
 
 test("compose: a script shorter than 3 characters without a file is not sent", async ({
   page,
+  generationGuard,
 }) => {
-  const guard = await blockGeneration(page);
   await page.goto("/compose");
   const script = page.locator('textarea[name="script"]');
   await expect(script).toBeVisible({ timeout: 10000 });
   await script.fill("ab");
   await page.locator("#submit-btn").click();
   await expect(page.getByText("Write a script or upload a file")).toBeVisible();
-  expect(guard.calls().filter((c) => c.method === "POST")).toHaveLength(0);
+  expect(
+    generationGuard.calls().filter((c) => c.method === "POST"),
+  ).toHaveLength(0);
 });
 
-test("compose: an uploaded file alone is enough", async ({ page }) => {
-  const guard = await blockGeneration(page);
+test("compose: an uploaded file alone is enough", async ({
+  page,
+  generationGuard,
+}) => {
   await page.goto("/compose");
   const script = page.locator('textarea[name="script"]');
   await expect(script).toBeVisible({ timeout: 10000 });
@@ -143,9 +142,11 @@ test("compose: an uploaded file alone is enough", async ({ page }) => {
   );
 
   await expect
-    .poll(() => guard.calls().filter((c) => c.method === "POST").length)
+    .poll(
+      () => generationGuard.calls().filter((c) => c.method === "POST").length,
+    )
     .toBe(1);
-  const post = guard.calls().find((c) => c.method === "POST");
+  const post = generationGuard.calls().find((c) => c.method === "POST");
   expect(post?.url.endsWith("/api/jobs/videos/compose")).toBe(true);
 
   await expect(

@@ -82,7 +82,11 @@ export function Modal(props: ModalProps) {
           return;
         }
         if (!isDismissible()) {
-          ref.showModal();
+          if (props.open && ref.isConnected) {
+            ref.showModal();
+          } else {
+            releaseOverlay();
+          }
           return;
         }
         releaseOverlay();

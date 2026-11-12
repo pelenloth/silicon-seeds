@@ -1,5 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
-import { blockGeneration } from "./helpers/no-generation";
+import { expect, test, type Page } from "./helpers/test";
 
 type SettingsTestState = {
   leakedMutations: { method: string; url: string }[];
@@ -21,8 +20,6 @@ test.beforeEach(async ({ page }) => {
   const state = getTestState(page);
   state.leakedMutations = [];
   state.unexpectedDialogs = [];
-
-  await blockGeneration(page);
 
   page.on("dialog", (dialog) => {
     state.unexpectedDialogs.push(`${dialog.type()}: ${dialog.message()}`);

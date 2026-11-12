@@ -72,6 +72,7 @@ export default function DevKit() {
   const [confirmResult, setConfirmResult] = createSignal("idle");
   const [modalOpen, setModalOpen] = createSignal(false);
   const [modalMounted, setModalMounted] = createSignal(true);
+  const [modalDismissible, setModalDismissible] = createSignal(true);
   const [modalCloseCount, setModalCloseCount] = createSignal(0);
   const [segVal, setSegVal] = createSignal("all");
   const [lockedSegVal, setLockedSegVal] = createSignal("all");
@@ -194,6 +195,7 @@ export default function DevKit() {
             class="btn btn-sm"
             onClick={() => {
               setModalMounted(true);
+              setModalDismissible(true);
               setModalOpen(true);
             }}
           >
@@ -209,6 +211,7 @@ export default function DevKit() {
         <Show when={modalMounted()}>
           <Modal
             open={modalOpen()}
+            dismissible={modalDismissible()}
             onClose={() => {
               setModalCloseCount((c) => c + 1);
               setModalOpen(false);
@@ -253,6 +256,15 @@ export default function DevKit() {
             <p class="text-sm text-base-content/80">
               Press Escape or click the backdrop to close.
             </p>
+            <div class="mt-2">
+              <button
+                type="button"
+                class="btn btn-xs"
+                onClick={() => setModalDismissible((d) => !d)}
+              >
+                {modalDismissible() ? "Lock modal" : "Unlock modal"}
+              </button>
+            </div>
           </Modal>
         </Show>
       </section>

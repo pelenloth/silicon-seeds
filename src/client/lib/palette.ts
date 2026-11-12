@@ -21,30 +21,6 @@ export type PaletteContext = {
 
 export function buildCommands(ctx: PaletteContext): Command[] {
   const out: Command[] = [];
-  const q = ctx.query.trim();
-  const quickCreate = ctx.quickCreate;
-  if (quickCreate && q.length >= 3) {
-    out.push(
-      {
-        id: "create-image",
-        group: "Create",
-        label: `Generate image: “${q}”`,
-        run: () => quickCreate("image", q),
-      },
-      {
-        id: "create-video",
-        group: "Create",
-        label: `Generate video: “${q}”`,
-        run: () => quickCreate("video", q),
-      },
-      {
-        id: "create-audio",
-        group: "Create",
-        label: `Generate audio: “${q}”`,
-        run: () => quickCreate("audio", q),
-      },
-    );
-  }
   for (const r of ctx.routes) {
     out.push({
       id: `goto-${r.path}`,
@@ -105,6 +81,31 @@ export function buildCommands(ctx: PaletteContext): Command[] {
       label: `Theme: ${t.label}`,
       run: () => ctx.setTheme(t.id),
     });
+  }
+  const q = ctx.query.trim();
+  const words = q ? q.split(/\s+/).length : 0;
+  const quickCreate = ctx.quickCreate;
+  if (quickCreate && (words >= 3 || q.length >= 16)) {
+    out.push(
+      {
+        id: "create-image",
+        group: "Create",
+        label: `Generate image: “${q}”`,
+        run: () => quickCreate("image", q),
+      },
+      {
+        id: "create-video",
+        group: "Create",
+        label: `Generate video: “${q}”`,
+        run: () => quickCreate("video", q),
+      },
+      {
+        id: "create-audio",
+        group: "Create",
+        label: `Generate audio: “${q}”`,
+        run: () => quickCreate("audio", q),
+      },
+    );
   }
   return out;
 }

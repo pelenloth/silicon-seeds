@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./helpers/test";
 
 test("ui kit: toast, confirm, modal, segmented, slider, lightbox", async ({
   page,
@@ -366,4 +366,48 @@ test("ui kit: modal removed from DOM while open releases overlay so toast moves 
       .getByRole("status")
       .filter({ hasText: "Saved" }),
   ).toBeVisible();
+});
+
+test("ui kit: non-dismissible modal closed or unmounted by owner while a native close is pending does not reopen and throws nothing", async ({
+  page,
+}) => {
+  const pageErrors: Error[] = [];
+  page.on("pageerror", (err) => pageErrors.push(err));
+
+  await page.goto("/dev/kit");
+  await page.getByRole("button", { name: "Open modal" }).click();
+  const modal = page.getByRole("dialog", { name: "Example modal" });
+  await expect(modal).toBeVisible();
+
+  await modal.getByRole("button", { name: "Lock modal" }).click();
+
+  // Trigger a native close followed immediately by owner closing the modal before the queued close event fires
+  await modal.evaluate((dialogEl: HTMLDialogElement) => {
+    HTMLDialogElement.prototype.close.call(dialogEl);
+    const doneBtn = Array.from(dialogEl.querySelectorAll("button")).find(
+      (b) => b.textContent?.trim() === "Done",
+    );
+    doneBtn?.click();
+  });
+
+  await page.waitForTimeout(100);
+  await expect(modal).toBeHidden();
+  expect(pageErrors).toHaveLength(0);
+
+  // Also test when unmounted while non-dismissible and native close is pending
+  await page.getByRole("button", { name: "Open modal" }).click();
+  await expect(modal).toBeVisible();
+  await modal.getByRole("button", { name: "Lock modal" }).click();
+
+  await modal.evaluate((dialogEl: HTMLDialogElement) => {
+    HTMLDialogElement.prototype.close.call(dialogEl);
+    const unmountBtn = Array.from(dialogEl.querySelectorAll("button")).find(
+      (b) => b.textContent?.trim() === "Unmount modal",
+    );
+    unmountBtn?.click();
+  });
+
+  await page.waitForTimeout(100);
+  await expect(modal).toHaveCount(0);
+  expect(pageErrors).toHaveLength(0);
 });

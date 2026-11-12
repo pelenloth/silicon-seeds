@@ -447,11 +447,16 @@ export default function Home() {
   // Recent creations store keyed by item identity
   const [recent, setRecent] = createStore<KeyedMediaItem[]>([]);
   const [recentLoading, setRecentLoading] = createSignal(true);
+  const [recentError, setRecentError] = createSignal<string | null>(null);
   const [lightboxKey, setLightboxKey] = createSignal<string | null>(null);
   let recentSeq = 0;
 
   const fetchRecent = async () => {
     const seq = ++recentSeq;
+    if (recent.length === 0) {
+      setRecentLoading(true);
+      setRecentError(null);
+    }
     try {
       const data = await apiGet<{ items?: GalleryItem[] }>(
         "/api/gallery/items?limit=12",
@@ -460,7 +465,18 @@ export default function Home() {
       const raw = Array.isArray(data?.items) ? data.items : [];
       const keyed = toKeyedMediaItems(raw);
       setRecent(reconcile(keyed, { key: "id", merge: true }));
-    } catch {
+      setRecentError(null);
+    } catch (err) {
+      if (disposed || seq !== recentSeq) return;
+      if (recent.length === 0) {
+        const msg =
+          err instanceof ApiError
+            ? err.message
+            : err instanceof Error
+              ? err.message
+              : "Could not load recent creations";
+        setRecentError(msg);
+      }
       // Failed reload keeps any tiles already shown
     } finally {
       if (!disposed && seq === recentSeq) {
@@ -540,9 +556,13 @@ export default function Home() {
         <form
           class="panel p-4"
           novalidate
+          aria-busy={busy() ? "true" : undefined}
           onSubmit={(e) => void onSubmit(e)}
           onKeyDown={ctrlEnterSubmits}
         >
+          <span class="sr-only" aria-live="polite">
+            {busy()}
+          </span>
           <label for="home-prompt" class="text-lg font-semibold">
             What do you want to create?
           </label>
@@ -555,9 +575,10 @@ export default function Home() {
             value={prompt()}
             onInput={(e) => setPrompt(e.currentTarget.value)}
             aria-invalid={error() ? "true" : undefined}
+            aria-describedby={error() ? "home-prompt-error" : undefined}
           />
           <Show when={error()}>
-            <p class="text-xs text-error" role="alert">
+            <p id="home-prompt-error" class="text-xs text-error" role="alert">
               {error()}
             </p>
           </Show>
@@ -704,7 +725,21 @@ export default function Home() {
               </For>
             </div>
           </Show>
-          <Show when={!recentLoading() && recent.length === 0}>
+          <Show when={!recentLoading() && recentError() && recent.length === 0}>
+            <div role="alert" class="alert alert-error alert-soft">
+              <span class="flex-1 text-sm">{recentError()}</span>
+              <button
+                type="button"
+                class="btn btn-xs"
+                onClick={() => void fetchRecent()}
+              >
+                Try again
+              </button>
+            </div>
+          </Show>
+          <Show
+            when={!recentLoading() && !recentError() && recent.length === 0}
+          >
             <EmptyState
               title="Nothing yet"
               description="Your first creation will show up here."

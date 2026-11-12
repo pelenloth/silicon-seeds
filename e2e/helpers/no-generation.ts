@@ -13,9 +13,13 @@ export async function expectThreeSamples<T>(
   }
 }
 
-export async function blockGeneration(
-  page: Page,
-): Promise<{ calls: () => { method: string; url: string }[] }> {
+export type GenerationGuard = {
+  calls: () => { method: string; url: string }[];
+};
+
+const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+export async function blockGeneration(page: Page): Promise<GenerationGuard> {
   const recorded: { method: string; url: string }[] = [];
 
   const reject = async (route: Route) => {
@@ -28,14 +32,20 @@ export async function blockGeneration(
     });
   };
 
-  await page.route("**/api/jobs/**", async (route) => {
+  const rejectMutating = async (route: Route) => {
     const method = route.request().method().toUpperCase();
-    if (
-      method === "POST" ||
-      method === "PUT" ||
-      method === "PATCH" ||
-      method === "DELETE"
-    ) {
+    if (MUTATING_METHODS.has(method)) {
+      await reject(route);
+      return;
+    }
+    await route.continue();
+  };
+
+  await page.route("**/api/jobs/**", async (route) => {
+    const req = route.request();
+    const method = req.method().toUpperCase();
+    const pathname = new URL(req.url()).pathname;
+    if (MUTATING_METHODS.has(method) || pathname === "/api/jobs/text") {
       await reject(route);
       return;
     }
@@ -44,6 +54,11 @@ export async function blockGeneration(
 
   await page.route("**/api/enhance**", reject);
   await page.route("**/api/intent**", reject);
+  await page.route("**/api/tts/**", rejectMutating);
+  await page.route("**/api/comfyui/**", rejectMutating);
+  await page.route("**/api/settings**", rejectMutating);
+  await page.route("**/api/loras**", rejectMutating);
+  await page.route("**/api/style-presets**", rejectMutating);
 
   return {
     calls: () => [...recorded],

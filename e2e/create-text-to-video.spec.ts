@@ -1,9 +1,4 @@
-import { expect, test } from "@playwright/test";
-import { blockGeneration } from "./helpers/no-generation";
-
-test.beforeEach(async ({ page }) => {
-  await blockGeneration(page);
-});
+import { expect, test } from "./helpers/test";
 
 test("create text-to-video: no preset, no LoRAs, validation (no generation)", async ({
   page,

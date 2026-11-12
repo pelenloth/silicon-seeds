@@ -28,10 +28,10 @@ import { Icons } from "../Icons";
 import { ToastRegion } from "../ui/Toaster";
 
 const GROUP_ORDER: readonly CommandGroup[] = [
-  "Create",
   "Go to",
   "Jobs",
   "Theme",
+  "Create",
 ];
 
 const THEME_OPTIONS = [{ id: "system", label: "System" }, ...THEMES] as const;
@@ -44,7 +44,6 @@ export function CommandPalette() {
   let inputRef!: HTMLInputElement;
   let listRef!: HTMLUListElement;
   let closingProgrammatically = false;
-  let quickCreateInFlight = false;
   let currentOverlayId: number | null = null;
   const [overlayId, setOverlayId] = createSignal<number | null>(null);
 
@@ -61,8 +60,6 @@ export function CommandPalette() {
   });
 
   const handleQuickCreate = (kind: QuickKind, text: string) => {
-    if (quickCreateInFlight) return;
-    quickCreateInFlight = true;
     const createKind = kind === "video" ? "text-to-video" : kind;
     void submitCreateJob(
       createKind,
@@ -85,9 +82,6 @@ export function CommandPalette() {
               ? e.message
               : "Could not queue the job",
         );
-      })
-      .finally(() => {
-        quickCreateInFlight = false;
       });
   };
 
@@ -170,9 +164,9 @@ export function CommandPalette() {
   });
 
   const runCommand = (cmd: Command | undefined) => {
-    if (!cmd) return;
-    cmd.run();
+    if (!cmd || !paletteOpen()) return;
     setPaletteOpen(false);
+    cmd.run();
   };
 
   const onKey = (e: KeyboardEvent) => {

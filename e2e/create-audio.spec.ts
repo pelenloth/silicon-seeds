@@ -1,9 +1,4 @@
-import { expect, test } from "@playwright/test";
-import { blockGeneration } from "./helpers/no-generation";
-
-test.beforeEach(async ({ page }) => {
-  await blockGeneration(page);
-});
+import { expect, test } from "./helpers/test";
 
 test("create audio: controls, optional lyrics, validation (no generation)", async ({
   page,

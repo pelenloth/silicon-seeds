@@ -1,7 +1,4 @@
-import { expect, test, type Page, type Request } from "@playwright/test";
-import { blockGeneration } from "./helpers/no-generation";
-
-let guard: { calls: () => { method: string; url: string }[] };
+import { expect, test, type Page, type Request } from "./helpers/test";
 
 test.beforeEach(async ({ page }) => {
   page.on("dialog", (dialog) => {
@@ -9,7 +6,6 @@ test.beforeEach(async ({ page }) => {
       `Unexpected native dialog: ${dialog.type()} "${dialog.message()}"`,
     );
   });
-  guard = await blockGeneration(page);
 });
 
 async function parseFormData(req: Request): Promise<Record<string, string>> {
@@ -119,14 +115,17 @@ test("home: navigation, heading, and mode controls", async ({ page }) => {
 
 test("home: empty prompt validation shows error and sends no request", async ({
   page,
+  generationGuard,
 }) => {
   await page.goto("/");
-  await expect(page.locator("#home-prompt")).toBeVisible({ timeout: 10000 });
+  const prompt = page.locator("#home-prompt");
+  await expect(prompt).toBeVisible({ timeout: 10000 });
   await page.locator("#home-generate").click();
-  await expect(
-    page.getByText("Describe what you want to create"),
-  ).toBeVisible();
-  const postCalls = guard.calls().filter((c) => c.method === "POST");
+  await expect(page.locator("#home-prompt-error")).toHaveText(
+    "Describe what you want to create",
+  );
+  await expect(prompt).toHaveAttribute("aria-describedby", "home-prompt-error");
+  const postCalls = generationGuard.calls().filter((c) => c.method === "POST");
   expect(postCalls).toHaveLength(0);
 });
 
@@ -681,4 +680,160 @@ test("home: layout fits phone (390x844) and desktop (1280x800) with no horizonta
       ),
     ).toBe(true);
   }
+});
+
+test("home: palette sends two requests for two prompts while first is pending, and double Enter sends one", async ({
+  page,
+}) => {
+  const prompts: string[] = [];
+  let releaseFirst: (() => void) | null = null;
+  let callIndex = 0;
+
+  await page.route("**/api/jobs/images", async (route) => {
+    callIndex++;
+    const idx = callIndex;
+    const fields = await parseFormData(route.request());
+    prompts.push(fields.prompt ?? "");
+    if (idx === 1) {
+      await new Promise<void>((r) => {
+        releaseFirst = r;
+      });
+    }
+    const jobId = `palette-job-${idx}`;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ jobId, message: "job queued" }),
+    });
+  });
+
+  await page.goto("/");
+  await expect(page.locator("#home-prompt")).toBeVisible({ timeout: 10000 });
+
+  // 1. First prompt submitted via palette (double Enter sends only one request)
+  await page.keyboard.press("Control+K");
+  const palette = page.getByRole("dialog", { name: "Command palette" });
+  await expect(palette).toBeVisible();
+  const input = palette.getByRole("combobox");
+  await input.fill("first fox in snow");
+  await expect(
+    palette.getByRole("option", {
+      name: "Generate image: “first fox in snow”",
+    }),
+  ).toBeVisible();
+
+  await input.evaluate((el: HTMLInputElement) => {
+    el.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+    );
+    el.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+    );
+  });
+  await expect(palette).toBeHidden();
+  await expect.poll(() => prompts.length).toBe(1);
+
+  // 2. While the first request is still pending, submit a second prompt via palette
+  await page.keyboard.press("Control+K");
+  await expect(palette).toBeVisible();
+  await input.fill("second wolf in woods");
+  await expect(
+    palette.getByRole("option", {
+      name: "Generate image: “second wolf in woods”",
+    }),
+  ).toBeVisible();
+  await input.press("Enter");
+  await expect(palette).toBeHidden();
+
+  await expect.poll(() => prompts.length).toBe(2);
+  expect(prompts).toEqual(["first fox in snow", "second wolf in woods"]);
+
+  releaseFirst!();
+  await expect(
+    page.getByRole("status").filter({ hasText: "Queued image" }),
+  ).toHaveCount(2);
+});
+
+test("home: Recent creations 500 on first load shows error and Try again loads tiles", async ({
+  page,
+}) => {
+  let failRecent = true;
+  const sampleItems = [1, 2].map((n) => ({
+    meta_id: `rec-meta-${n}`,
+    event_id: `rec-evt-${n}`,
+    job_id: `rec-job-${n}`,
+    job_name: `Recovered Creation ${n}`,
+    filename: `demo-${n}.svg`,
+    subfolder: "",
+    created_at: new Date().toISOString(),
+    mediaType: "image",
+  }));
+
+  await page.route("**/api/gallery/items*", async (route) => {
+    if (failRecent) {
+      await route.fulfill({
+        status: 500,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "Gallery database offline" }),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ items: sampleItems, next_cursor: null }),
+    });
+  });
+
+  await page.goto("/");
+  const section = page
+    .locator("section")
+    .filter({ hasText: "Recent creations" });
+  await expect(section.getByRole("alert")).toContainText(
+    "Gallery database offline",
+    { timeout: 10000 },
+  );
+  await expect(section.getByText("Nothing yet")).toHaveCount(0);
+  const tryAgainBtn = section.getByRole("button", { name: "Try again" });
+  await expect(tryAgainBtn).toBeVisible();
+
+  failRecent = false;
+  await tryAgainBtn.click();
+  await expect(section.locator("button[aria-label^='Open ']")).toHaveCount(2);
+  await expect(section.getByRole("alert")).toHaveCount(0);
+});
+
+test("home: form accessibility sets aria-busy, announces busy status, and keeps focus on prompt on keyboard submit", async ({
+  page,
+}) => {
+  let releaseCreate: (() => void) | null = null;
+  await page.route("**/api/jobs/images", async (route) => {
+    await new Promise<void>((r) => {
+      releaseCreate = r;
+    });
+    await route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "stub error after busy" }),
+    });
+  });
+
+  await page.goto("/");
+  const prompt = page.locator("#home-prompt");
+  await expect(prompt).toBeVisible({ timeout: 10000 });
+  await page.locator('input[name="home-mode"][value="image"]').check();
+  await prompt.fill("keyboard submit focus check");
+  await prompt.focus();
+
+  await prompt.press("Control+Enter");
+  const form = page.locator("form").first();
+  await expect(form).toHaveAttribute("aria-busy", "true");
+  await expect(form.locator('[aria-live="polite"]')).toHaveText("Queueing…");
+  await expect(prompt).toBeFocused();
+
+  releaseCreate!();
+  await expect(page.locator("#home-prompt-error")).toHaveText(
+    "stub error after busy",
+  );
+  await expect(form).not.toHaveAttribute("aria-busy", "true");
 });
