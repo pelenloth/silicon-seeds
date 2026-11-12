@@ -15,7 +15,7 @@ import {
 import { JobUpdates } from "../sse/job-updates";
 import { Lora } from "../styles/presets";
 import { Utils } from "../utils/utils";
-import { pickGalleryPage } from "../api/gallery-etag";
+import { clampGalleryLimit, pickGalleryPage } from "../media/gallery-page";
 
 export interface DbSchema {
   settings: {
@@ -1105,7 +1105,8 @@ export namespace DB {
     }
 
     export async function listItemsPage(options: ListItemsOptions = {}) {
-      const { cursor, type, limit = 20 } = options;
+      const { cursor, type } = options;
+      const limit = clampGalleryLimit(options.limit);
       const scanLimit = limit * 2;
 
       let query = DB.db

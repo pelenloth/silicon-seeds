@@ -9,7 +9,11 @@ import apiRoutes from "./api/index";
 import jobsRoutes from "./jobs/jobs";
 import { parseRange } from "./range";
 import { Thumbs } from "../media/thumb-service";
-import { clampThumbWidth, resolveMediaPath } from "../media/thumbs";
+import {
+  clampThumbWidth,
+  normalizeRelPath,
+  resolveMediaPath,
+} from "../media/thumbs";
 
 const app = new Hono();
 
@@ -145,13 +149,8 @@ app.use("/assets/*", async (c, next) => {
 // Serve media files under /assets/* from OUTPUT_DIR
 app.use("/assets/*", async (c) => {
   const rawRel = new URL(c.req.url).pathname.slice("/assets/".length);
-  let decodedRelPath: string;
-  try {
-    decodedRelPath = decodeURIComponent(rawRel).replace(/^\/+/, "");
-  } catch {
-    return c.text("Not found", 404);
-  }
-  const filePath = resolveMediaPath(Bun.env.OUTPUT_DIR ?? "", decodedRelPath);
+  const rel = normalizeRelPath(rawRel);
+  const filePath = rel ? resolveMediaPath(Bun.env.OUTPUT_DIR ?? "", rel) : null;
   if (!filePath) {
     return c.text("Not found", 404);
   }
@@ -227,13 +226,12 @@ app.use("/assets/*", async (c) => {
 // Serve cached CPU-only JPEG thumbnails under /thumbs/*
 app.get("/thumbs/*", async (c) => {
   const rawRel = new URL(c.req.url).pathname.slice("/thumbs/".length);
-  let rel: string;
-  try {
-    rel = decodeURIComponent(rawRel);
-  } catch {
+  const rel = normalizeRelPath(rawRel);
+  if (!rel) {
     return c.json({ error: "Not found" }, 404);
   }
   const result = await Thumbs.get(rel, clampThumbWidth(c.req.query("w")));
+
   if (!result.ok) {
     if (result.reason === "busy") {
       return c.json({ error: "Thumbnail service busy" }, 503, {

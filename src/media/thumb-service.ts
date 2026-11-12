@@ -33,6 +33,37 @@ export type ThumbResult =
 
 const NEGATIVE_CACHE_MAX = 500;
 const STALE_TMP_AGE_MS = 10 * 60 * 1000;
+const SWEEP_INTERVAL_MS = 10 * 60 * 1000;
+const STDERR_CAP_BYTES = 2048;
+
+async function readStderrCapped(
+  reader: ReadableStreamDefaultReader<Uint8Array> | null,
+): Promise<string> {
+  if (!reader) return "";
+  const chunks: Uint8Array[] = [];
+  let kept = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value && value.byteLength > 0 && kept < STDERR_CAP_BYTES) {
+        const take = Math.min(value.byteLength, STDERR_CAP_BYTES - kept);
+        chunks.push(
+          take === value.byteLength ? value : value.subarray(0, take),
+        );
+        kept += take;
+      }
+    }
+  } catch {}
+  if (kept === 0) return "";
+  const out = new Uint8Array(kept);
+  let offset = 0;
+  for (const c of chunks) {
+    out.set(c, offset);
+    offset += c.byteLength;
+  }
+  return new TextDecoder().decode(out);
+}
 
 export function createThumbService(deps: ThumbServiceDeps): {
   get(relPath: string, width: ThumbWidth): Promise<ThumbResult>;
@@ -45,7 +76,7 @@ export function createThumbService(deps: ThumbServiceDeps): {
   const now = deps.now ?? Date.now;
 
   let dirReady: Promise<unknown> | null = null;
-  let sweptTmp = false;
+  let lastSweepWallMs = 0;
 
   function ensureCacheDir(): Promise<unknown> {
     if (!dirReady) {
@@ -57,12 +88,18 @@ export function createThumbService(deps: ThumbServiceDeps): {
     return dirReady;
   }
 
-  async function sweepStaleTmpOnce(): Promise<void> {
-    if (sweptTmp) return;
-    sweptTmp = true;
+  async function sweepStaleTmp(): Promise<void> {
+    const wallNow = Date.now();
+    if (
+      lastSweepWallMs !== 0 &&
+      wallNow - lastSweepWallMs < SWEEP_INTERVAL_MS
+    ) {
+      return;
+    }
+    lastSweepWallMs = wallNow;
     try {
       const entries = await readdir(deps.cacheDir);
-      const cutoff = Date.now() - STALE_TMP_AGE_MS;
+      const cutoff = wallNow - STALE_TMP_AGE_MS;
       for (const name of entries) {
         if (!name.endsWith(".tmp.jpg")) continue;
         const full = path.join(deps.cacheDir, name);
@@ -144,7 +181,7 @@ export function createThumbService(deps: ThumbServiceDeps): {
       return "env-failed";
     }
 
-    await sweepStaleTmpOnce();
+    await sweepStaleTmp();
 
     try {
       const existing = await fsStat(out);
@@ -155,12 +192,24 @@ export function createThumbService(deps: ThumbServiceDeps): {
     let exitCode = -1;
     let stderrText = "";
     let timedOut = false;
+    let abandoned = false;
+    let proc: ThumbProcess;
 
     try {
-      const proc = deps.spawn([
-        "ffmpeg",
-        ...ffmpegThumbArgs(abs, tmp, width, kind),
-      ]);
+      proc = deps.spawn(["ffmpeg", ...ffmpegThumbArgs(abs, tmp, width, kind)]);
+    } catch (err) {
+      try {
+        Logger.warn(`[Thumbs] failed to spawn ffmpeg: ${String(err)}`);
+      } catch {}
+      return "env-failed";
+    }
+
+    try {
+      let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+      try {
+        reader = proc.stderr ? proc.stderr.getReader() : null;
+      } catch {}
+
       let killTimer: ReturnType<typeof setTimeout> | undefined;
       let abandonTimer: ReturnType<typeof setTimeout> | undefined;
       let resolveAbandon!: (res: [number, string]) => void;
@@ -178,8 +227,9 @@ export function createThumbService(deps: ThumbServiceDeps): {
             proc.kill("SIGKILL");
           } catch {}
           abandonTimer = setTimeout(() => {
+            abandoned = true;
             try {
-              void proc.stderr?.cancel().catch(() => {});
+              void reader?.cancel().catch(() => {});
             } catch {}
             resolveAbandon([-1, "timed out after SIGKILL"]);
           }, killGraceMs);
@@ -187,9 +237,7 @@ export function createThumbService(deps: ThumbServiceDeps): {
       }, timeoutMs);
 
       try {
-        const stderrPromise = proc.stderr
-          ? new Response(proc.stderr).text().catch(() => "")
-          : Promise.resolve("");
+        const stderrPromise = readStderrCapped(reader);
         const [code, stderr] = await Promise.race([
           Promise.all([proc.exited, stderrPromise]),
           abandonPromise,
@@ -202,14 +250,36 @@ export function createThumbService(deps: ThumbServiceDeps): {
         if (abandonTimer !== undefined) clearTimeout(abandonTimer);
       }
 
-      if (!timedOut && exitCode === 0) {
+      if (abandoned) {
+        const delayedRm = setTimeout(
+          () => {
+            void rm(tmp, { force: true }).catch(() => {});
+          },
+          Math.max(killGraceMs, 100),
+        );
+        delayedRm.unref?.();
+      } else if (!timedOut && exitCode === 0) {
+        let usable = false;
         try {
           const tmpStat = await fsStat(tmp);
-          if (tmpStat.isFile() && tmpStat.size > 0) {
+          usable = tmpStat.isFile() && tmpStat.size > 0;
+        } catch {}
+        if (usable) {
+          try {
             await rename(tmp, out);
             return "ok";
+          } catch (err) {
+            try {
+              await rm(tmp, { force: true });
+            } catch {}
+            try {
+              Logger.warn(
+                `[Thumbs] failed to rename thumbnail: ${String(err)}`,
+              );
+            } catch {}
+            return "env-failed";
           }
-        } catch {}
+        }
       }
     } catch (err) {
       stderrText = stderrText || String(err);

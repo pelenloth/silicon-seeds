@@ -127,12 +127,20 @@ export function takePage<T>(
   items: readonly T[],
   offset: number,
   limit: number,
-): { slice: T[]; hasMore: boolean } {
+  scan?: { scannedCount: number; scanLimit: number },
+): { slice: T[]; total: number; hasMore: boolean } {
   const safeOffset = Math.max(0, offset);
   const safeLimit = Math.max(0, limit);
   const end = safeOffset + safeLimit;
+  const hitScanCap = Boolean(
+    scan &&
+    scan.scanLimit > 0 &&
+    scan.scannedCount >= scan.scanLimit &&
+    items.length <= end,
+  );
   return {
     slice: items.slice(safeOffset, end),
-    hasMore: items.length > end,
+    total: Math.min(items.length, end),
+    hasMore: items.length > end || hitScanCap,
   };
 }

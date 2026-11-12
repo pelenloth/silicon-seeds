@@ -31,6 +31,7 @@ import {
 } from "../schemas";
 import { validationHook } from "../validation";
 import { galleryEtag } from "../gallery-etag";
+import { clampGalleryLimit } from "../../media/gallery-page";
 import {
   aggregateProgress,
   deriveJobKind,
@@ -222,10 +223,10 @@ app.get("/jobs/:jobId/media", async (c) => {
   const type = c.req.query("type") as string | undefined;
   const offset = parseInt(c.req.query("offset") ?? "0", 10);
   const limit = parseInt(c.req.query("limit") ?? "12", 10);
-  const offsetVal = Number.isNaN(offset) ? 0 : Math.max(0, offset);
-  const limitVal = Number.isNaN(limit)
-    ? 12
-    : Math.min(Math.max(1, limit), 1000);
+  const offsetVal =
+    Number.isNaN(offset) || offset < 0 ? 0 : Math.min(offset, 10000);
+  const limitVal =
+    Number.isNaN(limit) || limit <= 0 ? 12 : Math.min(limit, 1000);
   const effectiveType =
     type && type !== "all" ? (type as "image" | "video" | "audio") : undefined;
   function getOutputAssetPath(subfolder: string, filename: string) {
@@ -271,10 +272,12 @@ app.get("/jobs/:jobId/media", async (c) => {
       eb.or(extList.map((ext) => eb("meta.filename", "like", `%.${ext}`))),
     );
   }
+  const scanLimit = limitVal * 2 + offsetVal + 1;
   const results = await query
     .orderBy("meta.id", "desc")
-    .limit(limitVal * 2 + offsetVal + 1)
+    .limit(scanLimit)
     .execute();
+  const concurrency = 10;
   const items: Array<{
     meta_id: string;
     event_id: string;
@@ -286,31 +289,45 @@ app.get("/jobs/:jobId/media", async (c) => {
     job_name: string | null;
     mediaType: "image" | "video" | "audio";
   }> = [];
-  for (const row of results) {
-    const mediaType = mediaTypeFromFilename(row.filename);
-    if (!mediaType) continue;
-    if (effectiveType && mediaType !== effectiveType) continue;
-    const primaryPath = getAssetPathInternal(row.subfolder, row.filename);
-    const fallbackPath = getOutputAssetPath(row.subfolder, row.filename);
-    let exists = await Bun.file(primaryPath).exists();
-    if (!exists && primaryPath !== fallbackPath)
-      exists = await Bun.file(fallbackPath).exists();
-    if (!exists) continue;
-    items.push({
-      meta_id: row.meta_id,
-      event_id: row.event_id,
-      filename: row.filename,
-      subfolder: row.subfolder,
-      type: row.meta_type,
-      created_at: row.event_created_at,
-      job_id: row.job_id,
-      job_name: row.job_name ?? null,
-      mediaType,
-    });
+  for (let i = 0; i < results.length; i += concurrency) {
+    const chunk = results.slice(i, i + concurrency);
+    const chunkItems = await Promise.all(
+      chunk.map(async (row) => {
+        const mediaType = mediaTypeFromFilename(row.filename);
+        if (!mediaType) return null;
+        if (effectiveType && mediaType !== effectiveType) return null;
+        const primaryPath = getAssetPathInternal(row.subfolder, row.filename);
+        const fallbackPath = getOutputAssetPath(row.subfolder, row.filename);
+        let exists = await Bun.file(primaryPath).exists();
+        if (!exists && primaryPath !== fallbackPath)
+          exists = await Bun.file(fallbackPath).exists();
+        if (!exists) return null;
+        return {
+          meta_id: row.meta_id,
+          event_id: row.event_id,
+          filename: row.filename,
+          subfolder: row.subfolder,
+          type: row.meta_type,
+          created_at: row.event_created_at,
+          job_id: row.job_id,
+          job_name: row.job_name ?? null,
+          mediaType,
+        };
+      }),
+    );
+    for (const it of chunkItems) {
+      if (it) {
+        items.push(it);
+        if (items.length >= limitVal + offsetVal + 1) break;
+      }
+    }
     if (items.length >= limitVal + offsetVal + 1) break;
   }
-  const { slice, hasMore } = takePage(items, offsetVal, limitVal);
-  return c.json({ items: slice, total: items.length, hasMore });
+  const { slice, total, hasMore } = takePage(items, offsetVal, limitVal, {
+    scannedCount: results.length,
+    scanLimit,
+  });
+  return c.json({ items: slice, total, hasMore });
 });
 
 app.route("/settings", settingsRoutes);
@@ -322,8 +339,7 @@ app.route("/comfyui", comfyuiRoutes);
 app.get("/gallery/items", async (c) => {
   const cursor = c.req.query("cursor") as string | undefined;
   const type = c.req.query("type") as string | undefined;
-  const limit = parseInt(c.req.query("limit") || "20", 10);
-  const effectiveLimit = Number.isNaN(limit) ? 20 : limit;
+  const effectiveLimit = clampGalleryLimit(c.req.query("limit"));
   const effectiveType =
     type && type !== "all" ? (type as "image" | "video" | "audio") : undefined;
   const { items, nextCursor } = await DB.Gallery.listItemsPage({

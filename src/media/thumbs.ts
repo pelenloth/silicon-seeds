@@ -39,6 +39,19 @@ export function thumbKind(filename: string): "image" | "video" | null {
   return null;
 }
 
+/** Strip leading slashes, decode once, and strip any decoded leading slashes; null for malformed percent-encoding or empty result. */
+export function normalizeRelPath(raw: string): string | null {
+  try {
+    const decoded = decodeURIComponent(raw.replace(/^\/+/, "")).replace(
+      /^\/+/,
+      "",
+    );
+    return decoded || null;
+  } catch {
+    return null;
+  }
+}
+
 /** Absolute path of relPath inside outputDir, or null when relPath is empty, absolute, contains a NUL byte, or escapes outputDir after normalisation. */
 export function resolveMediaPath(
   outputDir: string,

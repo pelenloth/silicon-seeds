@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { writeFileSync } from "node:fs";
 import {
   mkdir,
   mkdtemp,
@@ -351,7 +352,7 @@ describe("createThumbService", () => {
       outputDir,
       cacheDir,
       timeoutMs: 20,
-      killGraceMs: 50,
+      killGraceMs: 250,
       spawn: (args) => {
         const outPath = args[args.length - 1];
         let resolveExit!: (code: number) => void;
@@ -363,9 +364,8 @@ describe("createThumbService", () => {
           stderr: null,
           kill: (sig) => {
             if (sig === "SIGTERM") {
-              void writeFile(outPath, "late-jpeg-bytes").then(() => {
-                resolveExit(0);
-              });
+              writeFileSync(outPath, "late-jpeg-bytes");
+              resolveExit(0);
             }
           },
         };
@@ -378,9 +378,10 @@ describe("createThumbService", () => {
     expect(files).toEqual([]);
   });
 
-  test("bounded wait after SIGKILL: if exited never resolves, get resolves failed and releases the slot", async () => {
+  test("bounded wait after SIGKILL: if exited never resolves, get resolves failed, cancels locked stderr reader, and releases the slot", async () => {
     await writeFile(path.join(outputDir, "zombie.mp4"), "video");
     await writeFile(path.join(outputDir, "next.png"), "image");
+    let stderrCancelled = false;
 
     const svc = createThumbService({
       outputDir,
@@ -398,6 +399,9 @@ describe("createThumbService", () => {
               start() {
                 // never closes
               },
+              cancel() {
+                stderrCancelled = true;
+              },
             }),
             kill: () => {},
           };
@@ -412,12 +416,13 @@ describe("createThumbService", () => {
 
     const r1 = await svc.get("zombie.mp4", 320);
     expect(r1).toEqual({ ok: false, reason: "failed" });
+    expect(stderrCancelled).toBe(true);
 
     const r2 = await svc.get("next.png", 320);
     expect(r2.ok).toBe(true);
   });
 
-  test("synchronous spawn throw returns failed, releases the slot and clears in-flight entry", async () => {
+  test("synchronous spawn throw returns failed without negative-caching, releases the slot and clears in-flight entry", async () => {
     await writeFile(path.join(outputDir, "boom.png"), "image1");
     await writeFile(path.join(outputDir, "after.png"), "image2");
     let throwFirst = true;
@@ -426,7 +431,7 @@ describe("createThumbService", () => {
       outputDir,
       cacheDir,
       maxConcurrent: 1,
-      failureTtlMs: 0,
+      failureTtlMs: 300_000,
       spawn: (args) => {
         if (throwFirst) {
           throwFirst = false;
@@ -448,46 +453,102 @@ describe("createThumbService", () => {
     const r2 = await svc.get("after.png", 320);
     expect(r2.ok).toBe(true);
 
-    // In-flight entry for boom.png was cleared so retrying boom.png spawns again and succeeds
+    // Environment error (spawn throw) was NOT negative-cached even with positive failureTtlMs, so retrying boom.png spawns again and succeeds
     const r3 = await svc.get("boom.png", 320);
     expect(r3.ok).toBe(true);
   });
 
-  test("drains stderr from a real ReadableStream that emits chunks before exit", async () => {
-    await writeFile(path.join(outputDir, "noisy.png"), "image");
-    let drained = false;
+  test("failed rename (environment error) returns failed without negative-caching so a retry can succeed", async () => {
+    const imgPath = path.join(outputDir, "rename-fail.png");
+    await writeFile(imgPath, "image-bytes");
+    let blockTargetDir = true;
+    let spawns = 0;
 
     const svc = createThumbService({
       outputDir,
       cacheDir,
+      failureTtlMs: 300_000,
+      spawn: (args) => {
+        spawns++;
+        const tmpPath = args[args.length - 1];
+        // Target out path is tmpPath without `.${uuid}.tmp.jpg`
+        const outPath = tmpPath.replace(/\.[0-9a-f-]{36}\.tmp\.jpg$/, "");
+        const exited = (async () => {
+          await writeFile(tmpPath, "valid-jpeg");
+          if (blockTargetDir) {
+            // Place a non-empty directory at outPath so rename(tmp, out) fails with EISDIR/ENOTEMPTY
+            await mkdir(path.join(outPath, "nested"), { recursive: true });
+          }
+          return 0;
+        })();
+        return { exited, stderr: null, kill: () => {} };
+      },
+    });
+
+    const r1 = await svc.get("rename-fail.png", 320);
+    expect(r1).toEqual({ ok: false, reason: "failed" });
+    expect(spawns).toBe(1);
+
+    // Unblock target path and retry immediately within failureTtlMs -> must NOT be negative-cached
+    blockTargetDir = false;
+    const entries = await readdir(cacheDir);
+    for (const entry of entries) {
+      await rm(path.join(cacheDir, entry), { recursive: true, force: true });
+    }
+
+    const r2 = await svc.get("rename-fail.png", 320);
+    expect(r2.ok).toBe(true);
+    expect(spawns).toBe(2);
+  });
+
+  test("drains stderr from a pull-based ReadableStream where exited resolves only after all chunks are pulled", async () => {
+    await writeFile(path.join(outputDir, "noisy.png"), "image");
+    let pulls = 0;
+
+    const svc = createThumbService({
+      outputDir,
+      cacheDir,
+      timeoutMs: 500,
+      killGraceMs: 50,
       spawn: () => {
         const enc = new TextEncoder();
+        const chunks = [
+          enc.encode("chunk-1 "),
+          enc.encode("chunk-2 "),
+          enc.encode("chunk-3"),
+        ];
         let exitResolve!: (code: number) => void;
         const exited = new Promise<number>((r) => {
           exitResolve = r;
         });
-        const stderr = new ReadableStream<Uint8Array>({
-          async start(controller) {
-            controller.enqueue(enc.encode("chunk-1 "));
-            await new Promise((r) => setTimeout(r, 5));
-            controller.enqueue(enc.encode("chunk-2 "));
-            await new Promise((r) => setTimeout(r, 5));
-            controller.enqueue(enc.encode("chunk-3"));
-            drained = true;
-            controller.close();
-            exitResolve(1);
+        const stderr = new ReadableStream<Uint8Array>(
+          {
+            pull(controller) {
+              pulls++;
+              const next = chunks.shift();
+              if (next) {
+                controller.enqueue(next);
+              } else {
+                controller.close();
+                exitResolve(1);
+              }
+            },
           },
-        });
+          { highWaterMark: 0 },
+        );
         return { exited, stderr, kill: () => {} };
       },
     });
 
     const res = await svc.get("noisy.png", 320);
     expect(res).toEqual({ ok: false, reason: "failed" });
-    expect(drained).toBe(true);
+    expect(pulls).toBe(4);
   });
 
-  test("hand-off order with maxConcurrent: 1 spawns A, B, C when C arrives in the same tick A finishes", async () => {
+  // Guards against the decrement-then-wake slot hand-off bug where decrementing activeCount
+  // before waking a queued waiter lets a new synchronous caller C observe activeCount < maxConcurrent
+  // and overtake queued waiter B.
+  test("hand-off order with maxConcurrent: 1 spawns A, B, C when A's completion does no I/O and C arrives in the same microtask A's exited resolves", async () => {
     await writeFile(path.join(outputDir, "a.png"), "a");
     await writeFile(path.join(outputDir, "b.png"), "b");
     await writeFile(path.join(outputDir, "c.png"), "c");
@@ -504,11 +565,10 @@ describe("createThumbService", () => {
         const name = path.basename(inputPath, ".png");
         order.push(name);
         const outPath = args[args.length - 1];
-        const exited = new Promise<void>((r) => {
-          gates.set(name, r);
-        }).then(async () => {
-          await writeFile(outPath, `jpeg-${name}`);
-          return 0;
+        // Write output file up front so completion after exited resolves does no I/O before releasing the slot
+        writeFileSync(outPath, `jpeg-${name}`);
+        const exited = new Promise<number>((r) => {
+          gates.set(name, () => r(0));
         });
         return { exited, stderr: null, kill: () => {} };
       },
@@ -519,9 +579,12 @@ describe("createThumbService", () => {
     const pB = svc.get("b.png", 320);
     await new Promise((r) => setTimeout(r, 10));
 
-    // Finish A and immediately enqueue C in the same tick
-    gates.get("a")?.();
-    const pC = svc.get("c.png", 320);
+    // Fire C's get in the same microtask in which A's exited resolves
+    let pC!: Promise<Awaited<typeof pA>>;
+    queueMicrotask(() => {
+      gates.get("a")?.();
+      pC = svc.get("c.png", 320);
+    });
 
     await new Promise((r) => setTimeout(r, 15));
     gates.get("b")?.();

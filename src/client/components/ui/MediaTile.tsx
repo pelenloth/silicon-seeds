@@ -17,6 +17,7 @@ export type MediaTileProps = {
   onOpen?: () => void;
   class?: string;
   aspect?: "video" | "square" | "photo";
+  /** Plain 1-based list position; shifts when newer items arrive ahead of it. */
   position?: number;
 };
 
@@ -42,6 +43,7 @@ export function MediaTile(props: MediaTileProps) {
   let v: HTMLVideoElement | undefined;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let thumbAttemptedRetry = false;
+  let lastPointerType: string | null = null;
 
   const [failed, setFailed] = createSignal(false);
   const [thumbRetry, setThumbRetry] = createSignal(false);
@@ -132,8 +134,22 @@ export function MediaTile(props: MediaTileProps) {
     }
   };
 
+  const onPointerDown = (e: PointerEvent) => {
+    lastPointerType = e.pointerType || null;
+  };
+
   const onPointerEnter = (e: PointerEvent) => {
     if (e.pointerType === "touch") return;
+    playVideo();
+  };
+
+  const onFocus = (e: FocusEvent & { currentTarget: HTMLButtonElement }) => {
+    if (lastPointerType === "touch") return;
+    try {
+      if (!e.currentTarget.matches(":focus-visible")) return;
+    } catch {
+      return;
+    }
     playVideo();
   };
 
@@ -153,9 +169,10 @@ export function MediaTile(props: MediaTileProps) {
       aria-label={accessibleName()}
       title={title()}
       onClick={() => props.onOpen?.()}
+      onPointerDown={onPointerDown}
       onPointerEnter={onPointerEnter}
       onPointerLeave={stopVideo}
-      onFocus={playVideo}
+      onFocus={onFocus}
       onBlur={stopVideo}
       class={`group relative block w-full overflow-hidden rounded-box border border-base-300 bg-base-300 ${ASPECT[props.aspect ?? "photo"]} ${props.class ?? ""}`}
     >

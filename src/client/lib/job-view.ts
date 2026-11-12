@@ -523,7 +523,9 @@ function isIdLikeStem(stem: string): boolean {
   if (!cleaned) return true;
   const tokens = cleaned.split(/[_-]+/).filter(Boolean);
   if (tokens.length === 0) return true;
-  return tokens.every((t) => /^\d+$/.test(t) || /^[0-9a-f]{6,}$/i.test(t));
+  return tokens.every(
+    (t) => /^\d+$/.test(t) || (/^[0-9a-f]{6,}$/i.test(t) && /\d/.test(t)),
+  );
 }
 
 export function mediaTitle(item: {

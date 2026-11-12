@@ -470,6 +470,23 @@ describe("mediaTitle and mediaKindLabel", () => {
     ).toBe("Untitled audio");
   });
 
+  test("mediaTitle keeps real hex-letter words (facade, decade, effaced) as titles while treating hex+digit tokens as id-like", () => {
+    for (const word of ["facade", "decade", "effaced"]) {
+      expect(
+        mediaTitle({
+          filename: `${word}.png`,
+          mediaType: "image",
+        }),
+      ).toBe(word);
+    }
+    expect(
+      mediaTitle({
+        filename: "a1b2c3d4e5f60001.png",
+        mediaType: "image",
+      }),
+    ).toBe("Untitled image");
+  });
+
   test("mediaTitle handles multi-dot extensions, embedded counters, UUIDs with or without trailing underscores, and whitespace-only job_name", () => {
     expect(
       mediaTitle({

@@ -100,6 +100,27 @@ describe("resolveMediaPath", () => {
   });
 });
 
+describe("normalizeRelPath", () => {
+  test("strips leading slashes, decodes once, and rejects malformed percent-encoding", async () => {
+    const { normalizeRelPath } = await import("./thumbs");
+    expect(normalizeRelPath("x.png")).toBe("x.png");
+    expect(normalizeRelPath("/x.png")).toBe("x.png");
+    expect(normalizeRelPath("//x.png")).toBe("x.png");
+    expect(normalizeRelPath("a%20b.png")).toBe("a b.png");
+    expect(normalizeRelPath("%E0%A4%A")).toBeNull();
+
+    const traversal = normalizeRelPath("..%2Fx");
+    expect(traversal).toBe("../x");
+    expect(resolveMediaPath("/data/out", traversal!)).toBeNull();
+
+    const encodedSlashes = normalizeRelPath("%2F%2Fetc/passwd");
+    expect(encodedSlashes).toBe("etc/passwd");
+    const resolved = resolveMediaPath("/data/out", encodedSlashes!);
+    expect(resolved).toBe("/data/out/etc/passwd");
+    expect(resolved?.startsWith("/data/out/")).toBe(true);
+  });
+});
+
 describe("thumbCacheFile", () => {
   test("is deterministic and width-specific", () => {
     expect(THUMB_VERSION).toBe(2);

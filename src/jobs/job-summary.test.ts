@@ -138,26 +138,60 @@ describe("media helpers", () => {
     expect(pickThumb([{ filename: "a.wav", subfolder: "" }])).toBeNull();
     expect(pickThumb([])).toBeNull();
   });
-  test("takePage slices items and reports hasMore when at least one item lies beyond the slice", async () => {
+  test("takePage slices items, computes total up to offset + limit, and reports hasMore from look-ahead or scan-cap", async () => {
     const { takePage } = await import("./job-summary");
     expect(takePage(["a", "b", "c"], 0, 2)).toEqual({
       slice: ["a", "b"],
+      total: 2,
       hasMore: true,
     });
     expect(takePage(["a", "b"], 0, 2)).toEqual({
       slice: ["a", "b"],
+      total: 2,
       hasMore: false,
     });
     expect(takePage(["a", "b", "c", "d"], 1, 2)).toEqual({
       slice: ["b", "c"],
+      total: 3,
       hasMore: true,
     });
     expect(takePage(["a", "b", "c"], 1, 2)).toEqual({
       slice: ["b", "c"],
+      total: 3,
       hasMore: false,
     });
     expect(takePage([], 0, 12)).toEqual({
       slice: [],
+      total: 0,
+      hasMore: false,
+    });
+    // offset past the end
+    expect(takePage(["a", "b"], 5, 2)).toEqual({
+      slice: [],
+      total: 2,
+      hasMore: false,
+    });
+    // limit 0
+    expect(takePage(["a", "b"], 0, 0)).toEqual({
+      slice: [],
+      total: 0,
+      hasMore: true,
+    });
+    // negative input
+    expect(takePage(["a", "b", "c"], -3, -2)).toEqual({
+      slice: [],
+      total: 0,
+      hasMore: true,
+    });
+    // scan-cap case: fewer than offset + limit + 1 existing items found, but scan hit its cap
+    expect(takePage(["a"], 0, 2, { scannedCount: 5, scanLimit: 5 })).toEqual({
+      slice: ["a"],
+      total: 1,
+      hasMore: true,
+    });
+    expect(takePage(["a"], 0, 2, { scannedCount: 4, scanLimit: 5 })).toEqual({
+      slice: ["a"],
+      total: 1,
       hasMore: false,
     });
   });
