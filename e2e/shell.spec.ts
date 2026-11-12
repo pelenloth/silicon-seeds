@@ -44,10 +44,12 @@ test("shell: labeled nav, active item, titles, palette, activity, new menu, coll
   const palette = page.getByRole("dialog", { name: "Command palette" });
   await expect(palette).toBeVisible();
   await palette.getByRole("combobox").fill("sett");
-  await expect(
-    palette.getByRole("option", { name: "Settings", exact: true }),
-  ).toBeVisible();
-  await page.keyboard.press("Enter");
+  const settingsOpt = palette.getByRole("option", {
+    name: "Settings",
+    exact: true,
+  });
+  await expect(settingsOpt).toBeVisible();
+  await settingsOpt.click();
   await expect(page).toHaveURL(/\/settings/);
   await expect(palette).toBeHidden();
 
@@ -130,7 +132,10 @@ test("shell: unknown routes show a not-found page", async ({ page }) => {
     timeout: 10000,
   });
   await page.getByRole("link", { name: "Go home" }).click();
-  await expect(page).not.toHaveURL(/definitely/);
+  await expect(page).toHaveURL(/\/$/);
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Home" }),
+  ).toBeVisible();
 });
 
 test("shell: the command palette is centered and thumbnails are served", async ({

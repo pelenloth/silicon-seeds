@@ -17,12 +17,13 @@ function lazyPage(loader: () => Promise<{ default: Component }>) {
   );
 }
 
+const Home = lazyPage(() => import("./pages/Home"));
 const Jobs = lazyPage(() => import("./pages/Jobs"));
 
 export default function App() {
   return (
     <Router root={AppShell}>
-      <Route path="/" component={() => <Navigate href="/jobs" />} />
+      <Route path="/" component={Home} />
       <Route path="/dashboard" component={() => <Navigate href="/" />} />
       <Route path="/jobs" component={Jobs} />
       <Route path="/jobs/:jobId" component={Jobs} />

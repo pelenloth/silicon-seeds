@@ -23,6 +23,7 @@ export function StylePresetSelect(props: {
   id?: string;
   class?: string;
   value?: string;
+  ariaLabel?: string;
   onChange?: (v: string) => void;
 }) {
   let selectRef: HTMLSelectElement | undefined;
@@ -71,6 +72,7 @@ export function StylePresetSelect(props: {
         ref={selectRef}
         name={props.name ?? "style_preset"}
         id={props.id}
+        aria-label={props.ariaLabel}
         class={props.class ?? "select select-sm w-full"}
         value={props.value ?? "none"}
         onChange={(e) => props.onChange?.(e.currentTarget.value)}

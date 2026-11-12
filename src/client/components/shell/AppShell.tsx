@@ -113,7 +113,14 @@ export default function AppShell(props: ParentProps) {
         if (mainRef) {
           mainRef.scrollTop = 0;
           if (firstSegment(pathname) !== firstSegment(prev)) {
-            mainRef.focus();
+            const homeManagesFocus =
+              pathname === "/" &&
+              typeof window !== "undefined" &&
+              typeof window.matchMedia === "function" &&
+              window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+            if (!homeManagesFocus) {
+              mainRef.focus();
+            }
           }
         }
       },

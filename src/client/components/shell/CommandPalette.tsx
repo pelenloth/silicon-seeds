@@ -7,18 +7,23 @@ import {
   onCleanup,
   Show,
 } from "solid-js";
+import { ApiError } from "../../lib/api-client";
+import { quickCreateValues, submitCreateJob } from "../../lib/create-job";
 import {
   buildCommands,
   filterCommands,
   type Command,
   type CommandGroup,
+  type QuickKind,
 } from "../../lib/palette";
 import { ROUTES } from "../../lib/routes";
 import { THEMES, type ThemePref } from "../../lib/themes";
-import { jobs } from "../../stores/jobs";
+import { jobs, refreshJobs } from "../../stores/jobs";
 import { registerOverlay, unregisterOverlay } from "../../stores/overlays";
+import { generationDefaults } from "../../stores/settings";
 import { paletteOpen, setPaletteOpen } from "../../stores/shell";
 import { setThemePref } from "../../stores/theme";
+import { toast } from "../../stores/toast";
 import { Icons } from "../Icons";
 import { ToastRegion } from "../ui/Toaster";
 
@@ -39,6 +44,7 @@ export function CommandPalette() {
   let inputRef!: HTMLInputElement;
   let listRef!: HTMLUListElement;
   let closingProgrammatically = false;
+  let quickCreateInFlight = false;
   let currentOverlayId: number | null = null;
   const [overlayId, setOverlayId] = createSignal<number | null>(null);
 
@@ -54,6 +60,37 @@ export function CommandPalette() {
     releaseOverlay();
   });
 
+  const handleQuickCreate = (kind: QuickKind, text: string) => {
+    if (quickCreateInFlight) return;
+    quickCreateInFlight = true;
+    const createKind = kind === "video" ? "text-to-video" : kind;
+    void submitCreateJob(
+      createKind,
+      quickCreateValues(createKind, text, generationDefaults()),
+    )
+      .then(({ jobId }) => {
+        void refreshJobs();
+        toast.success(`Queued ${kind}`, {
+          action: {
+            label: "View",
+            href: `/jobs/${encodeURIComponent(jobId)}`,
+          },
+        });
+      })
+      .catch((e) => {
+        toast.error(
+          e instanceof ApiError
+            ? e.message
+            : e instanceof Error
+              ? e.message
+              : "Could not queue the job",
+        );
+      })
+      .finally(() => {
+        quickCreateInFlight = false;
+      });
+  };
+
   const commands = createMemo<Command[]>(() => {
     if (!paletteOpen()) return [];
     const q = query();
@@ -65,6 +102,7 @@ export function CommandPalette() {
         themes: THEME_OPTIONS,
         navigate: (p) => navigate(p),
         setTheme: (id) => setThemePref(id as ThemePref),
+        quickCreate: handleQuickCreate,
       }),
       q,
     );
