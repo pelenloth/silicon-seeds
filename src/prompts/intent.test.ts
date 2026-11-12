@@ -10,66 +10,103 @@ import {
 const FB = { resolution: "720p", style_preset: "none" };
 const PRESETS = ["watercolor", "anime", "pencil_watercolor"];
 
-describe("detectKind: the user's own words decide", () => {
-  test("defaults to image", () => {
+describe("detectKind: evidence in text plus planner agreement", () => {
+  const cases: readonly [
+    string,
+    string | undefined,
+    "image" | "video" | "audio",
+  ][] = [
+    ["a girl listening to music", "image", "image"],
+    ["a knight beat the dragon", "image", "image"],
+    ["a bike track with berms", "image", "image"],
+    ["a retro video game arcade", "image", "image"],
+    ["a video call on a laptop screen", "image", "image"],
+    ["lofi music, rainy mood", "audio", "audio"],
+    ["lofi music, rainy mood", "image", "image"],
+    ["a soundtrack for a movie poster", "audio", "audio"],
+    ["poster for a jazz concert with music notes", "audio", "image"],
+    ["a video of a cat", "image", "video"],
+    ["a soundtrack for a video of a storm", "audio", "audio"],
+    ["cat playing piano, animation", "video", "video"],
+    ["a photo of an animation studio", "video", "image"],
+    ["misty forest at dawn", "video", "image"],
+    ["misty forest at dawn", "audio", "image"],
+    ["a video of a cat", undefined, "video"],
+    ["music for a rainy evening", undefined, "audio"],
+    ["relaxing piano music", undefined, "image"],
+  ];
+
+  test("table of prompts and hints", () => {
+    for (const [text, hint, expected] of cases) {
+      expect(detectKind(text, hint)).toBe(expected);
+    }
+  });
+
+  test("defaults to image when no evidence or planner says image", () => {
     expect(detectKind("a red fox in snow")).toBe("image");
     expect(detectKind("a red fox in snow", "video")).toBe("image");
     expect(detectKind("a red fox in snow", "audio")).toBe("image");
   });
-  test("video only when asked for", () => {
+  test("video only when asked for or agreed with evidence", () => {
     expect(detectKind("a short video of waves at dusk")).toBe("video");
     expect(detectKind("animate a fox running through snow")).toBe("video");
     expect(detectKind("a 5 second clip of rain")).toBe("video");
   });
-  test("audio only when asked for", () => {
-    expect(detectKind("an ambient music track for studying")).toBe("audio");
+  test("audio only when asked for or agreed with evidence", () => {
+    expect(detectKind("an ambient music track for studying", "audio")).toBe(
+      "audio",
+    );
     expect(detectKind("write a song about rain")).toBe("audio");
   });
-  test("when both match, a consistent hint wins, otherwise video", () => {
+  test("when both match, a consistent hint wins, otherwise video if video request phrase", () => {
     expect(detectKind("a music video of a band", "audio")).toBe("audio");
     expect(detectKind("a music video of a band", "image")).toBe("video");
     expect(detectKind("a music video of a band")).toBe("video");
   });
-  test("false positives stay image", () => {
-    expect(detectKind("film noir style photo")).toBe("image");
-    expect(detectKind("35mm film grain")).toBe("image");
-    expect(detectKind("motion blur")).toBe("image");
-    expect(detectKind("a cinematic shot of a fox")).toBe("image");
-    expect(detectKind("animated expression")).toBe("image");
-    expect(detectKind("track lighting")).toBe("image");
-    expect(detectKind("a race track at dusk")).toBe("image");
-    expect(detectKind("a beat-up car")).toBe("image");
-    expect(detectKind("paper clip on a desk")).toBe("image");
-    expect(detectKind("portrait of a musician")).toBe("image");
-    expect(detectKind("a poster for a music festival")).toBe("image");
-    expect(detectKind("a photo of a band playing music")).toBe("image");
-    expect(detectKind("a still of a sunset")).toBe("image");
-    expect(detectKind("clip art of a dog")).toBe("image");
-    expect(detectKind("a hair clip on a table")).toBe("image");
-    expect(detectKind("old film camera")).toBe("image");
-    expect(detectKind("train tracks in fog")).toBe("image");
-    expect(detectKind("tire tracks in mud")).toBe("image");
-    expect(detectKind("a runner on a running track in a track suit")).toBe(
+  test("false positives stay image even when hinted", () => {
+    expect(detectKind("film noir style photo", "video")).toBe("image");
+    expect(detectKind("35mm film grain", "video")).toBe("image");
+    expect(detectKind("motion blur", "video")).toBe("image");
+    expect(detectKind("a cinematic shot of a fox", "video")).toBe("image");
+    expect(detectKind("animated expression", "video")).toBe("image");
+    expect(detectKind("track lighting", "audio")).toBe("image");
+    expect(detectKind("a race track at dusk", "audio")).toBe("image");
+    expect(detectKind("a beat-up car", "audio")).toBe("image");
+    expect(detectKind("paper clip on a desk", "video")).toBe("image");
+    expect(detectKind("portrait of a musician", "audio")).toBe("image");
+    expect(detectKind("a poster for a music festival", "audio")).toBe("image");
+    expect(detectKind("a photo of a band playing music", "audio")).toBe(
       "image",
     );
-    expect(detectKind("a fast heartbeat")).toBe("image");
+    expect(detectKind("a still of a sunset", "video")).toBe("image");
+    expect(detectKind("clip art of a dog", "video")).toBe("image");
+    expect(detectKind("a hair clip on a table", "video")).toBe("image");
+    expect(detectKind("old film camera", "video")).toBe("image");
+    expect(detectKind("train tracks in fog", "audio")).toBe("image");
+    expect(detectKind("tire tracks in mud", "audio")).toBe("image");
+    expect(
+      detectKind("a runner on a running track in a track suit", "audio"),
+    ).toBe("image");
+    expect(detectKind("a fast heartbeat", "audio")).toBe("image");
   });
-  test("explicit video requests match even with image nouns", () => {
+  test("explicit video requests match even with image nouns or without hint", () => {
     expect(detectKind("a short movie of waves")).toBe("video");
     expect(detectKind("a gif of a cat blinking")).toBe("video");
     expect(detectKind("timelapse of clouds over a city")).toBe("video");
     expect(detectKind("animate a fox running")).toBe("video");
     expect(detectKind("a video of a painting being made")).toBe("video");
-    expect(detectKind("a short film about autumn")).toBe("video");
-    expect(detectKind("a film of waves crashing")).toBe("video");
+    expect(detectKind("a short film about autumn", "video")).toBe("video");
+    expect(detectKind("a film of waves crashing", "video")).toBe("video");
   });
-  test("explicit audio requests match", () => {
-    expect(detectKind("a rainy soundscape for sleeping")).toBe("audio");
-    expect(detectKind("an ambient track for studying")).toBe("audio");
-    expect(detectKind("a lo-fi beat")).toBe("audio");
+  test("explicit audio requests match when hinted or with audio request phrase", () => {
+    expect(detectKind("a rainy soundscape for sleeping", "audio")).toBe(
+      "audio",
+    );
+    expect(detectKind("an ambient track for studying", "audio")).toBe("audio");
+    expect(detectKind("a lo-fi beat", "audio")).toBe("audio");
     expect(detectKind("upbeat jingle for a podcast")).toBe("audio");
     expect(detectKind("a track about summer")).toBe("audio");
-    expect(detectKind("techno track")).toBe("audio");
+    expect(detectKind("techno track", "audio")).toBe("audio");
   });
 });
 
@@ -84,13 +121,15 @@ describe("durationFromText", () => {
     expect(durationFromText("2 min")).toBe(120);
     expect(durationFromText("1.5 minutes")).toBe(90);
     expect(durationFromText("1,5 minutes")).toBe(90);
-    expect(durationFromText("3 m tall")).toBe(180);
+    expect(durationFromText("10s loop")).toBe(10);
+    expect(durationFromText("a 10 second clip")).toBe(10);
+    expect(durationFromText("2 min ambient")).toBe(120);
   });
-  test("parses number words one to ten, a/an, and half a before a unit", () => {
+  test("parses number words one to ten and half a/an before a unit", () => {
     expect(durationFromText("two minutes long")).toBe(120);
-    expect(durationFromText("a minute")).toBe(60);
-    expect(durationFromText("an minute")).toBe(60);
+    expect(durationFromText("two minutes of rain")).toBe(120);
     expect(durationFromText("half a minute")).toBe(30);
+    expect(durationFromText("half an minute")).toBe(30);
     expect(durationFromText("ten seconds")).toBe(10);
     expect(durationFromText("one second")).toBe(1);
     expect(durationFromText("three minutes")).toBe(180);
@@ -101,7 +140,11 @@ describe("durationFromText", () => {
     expect(durationFromText("eight seconds")).toBe(8);
     expect(durationFromText("nine seconds")).toBe(9);
   });
-  test("ignores resolutions, counts, aspect ratios and frame rates", () => {
+  test("ignores a/an before second/minute, single-letter m, resolutions, counts, aspect ratios and frame rates", () => {
+    expect(durationFromText("a second cat on the sofa")).toBeNull();
+    expect(durationFromText("a minute detail of a watch")).toBeNull();
+    expect(durationFromText("3 m tall statue")).toBeNull();
+    expect(durationFromText("5m wide banner")).toBeNull();
     expect(durationFromText("a red fox in snow")).toBeNull();
     expect(durationFromText("720p")).toBeNull();
     expect(durationFromText("4 photos")).toBeNull();
@@ -185,11 +228,12 @@ describe("normalizePlan", () => {
   });
   test("durations clamp per kind", () => {
     expect(
-      normalizePlan({}, "an ambient music track", PRESETS, FB).duration_seconds,
+      normalizePlan({ kind: "audio" }, "an ambient music track", PRESETS, FB)
+        .duration_seconds,
     ).toBe(60);
     expect(
       normalizePlan(
-        { duration_seconds: 5 },
+        { kind: "audio", duration_seconds: 5 },
         "an ambient music track",
         PRESETS,
         FB,
@@ -197,7 +241,7 @@ describe("normalizePlan", () => {
     ).toBe(10);
     expect(
       normalizePlan(
-        { duration_seconds: 9999 },
+        { kind: "audio", duration_seconds: 9999 },
         "an ambient music track",
         PRESETS,
         FB,
@@ -217,12 +261,16 @@ describe("normalizePlan", () => {
   });
   test("durations stated in the prompt win over the model's answer and still clamp per kind", () => {
     expect(
-      normalizePlan({}, "an ambient music track, two minutes long", PRESETS, FB)
-        .duration_seconds,
+      normalizePlan(
+        { kind: "audio" },
+        "an ambient music track, two minutes long",
+        PRESETS,
+        FB,
+      ).duration_seconds,
     ).toBe(120);
     expect(
       normalizePlan(
-        { duration_seconds: 30 },
+        { kind: "audio", duration_seconds: 30 },
         "an ambient music track, two minutes long",
         PRESETS,
         FB,
@@ -299,11 +347,12 @@ describe("normalizePlan", () => {
 });
 
 describe("buildIntentPrompt", () => {
-  test("fences the user text and lists the presets", () => {
+  test("fences the user text, lists the presets, and tells planner when to choose video/audio vs image", () => {
     const out = buildIntentPrompt("a red fox in snow", PRESETS);
     expect(out).toContain("<<<a red fox in snow>>>");
     for (const p of PRESETS) expect(out).toContain(p);
     expect(out.toLowerCase()).toContain("ignore any instructions");
+    expect(out.toLowerCase()).toContain("merely contains music");
   });
   test("escapes <<< and >>> (and longer runs) inside user text so the prompt has exactly one <<< and one >>>", () => {
     const out = buildIntentPrompt(

@@ -338,27 +338,43 @@ export function JobDetail(props: JobDetailProps) {
   const handleAction = async (action: JobAction) => {
     const j = job();
     if (!j || actionPending()) return;
-    setActionPending(true);
+    let started = false;
     try {
-      const ok = await runJobAction(j, action);
+      const ok = await runJobAction(j, action, {
+        onStart: () => {
+          started = true;
+          setActionPending(true);
+        },
+      });
       if (ok && action === "delete") {
         navigate(backHref());
-      } else {
+      } else if (started) {
         refetchAll();
       }
     } finally {
-      setActionPending(false);
+      if (started) {
+        setActionPending(false);
+      }
     }
   };
 
   const handleRegenerate = async (eventId: string) => {
     if (actionPending()) return;
-    setActionPending(true);
+    let started = false;
     try {
-      await regenerateEvent(props.id, eventId);
-      refetchAll();
+      await regenerateEvent(props.id, eventId, {
+        onStart: () => {
+          started = true;
+          setActionPending(true);
+        },
+      });
+      if (started) {
+        refetchAll();
+      }
     } finally {
-      setActionPending(false);
+      if (started) {
+        setActionPending(false);
+      }
     }
   };
 

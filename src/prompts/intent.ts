@@ -1,4 +1,7 @@
 import z from "zod/v3";
+import type { Plan, PlanKind } from "../shared/plan";
+
+export type { Plan, PlanKind };
 
 export const IntentSchema = z.object({
   kind: z.enum(["image", "video", "audio"]),
@@ -11,15 +14,6 @@ export const IntentSchema = z.object({
 });
 
 export type RawIntent = z.infer<typeof IntentSchema>;
-export type PlanKind = "image" | "video" | "audio";
-export type Plan = {
-  kind: PlanKind;
-  prompt: string;
-  count: number;
-  resolution: string;
-  style_preset: string;
-  duration_seconds: number;
-};
 
 // Explicit image nouns (plural optional) that force image unless a video request phrase is also present.
 const IMAGE_NOUNS = [
@@ -193,6 +187,9 @@ const AUDIO_TRACK_PRECEDED_RE = new RegExp(
 const AUDIO_TRACK_FOLLOWED_RE =
   /\btracks?\s+(?:for|about|with|in\s+the\s+style)\b/;
 
+const AUDIO_REQUEST_OVERRIDE_RE =
+  /\b(?:music|songs?|soundtracks?|jingles?|melod(?:y|ies)|scores?|themes?|tracks?|beats?|audio|sounds?)\s+(?:for|about)\b/;
+
 function normalizeText(text: string): string {
   return text.toLowerCase().replace(/\s+/g, " ").trim();
 }
@@ -203,6 +200,10 @@ function hasExplicitImageNoun(norm: string): boolean {
 
 function hasVideoRequestPhrase(norm: string): boolean {
   return VIDEO_REQUEST_OVERRIDE_RE.test(norm);
+}
+
+function hasAudioRequestPhrase(norm: string): boolean {
+  return AUDIO_REQUEST_OVERRIDE_RE.test(norm);
 }
 
 function hasVideoMatch(norm: string): boolean {
@@ -233,16 +234,26 @@ function hasAudioMatch(norm: string): boolean {
 
 export function detectKind(text: string, hinted?: string | null): PlanKind {
   const norm = normalizeText(text);
-  if (hasExplicitImageNoun(norm)) {
-    return hasVideoRequestPhrase(norm) ? "video" : "image";
+  const hint: PlanKind | undefined =
+    hinted === "image" || hinted === "video" || hinted === "audio"
+      ? hinted
+      : undefined;
+  if (hint === undefined) {
+    if (hasVideoRequestPhrase(norm)) return "video";
+    if (hasAudioRequestPhrase(norm)) return "audio";
+    return "image";
   }
-  const v = hasVideoMatch(norm);
-  const a = hasAudioMatch(norm);
-  if (v && a) {
-    return hinted === "audio" ? "audio" : "video";
+  if (hasVideoRequestPhrase(norm) && hint !== "audio") return "video";
+  if (hint === "video" && hasVideoMatch(norm) && !hasExplicitImageNoun(norm)) {
+    return "video";
   }
-  if (v) return "video";
-  if (a) return "audio";
+  if (
+    hint === "audio" &&
+    hasAudioMatch(norm) &&
+    (!hasExplicitImageNoun(norm) || hasAudioRequestPhrase(norm))
+  ) {
+    return "audio";
+  }
   return "image";
 }
 
@@ -277,8 +288,6 @@ function clampRound(
 const WORD_NUMBERS: Record<string, number> = {
   "half a": 0.5,
   "half an": 0.5,
-  a: 1,
-  an: 1,
   one: 1,
   two: 2,
   three: 3,
@@ -291,11 +300,12 @@ const WORD_NUMBERS: Record<string, number> = {
   ten: 10,
 };
 
-// Matches digits with a seconds/minutes unit (including single-letter s/m, so
-// phrases like "3 m tall" are acceptable matches) or the number words one-ten,
-// a/an, and half a before seconds/sec/minutes/min. Takes the first match.
+// Matches digits with a seconds/minutes unit (s, sec(s), second(s), min(s),
+// minute(s); single-letter m is excluded so phrases like "3 m tall" do not match)
+// or the number words one-ten and half a/an before seconds/sec/minutes/min.
+// Takes the first match.
 const DURATION_RE =
-  /\b(?:(\d+(?:[.,]\d+)?)\s*-?\s*(seconds?|secs?|s|minutes?|mins?|m)|((?:half\s+an?)|one|two|three|four|five|six|seven|eight|nine|ten|an?)[\s-]+(seconds?|secs?|minutes?|mins?))\b/i;
+  /\b(?:(\d+(?:[.,]\d+)?)\s*-?\s*(seconds?|secs?|s|minutes?|mins?)|((?:half\s+an?)|one|two|three|four|five|six|seven|eight|nine|ten)[\s-]+(seconds?|secs?|minutes?|mins?))\b/i;
 
 export function durationFromText(text: string): number | null {
   const m = DURATION_RE.exec(text);
@@ -379,7 +389,7 @@ export function buildIntentPrompt(
     .replace(/<{3,}/g, (m) => "‹".repeat(m.length))
     .replace(/>{3,}/g, (m) => "›".repeat(m.length));
   return `Plan a media generation job from the user's request and return JSON matching the schema keys:
-- kind: "image" unless the user explicitly asks for a video/clip/animation ("video") or music/song/audio ("audio")
+- kind: choose "video" or "audio" only when the user asks for a video/animation/clip or for music/sound; a scene that merely contains music, a screen, a film set or a game is an "image"
 - prompt: the user's request rewritten as a clean generation prompt in the user's language, without counts, sizes or format words
 - count: only if the user gives a number of images
 - orientation: "landscape" or "portrait", only if stated

@@ -299,10 +299,12 @@ const ACTION_VERB: Record<JobAction, string> = {
 };
 
 const inFlightJobActions = new Set<string>();
+const inFlightRegenEvents = new Set<string>();
 
 export async function runJobAction(
   job: { id: string; name: string },
   action: JobAction,
+  opts?: { onStart?: () => void },
 ): Promise<boolean> {
   const key = `${job.id}:${action}`;
   if (inFlightJobActions.has(key)) return false;
@@ -327,6 +329,7 @@ export async function runJobAction(
       if (!ok) return false;
     }
 
+    opts?.onStart?.();
     const encodedId = encodeURIComponent(job.id);
     try {
       if (action === "delete") {
@@ -356,30 +359,40 @@ export async function runJobAction(
 export async function regenerateEvent(
   jobId: string,
   eventId: string,
+  opts?: { onStart?: () => void },
 ): Promise<boolean> {
-  const ok = await confirmDialog({
-    title: "Regenerate this output?",
-    body: "The current file is replaced.",
-    confirmLabel: "Regenerate",
-  });
-  if (!ok) return false;
+  const key = `${jobId}:${eventId}`;
+  if (inFlightRegenEvents.has(key)) return false;
+  inFlightRegenEvents.add(key);
 
   try {
-    await apiSend(
-      "POST",
-      `/api/jobs/${encodeURIComponent(jobId)}/events/${encodeURIComponent(eventId)}/regenerate`,
-    );
-    toast.success("Regenerating…");
-    await refreshJobs();
-    return true;
-  } catch (err) {
-    const msg =
-      err instanceof ApiError
-        ? err.message
-        : err instanceof Error
+    const ok = await confirmDialog({
+      title: "Regenerate this output?",
+      body: "The current file is replaced.",
+      confirmLabel: "Regenerate",
+    });
+    if (!ok) return false;
+
+    opts?.onStart?.();
+    try {
+      await apiSend(
+        "POST",
+        `/api/jobs/${encodeURIComponent(jobId)}/events/${encodeURIComponent(eventId)}/regenerate`,
+      );
+      toast.success("Regenerating…");
+      await refreshJobs();
+      return true;
+    } catch (err) {
+      const msg =
+        err instanceof ApiError
           ? err.message
-          : "Regenerate failed";
-    toast.error(msg);
-    return false;
+          : err instanceof Error
+            ? err.message
+            : "Regenerate failed";
+      toast.error(msg);
+      return false;
+    }
+  } finally {
+    inFlightRegenEvents.delete(key);
   }
 }

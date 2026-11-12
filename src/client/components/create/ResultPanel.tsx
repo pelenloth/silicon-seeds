@@ -458,12 +458,21 @@ export function ResultPanel(props: ResultPanelProps) {
   const handleAction = async (action: JobAction) => {
     const j = job();
     if (!j || actionPending()) return;
-    setActionPending(true);
+    let started = false;
     try {
-      await runJobAction(j, action);
-      refetchAll();
+      await runJobAction(j, action, {
+        onStart: () => {
+          started = true;
+          setActionPending(true);
+        },
+      });
+      if (started) {
+        refetchAll();
+      }
     } finally {
-      setActionPending(false);
+      if (started) {
+        setActionPending(false);
+      }
     }
   };
 

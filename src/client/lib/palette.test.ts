@@ -27,7 +27,7 @@ describe("palette", () => {
     const { c } = ctx();
     const cmds = filterCommands(buildCommands(c), "");
     expect(cmds.filter((x) => x.group === "Go to").length).toBe(
-      ROUTES.length + 4,
+      ROUTES.filter((r) => !r.hidden).length + 4,
     );
     expect(cmds.filter((x) => x.group === "Jobs").map((x) => x.label)).toEqual([
       "Desert Dunes",

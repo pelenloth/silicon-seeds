@@ -22,6 +22,7 @@ export type PaletteContext = {
 export function buildCommands(ctx: PaletteContext): Command[] {
   const out: Command[] = [];
   for (const r of ctx.routes) {
+    if (r.hidden) continue;
     out.push({
       id: `goto-${r.path}`,
       group: "Go to",

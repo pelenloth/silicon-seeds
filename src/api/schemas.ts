@@ -38,7 +38,7 @@ export const PostTextToImageSchema = z.object({
     .max(2000)
     .optional()
     .transform((v) => (v && v.length > 0 ? v : undefined)),
-  batch_size: z.coerce.number().int().positive().optional(),
+  batch_size: z.coerce.number().int().positive().max(16).optional(),
   loras: LorasPreprocess,
 });
 

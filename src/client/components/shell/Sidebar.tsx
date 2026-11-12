@@ -19,9 +19,9 @@ import {
 } from "../../stores/shell";
 import { Icons, ROUTE_ICONS } from "../Icons";
 
-const MAIN_ROUTES = ROUTES.filter((r) => r.group === "main");
-const CREATE_ROUTES = ROUTES.filter((r) => r.group === "create");
-const FOOTER_ROUTES = ROUTES.filter((r) => r.group === "footer");
+const MAIN_ROUTES = ROUTES.filter((r) => !r.hidden && r.group === "main");
+const CREATE_ROUTES = ROUTES.filter((r) => !r.hidden && r.group === "create");
+const FOOTER_ROUTES = ROUTES.filter((r) => !r.hidden && r.group === "footer");
 
 export function Sidebar() {
   const location = useLocation();

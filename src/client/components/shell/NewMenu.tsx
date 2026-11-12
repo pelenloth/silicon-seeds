@@ -5,7 +5,7 @@ import { onDismiss } from "../../lib/dismiss";
 import { ROUTES } from "../../lib/routes";
 import { Icons, ROUTE_ICONS } from "../Icons";
 
-const CREATE_ROUTES = ROUTES.filter((r) => r.group === "create");
+const CREATE_ROUTES = ROUTES.filter((r) => !r.hidden && r.group === "create");
 
 export function NewMenu() {
   const [open, setOpen] = createSignal(false);

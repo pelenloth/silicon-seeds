@@ -434,8 +434,10 @@ describe("plans", () => {
     expect(isPlan({ ...base, resolution: "9_16_SD" })).toBe(true);
     expect(isPlan({ ...base, resolution: "9_16_HD" })).toBe(true);
     expect(isPlan({ ...base, resolution: "4k" })).toBe(false);
-    // style_preset: non-empty string
+    // style_preset: non-empty string of at most 50 characters
     expect(isPlan({ ...base, style_preset: "   " })).toBe(false);
+    expect(isPlan({ ...base, style_preset: "a".repeat(50) })).toBe(true);
+    expect(isPlan({ ...base, style_preset: "a".repeat(51) })).toBe(false);
     // duration_seconds: integer, 1-10 for video, 10-720 for audio, any non-negative integer for image
     expect(isPlan({ ...base, kind: "image", duration_seconds: 0 })).toBe(true);
     expect(isPlan({ ...base, kind: "image", duration_seconds: 15 })).toBe(true);

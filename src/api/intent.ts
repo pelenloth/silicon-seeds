@@ -20,23 +20,55 @@ const BodySchema = z.object({
 const INTENT_TIMEOUT_MS = 45_000;
 const INTENT_MAX_BODY_BYTES = 32 * 1024;
 
-async function planWithTimeout(
+export type PlanWithTimeoutOptions = {
+  timeoutMs?: number;
+  signal?: AbortSignal;
+  structured?: (
+    prompt: string,
+    schema: typeof IntentSchema,
+    opts?: { signal?: AbortSignal },
+  ) => Promise<{ parsed: RawIntent } | null>;
+};
+
+export async function planWithTimeout(
   prompt: string,
+  opts?: PlanWithTimeoutOptions,
 ): Promise<{ parsed: RawIntent } | null> {
+  const timeoutMs = opts?.timeoutMs ?? INTENT_TIMEOUT_MS;
+  const structuredFn = opts?.structured ?? LLM.structured;
+  const ctrl = new AbortController();
   let timer: ReturnType<typeof setTimeout> | null = null;
+
+  const onClientAbort = () => {
+    ctrl.abort();
+  };
+
+  if (opts?.signal) {
+    if (opts.signal.aborted) {
+      ctrl.abort();
+    } else {
+      opts.signal.addEventListener("abort", onClientAbort, { once: true });
+    }
+  }
+
   const timeoutPromise = new Promise<null>((resolve) => {
     timer = setTimeout(() => {
-      Logger.warn("Intent planner timed out", { timeoutMs: INTENT_TIMEOUT_MS });
+      Logger.warn("Intent planner timed out", { timeoutMs });
+      ctrl.abort();
       resolve(null);
-    }, INTENT_TIMEOUT_MS);
+    }, timeoutMs);
   });
+
   try {
     return await Promise.race([
-      LLM.structured(prompt, IntentSchema),
+      structuredFn(prompt, IntentSchema, { signal: ctrl.signal }),
       timeoutPromise,
     ]);
   } finally {
     if (timer !== null) clearTimeout(timer);
+    if (opts?.signal) {
+      opts.signal.removeEventListener("abort", onClientAbort);
+    }
   }
 }
 
@@ -57,7 +89,9 @@ app.post(
         DB.Settings.getAll(),
       ]);
       const names = presets.map((p) => p.name);
-      const res = await planWithTimeout(buildIntentPrompt(text, names));
+      const res = await planWithTimeout(buildIntentPrompt(text, names), {
+        signal: c.req.raw.signal,
+      });
       if (!res?.parsed) {
         Logger.warn("Intent planner returned no parsed plan");
         return c.json({ error: "Planner unavailable" }, 502);

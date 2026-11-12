@@ -1,6 +1,9 @@
 import { ApiError, apiSend } from "./api-client";
 import { labelOf, RESOLUTIONS, type GenerationDefaults } from "./defaults";
 import type { JobKind } from "./job-view";
+import type { Plan, PlanKind } from "../../shared/plan";
+
+export type { Plan, PlanKind };
 
 export type CreateKind =
   "image" | "video" | "text-to-video" | "audio" | "compose";
@@ -374,15 +377,6 @@ export async function submitCreateJob(
   return { jobId: res.jobId };
 }
 
-export type Plan = {
-  kind: "image" | "video" | "audio";
-  prompt: string;
-  count: number;
-  resolution: string;
-  style_preset: string;
-  duration_seconds: number;
-};
-
 const KNOWN_RESOLUTIONS = new Set<string>(RESOLUTIONS.map((r) => r.value));
 
 export function isPlan(val: unknown): val is Plan {
@@ -412,7 +406,11 @@ export function isPlan(val: unknown): val is Plan {
   ) {
     return false;
   }
-  if (typeof p.style_preset !== "string" || !p.style_preset.trim()) {
+  if (
+    typeof p.style_preset !== "string" ||
+    !p.style_preset.trim() ||
+    p.style_preset.length > 50
+  ) {
     return false;
   }
   if (

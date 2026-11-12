@@ -4,7 +4,9 @@ test("ui kit: toast, confirm, modal, segmented, slider, lightbox", async ({
   page,
 }) => {
   await page.goto("/dev/kit");
-  await expect(page.getByRole("heading", { name: "UI kit" })).toBeVisible({
+  await expect(
+    page.getByRole("heading", { name: "UI kit", level: 2 }),
+  ).toBeVisible({
     timeout: 10000,
   });
 
@@ -184,7 +186,9 @@ test("ui kit: hovering a video tile plays the video visibly above the poster", a
   );
 
   await page.goto("/dev/kit");
-  await expect(page.getByRole("heading", { name: "UI kit" })).toBeVisible({
+  await expect(
+    page.getByRole("heading", { name: "UI kit", level: 2 }),
+  ).toBeVisible({
     timeout: 10000,
   });
   const tiles = page.getByTestId("kit-tiles");

@@ -72,3 +72,46 @@ describe("validationHook", () => {
     });
   });
 });
+
+describe("PostTextToImageSchema batch_size limit", () => {
+  const fakeContext = {
+    json: (body: unknown, status?: number) =>
+      new Response(JSON.stringify(body), {
+        status: status ?? 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+  } as unknown as Parameters<typeof validationHook>[1];
+
+  test("accepts batch_size 16 and rejects 17 with a 400 validation error", async () => {
+    const { PostTextToImageSchema } = await import("./schemas");
+    const valid16 = PostTextToImageSchema.safeParse({
+      prompt: "a fox",
+      image_model: "z-image-turbo",
+      batch_size: "16",
+    });
+    expect(valid16.success).toBe(true);
+    if (valid16.success) {
+      expect(valid16.data.batch_size).toBe(16);
+    }
+
+    const invalid17 = PostTextToImageSchema.safeParse({
+      prompt: "a fox",
+      image_model: "z-image-turbo",
+      batch_size: "17",
+    });
+    expect(invalid17.success).toBe(false);
+    if (!invalid17.success) {
+      const res = validationHook(
+        { success: false, error: invalid17.error },
+        fakeContext,
+      );
+      expect(res).toBeDefined();
+      expect(res!.status).toBe(400);
+      const body = (await res!.json()) as {
+        error: string;
+        fields: Record<string, string>;
+      };
+      expect(body.fields.batch_size).toBeDefined();
+    }
+  });
+});

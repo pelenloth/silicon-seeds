@@ -3,22 +3,44 @@ import { Logger } from "../logger/logger";
 import z from "zod/v3";
 import { Utils } from "../utils/utils";
 
-const llmClient = new LMStudioClient();
-const LLM_MODEL = Bun.env.LLM_MODEL;
-Utils.assert(LLM_MODEL, "LLM_MODEL variable missing");
+let llmClient: LMStudioClient | null = null;
+let llmModelPromise: ReturnType<LMStudioClient["llm"]["model"]> | null = null;
+let embeddingModelPromise: ReturnType<
+  LMStudioClient["embedding"]["model"]
+> | null = null;
 
-const llmModel = await llmClient.llm.model(LLM_MODEL);
+function getClient(): LMStudioClient {
+  if (!llmClient) {
+    llmClient = new LMStudioClient();
+  }
+  return llmClient;
+}
 
-const EMBEDDING_MODEL = Bun.env.EMBEDDING_MODEL;
-Utils.assert(EMBEDDING_MODEL, "EMBEDDING_MODEL variable missing");
-const embeddingModel = await llmClient.embedding.model(EMBEDDING_MODEL);
+function getLlmModel() {
+  if (!llmModelPromise) {
+    const modelName = Bun.env.LLM_MODEL;
+    Utils.assert(modelName, "LLM_MODEL variable missing");
+    llmModelPromise = getClient().llm.model(modelName);
+  }
+  return llmModelPromise;
+}
+
+function getEmbeddingModel() {
+  if (!embeddingModelPromise) {
+    const modelName = Bun.env.EMBEDDING_MODEL;
+    Utils.assert(modelName, "EMBEDDING_MODEL variable missing");
+    embeddingModelPromise = getClient().embedding.model(modelName);
+  }
+  return embeddingModelPromise;
+}
 
 export namespace LLM {
-  export const client = llmClient;
+  export const client = getClient();
   const MAX_TOKENS = 10_000;
 
   export async function message(msg: string, images?: FileHandle[]) {
     try {
+      const llmModel = await getLlmModel();
       if (images) {
         return await llmModel.respond(
           { role: "user", content: msg, images },
@@ -43,6 +65,7 @@ export namespace LLM {
     }
 
     try {
+      const llmModel = await getLlmModel();
       // Why TypeScript :(
       const typedSchema = z.object(mapSchema);
 
@@ -59,11 +82,14 @@ export namespace LLM {
   export async function structured<T extends z.ZodTypeAny>(
     msg: string,
     schema: T,
+    opts?: { signal?: AbortSignal },
   ) {
     try {
+      const llmModel = await getLlmModel();
       return (await llmModel.respond(msg, {
         structured: schema,
         maxTokens: MAX_TOKENS,
+        ...(opts?.signal ? { signal: opts.signal } : {}),
       })) as unknown as { parsed: z.infer<T> } | null;
     } catch (error) {
       Logger.error("Failed to receive structured message from LLM", error);
@@ -72,6 +98,7 @@ export namespace LLM {
   }
 
   export async function generateEmbedding(text: string): Promise<number[]> {
+    const embeddingModel = await getEmbeddingModel();
     const result = await embeddingModel.embed(text);
     return result.embedding;
   }

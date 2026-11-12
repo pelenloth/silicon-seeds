@@ -268,6 +268,7 @@ export default function Home() {
   let resolutionTouched = false;
   let presetTouched = false;
   let inFlight = false;
+  let submitSeq = 0;
   let submitBtnRef: HTMLButtonElement | undefined;
   let enhanceAbort: AbortController | null = null;
   let intentAbort: AbortController | null = null;
@@ -395,11 +396,20 @@ export default function Home() {
    * - idle (""): edit updates draft/clears error & chips; mode change updates mode/clears chips.
    * - planning ("Planning…") / enhancing ("Enhancing…"): edit or mode change aborts the in-flight
    *   request, ends busy, queues nothing, shows no toast. After await, proceed only if not aborted
-   *   and prompt() === submittedText and mode() === submittedMode. On planner failure, switch to
-   *   "image" only if mode() is still "auto".
+   *   (unless timedOut) and prompt() === submittedText and mode() === submittedMode. On planner
+   *   failure or timeout, switch to "image" only if mode() is still "auto" and prompt() === submittedText.
    * - queueing ("Queueing…"): create request is in flight; user may type or change mode. On success,
-   *   clear prompt and draft only if prompt() === submittedText.
+   *   clear prompt if !disposed && prompt() === submittedText, and clear stored draft if it matches submittedText.
    */
+  const clearSubmittedPromptAndDraft = (submittedText: string) => {
+    if (!disposed && prompt() === submittedText) {
+      setPromptSignal("");
+    }
+    if (loadDraft("/")?.prompt === submittedText) {
+      clearDraft("/");
+    }
+  };
+
   const onSubmit = async (e: SubmitEvent) => {
     e.preventDefault();
     if (inFlight || busy()) return;
@@ -423,6 +433,7 @@ export default function Home() {
     setError(null);
     setPlanChips([]);
     inFlight = true;
+    const mySubmitSeq = ++submitSeq;
     const submittedMode = mode();
 
     try {
@@ -430,7 +441,11 @@ export default function Home() {
         setBusy("Planning…");
         const ctrl = new AbortController();
         intentAbort = ctrl;
-        const timer = setTimeout(() => ctrl.abort(), 50_000);
+        let timedOut = false;
+        const timer = setTimeout(() => {
+          timedOut = true;
+          ctrl.abort();
+        }, 50_000);
         let plan: Plan | null = null;
         try {
           const res = await apiSend<{ plan?: unknown }>(
@@ -454,7 +469,7 @@ export default function Home() {
 
         if (disposed) return;
         if (
-          ctrl.signal.aborted ||
+          (ctrl.signal.aborted && !timedOut) ||
           mode() !== submittedMode ||
           prompt() !== submittedText
         ) {
@@ -464,7 +479,7 @@ export default function Home() {
           toast.error(
             "Could not plan that automatically. Pick a format and try again.",
           );
-          if (mode() === "auto") {
+          if (mode() === "auto" && prompt() === submittedText) {
             setMode("image");
           }
           if (submittedFromButton) {
@@ -478,10 +493,7 @@ export default function Home() {
         setBusy("Queueing…");
         const { kind, values } = planToCreate(plan, generationDefaults());
         const { jobId } = await submitCreateJob(kind, values);
-        if (!disposed && prompt() === submittedText) {
-          setPromptSignal("");
-          clearDraft("/");
-        }
+        clearSubmittedPromptAndDraft(submittedText);
         void refreshJobs();
         toast.success(`Queued: ${summary}`, {
           action: {
@@ -500,7 +512,11 @@ export default function Home() {
         setBusy("Enhancing…");
         const ctrl = new AbortController();
         enhanceAbort = ctrl;
-        const timer = setTimeout(() => ctrl.abort(), 60_000);
+        let timedOut = false;
+        const timer = setTimeout(() => {
+          timedOut = true;
+          ctrl.abort();
+        }, 60_000);
         try {
           const res = await apiSend<{ enhanced?: string }>(
             "POST",
@@ -516,7 +532,7 @@ export default function Home() {
             { signal: ctrl.signal },
           );
           if (
-            !ctrl.signal.aborted &&
+            (!ctrl.signal.aborted || timedOut) &&
             mode() === submittedMode &&
             prompt() === submittedText
           ) {
@@ -532,7 +548,7 @@ export default function Home() {
         } catch {
           if (disposed) return;
           if (
-            !ctrl.signal.aborted &&
+            (!ctrl.signal.aborted || timedOut) &&
             mode() === submittedMode &&
             prompt() === submittedText
           ) {
@@ -547,7 +563,7 @@ export default function Home() {
 
         if (
           disposed ||
-          ctrl.signal.aborted ||
+          (ctrl.signal.aborted && !timedOut) ||
           mode() !== submittedMode ||
           prompt() !== submittedText
         ) {
@@ -566,10 +582,7 @@ export default function Home() {
           currentOverrides,
         ),
       );
-      if (!disposed && prompt() === submittedText) {
-        setPromptSignal("");
-        clearDraft("/");
-      }
+      clearSubmittedPromptAndDraft(submittedText);
       void refreshJobs();
       toast.success(
         `Queued ${CREATE_KINDS[submittedMode].label.toLowerCase()}`,
@@ -594,7 +607,7 @@ export default function Home() {
         }
       }
     } finally {
-      if (!intentAbort && !enhanceAbort) {
+      if (mySubmitSeq === submitSeq && !intentAbort && !enhanceAbort) {
         inFlight = false;
         if (!disposed) {
           setBusy("");

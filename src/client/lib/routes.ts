@@ -5,6 +5,7 @@ export type RouteMeta = {
   group: RouteGroup;
   sidebarId: string;
   icon: string;
+  hidden?: boolean;
 };
 
 export const ROUTES: readonly RouteMeta[] = [
@@ -70,6 +71,14 @@ export const ROUTES: readonly RouteMeta[] = [
     group: "footer",
     sidebarId: "sidebar-settings",
     icon: "CogSettingsIcon",
+  },
+  {
+    path: "/dev/kit",
+    title: "UI kit",
+    group: "footer",
+    sidebarId: "sidebar-dev-kit",
+    icon: "CogSettingsIcon",
+    hidden: true,
   },
 ] as const;
 

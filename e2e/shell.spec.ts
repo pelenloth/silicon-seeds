@@ -203,9 +203,12 @@ test("shell: navigating to a new pathname resets #app-main scrollTop to 0", asyn
 }) => {
   await page.setViewportSize({ width: 1280, height: 350 });
   await page.goto("/dev/kit");
-  await expect(page.getByRole("heading", { name: "UI kit" })).toBeVisible({
-    timeout: 10000,
-  });
+  await expect(
+    page.getByRole("heading", { name: "UI kit", level: 1 }),
+  ).toBeVisible({ timeout: 10000 });
+  await expect(
+    page.getByRole("heading", { name: "UI kit", level: 2 }),
+  ).toBeVisible({ timeout: 10000 });
 
   const main = page.locator("#app-main");
   await main.evaluate((el) => {

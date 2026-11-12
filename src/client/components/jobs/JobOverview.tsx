@@ -171,14 +171,21 @@ export function JobOverview(props: JobOverviewProps) {
       >
         <div class="panel space-y-2 p-4">
           <div class="section-label">Progress</div>
-          <progress
-            class="progress progress-primary w-full"
-            value={completeSteps()}
-            max={Math.max(1, totalSteps())}
-          />
+          <Show
+            when={totalSteps() > 0}
+            fallback={<progress class="progress progress-primary w-full" />}
+          >
+            <progress
+              class="progress progress-primary w-full"
+              value={completeSteps()}
+              max={totalSteps()}
+            />
+          </Show>
           <div class="flex items-center justify-between text-xs text-base-content/70">
             <span>
-              {completeSteps()} of {plural(totalSteps(), "step")}
+              <Show when={totalSteps() > 0}>
+                {completeSteps()} of {plural(totalSteps(), "step")}
+              </Show>
             </span>
             <span>{currentProgressLabel()}</span>
           </div>

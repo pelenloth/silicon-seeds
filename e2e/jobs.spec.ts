@@ -591,3 +591,181 @@ test("jobs: status filter chips fit inside the list header at 1440x900 and 390x8
     await expect(page.locator("#new-menu-button")).toBeInViewport();
   }
 });
+
+test("jobs: active job with 0 total steps shows no '0 of 0' fraction and indeterminate progress, while 2 of 5 shows '2 of 5 steps'", async ({
+  page,
+}) => {
+  const nowIso = new Date().toISOString();
+  const jobZero = {
+    id: "stub-progress-zero",
+    name: "Queued zero total",
+    status: "active",
+    created_at: nowIso,
+    kind: "image",
+    progress: {
+      total: 0,
+      complete: 0,
+      running: 0,
+      pending: 0,
+      failed: 0,
+    },
+    thumb: null,
+  };
+  const jobTwoOfFive = {
+    id: "stub-progress-2of5",
+    name: "Running two of five",
+    status: "active",
+    created_at: nowIso,
+    kind: "image",
+    progress: {
+      total: 5,
+      complete: 2,
+      running: 1,
+      pending: 2,
+      failed: 0,
+    },
+    thumb: null,
+  };
+
+  await page.route("**/api/jobs", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname !== "/api/jobs") {
+      await route.fallback();
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ jobs: [jobZero, jobTwoOfFive] }),
+    });
+  });
+
+  await page.route("**/api/jobs/stub-progress-**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith("/media")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ items: [], total: 0, hasMore: false }),
+      });
+      return;
+    }
+    const isZero = url.pathname.endsWith("/stub-progress-zero");
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        job: isZero ? jobZero : jobTwoOfFive,
+        events: [],
+      }),
+    });
+  });
+
+  await page.goto("/jobs/stub-progress-zero?tab=status");
+  const detail = page.locator("#job-detail");
+  await expect(detail.getByRole("heading", { level: 2 })).toHaveText(
+    "Queued zero total",
+    { timeout: 10000 },
+  );
+  await expect(detail.getByText("Waiting in queue")).toBeVisible();
+  await expect(detail).not.toContainText(/\b0 of 0\b/);
+  const progressBar = detail.locator("progress").first();
+  await expect(progressBar).toBeVisible();
+  expect(await progressBar.getAttribute("value")).toBeNull();
+
+  await page.goto("/jobs/stub-progress-2of5?tab=status");
+  await expect(detail.getByRole("heading", { level: 2 })).toHaveText(
+    "Running two of five",
+    { timeout: 10000 },
+  );
+  await expect(detail.getByText("2 of 5 steps")).toBeVisible();
+  await expect(detail.locator("progress").first()).toHaveAttribute(
+    "value",
+    "2",
+  );
+});
+
+test("jobs: dismissing Delete or Cancel confirm dialog with Escape restores focus to the trigger button", async ({
+  page,
+}) => {
+  const nowIso = new Date().toISOString();
+  const completedJob = {
+    id: "stub-focus-completed",
+    name: "Completed focus job",
+    status: "complete",
+    created_at: nowIso,
+    kind: "image",
+    progress: { total: 1, complete: 1, running: 0, pending: 0, failed: 0 },
+    thumb: null,
+  };
+  const activeJob = {
+    id: "stub-focus-active",
+    name: "Active focus job",
+    status: "active",
+    created_at: nowIso,
+    kind: "image",
+    progress: { total: 2, complete: 1, running: 1, pending: 0, failed: 0 },
+    thumb: null,
+  };
+
+  await page.route("**/api/jobs", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname !== "/api/jobs") {
+      await route.fallback();
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ jobs: [completedJob, activeJob] }),
+    });
+  });
+
+  await page.route("**/api/jobs/stub-focus-**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith("/media")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ items: [], total: 0, hasMore: false }),
+      });
+      return;
+    }
+    const isCompleted = url.pathname.endsWith("/stub-focus-completed");
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        job: isCompleted ? completedJob : activeJob,
+        events: [],
+      }),
+    });
+  });
+
+  await page.goto("/jobs/stub-focus-completed");
+  const detail = page.locator("#job-detail");
+  await expect(detail.getByRole("heading", { level: 2 })).toHaveText(
+    "Completed focus job",
+    { timeout: 10000 },
+  );
+  const deleteBtn = detail.getByRole("button", { name: "Delete" });
+  await deleteBtn.click();
+  const deleteDialog = page.getByRole("dialog", { name: "Delete this job?" });
+  await expect(deleteDialog).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(deleteDialog).toBeHidden();
+  await expect(deleteBtn).toBeFocused();
+
+  await page.goto("/jobs/stub-focus-active");
+  await expect(detail.getByRole("heading", { level: 2 })).toHaveText(
+    "Active focus job",
+    { timeout: 10000 },
+  );
+  const cancelBtn = detail.getByRole("button", { name: "Cancel" });
+  await cancelBtn.click();
+  const cancelDialog = page.getByRole("dialog", { name: "Cancel this job?" });
+  await expect(cancelDialog).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(cancelDialog).toBeHidden();
+  await expect(cancelBtn).toBeFocused();
+});

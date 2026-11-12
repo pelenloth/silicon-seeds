@@ -1300,15 +1300,18 @@ test("home: edit or mode change during planning aborts intent, sends no create r
 
   // 1. Edit during planning
   await prompt.fill("initial prompt for planning");
+  const failedReq1 = page.waitForEvent("requestfailed", (req) =>
+    req.url().includes("/api/intent"),
+  );
   await btn.click();
   await expect(btn).toContainText("Planning…");
   await expect(btn).toBeDisabled();
 
   await prompt.fill("edited while planning");
+  await failedReq1;
   await expect(btn).toBeEnabled();
   await expect(btn).toContainText("Generate");
   releaseIntent!();
-  await page.waitForTimeout(100);
   expect(createCalls).toBe(0);
   await expect(prompt).toHaveValue("edited while planning");
   await expect(page.getByRole("status")).toHaveCount(0);
@@ -1316,15 +1319,18 @@ test("home: edit or mode change during planning aborts intent, sends no create r
   // 2. Mode change during planning
   releaseIntent = null;
   await prompt.fill("second prompt for planning");
+  const failedReq2 = page.waitForEvent("requestfailed", (req) =>
+    req.url().includes("/api/intent"),
+  );
   await btn.click();
   await expect(btn).toContainText("Planning…");
   await expect(btn).toBeDisabled();
 
   await page.locator('input[name="home-mode"][value="video"]').check();
+  await failedReq2;
   await expect(btn).toBeEnabled();
   await expect(btn).toContainText("Generate");
   releaseIntent!();
-  await page.waitForTimeout(100);
   expect(createCalls).toBe(0);
   await expect(prompt).toHaveValue("second prompt for planning");
   await expect(
@@ -1408,17 +1414,20 @@ test("home: edit during enhancing aborts enhance and sends no create request", a
   await page.locator('input[name="home-mode"][value="image"]').check();
   await page.getByLabel("Enhance prompt first").check();
   await prompt.fill("original prompt to enhance");
+  const failedEnhance = page.waitForEvent("requestfailed", (req) =>
+    req.url().includes("/api/enhance"),
+  );
   await btn.click();
 
   await expect(btn).toContainText("Enhancing…");
   await expect(btn).toBeDisabled();
 
   await prompt.fill("edited while enhancing");
+  await failedEnhance;
   await expect(btn).toBeEnabled();
   await expect(btn).toContainText("Generate");
 
   releaseEnhance!();
-  await page.waitForTimeout(100);
   expect(createCalls).toBe(0);
   await expect(prompt).toHaveValue("edited while enhancing");
 });
@@ -1455,4 +1464,185 @@ test("home: keyboard submit from the Generate button leaves focus in #home-promp
   releaseCreate!();
   await expect(page.locator("#home-prompt-error")).toHaveText("stub failure");
   await expect(prompt).toBeFocused();
+});
+
+test("home: planning timeout shows error toast, switches to Image, sends zero create requests, and re-enables button", async ({
+  page,
+}) => {
+  let createCalls = 0;
+  await page.route("**/api/intent**", async () => {
+    await new Promise(() => {});
+  });
+  await page.route("**/api/jobs/**", async (route) => {
+    if (route.request().method() === "POST") {
+      createCalls++;
+    }
+    await route.fulfill({ status: 200, body: JSON.stringify({ jobId: "j1" }) });
+  });
+
+  await page.clock.install();
+  await page.goto("/");
+  const prompt = page.locator("#home-prompt");
+  const btn = page.locator("#home-generate");
+  await expect(prompt).toBeVisible({ timeout: 10000 });
+  await prompt.fill("a misty mountain range");
+  await btn.click();
+
+  await expect(btn).toContainText("Planning…");
+  await expect(btn).toBeDisabled();
+
+  await page.clock.fastForward(51_000);
+
+  await expect(
+    page.getByRole("status").filter({
+      hasText:
+        "Could not plan that automatically. Pick a format and try again.",
+    }),
+  ).toBeVisible();
+  await expect(
+    page.locator('input[name="home-mode"][value="image"]'),
+  ).toBeChecked();
+  await expect(btn).toBeEnabled();
+  await expect(btn).toContainText("Generate");
+  expect(createCalls).toBe(0);
+});
+
+test("home: enhance timeout falls back to original text, shows warning toast, and queues exactly one job", async ({
+  page,
+}) => {
+  const createPrompts: string[] = [];
+  const stubJobId = "stub-enhance-timeout-job";
+
+  await mockJobRoutes(page, stubJobId, "image");
+  await page.route("**/api/enhance**", async () => {
+    await new Promise(() => {});
+  });
+  await page.route("**/api/jobs/images", async (route) => {
+    const body = route.request().postDataBuffer()?.toString("utf8") ?? "";
+    const m = /name="prompt"\r\n\r\n([^\r\n]*)/.exec(body);
+    createPrompts.push(m?.[1] ?? "");
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ jobId: stubJobId, message: "queued" }),
+    });
+  });
+
+  await page.clock.install();
+  await page.goto("/");
+  const prompt = page.locator("#home-prompt");
+  const btn = page.locator("#home-generate");
+  await expect(prompt).toBeVisible({ timeout: 10000 });
+
+  await page.locator('input[name="home-mode"][value="image"]').check();
+  await page.getByLabel("Enhance prompt first").check();
+  await prompt.fill("raw sunset prompt");
+  await btn.click();
+
+  await expect(btn).toContainText("Enhancing…");
+  await expect(btn).toBeDisabled();
+
+  await page.clock.fastForward(61_000);
+
+  await expect(
+    page.getByRole("status").filter({
+      hasText: "Could not enhance the prompt, using it as written",
+    }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("status").filter({ hasText: "Queued image" }),
+  ).toBeVisible();
+  expect(createPrompts).toEqual(["raw sunset prompt"]);
+});
+
+test("home: planner 502 after user switches to Video keeps Video selected and queues nothing", async ({
+  page,
+}) => {
+  let createCalls = 0;
+  let respond502: (() => void) | null = null;
+
+  await page.route("**/api/intent**", async (route) => {
+    await new Promise<void>((r) => {
+      respond502 = r;
+    });
+    await route.fulfill({
+      status: 502,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "Planner unavailable" }),
+    });
+  });
+  await page.route("**/api/jobs/**", async (route) => {
+    if (route.request().method() === "POST") {
+      createCalls++;
+    }
+    await route.fulfill({ status: 200, body: JSON.stringify({ jobId: "j1" }) });
+  });
+
+  await page.goto("/");
+  const prompt = page.locator("#home-prompt");
+  const btn = page.locator("#home-generate");
+  await expect(prompt).toBeVisible({ timeout: 10000 });
+
+  await prompt.fill("ocean waves at sunset");
+  const failedIntent = page.waitForEvent("requestfailed", (req) =>
+    req.url().includes("/api/intent"),
+  );
+  await btn.click();
+  await expect(btn).toContainText("Planning…");
+
+  await page.locator('input[name="home-mode"][value="video"]').check();
+  await failedIntent;
+  respond502!();
+
+  await expect(btn).toBeEnabled();
+  await expect(btn).toContainText("Generate");
+  await expect(
+    page.locator('input[name="home-mode"][value="video"]'),
+  ).toBeChecked();
+  expect(createCalls).toBe(0);
+});
+
+test("home: unmounting while queueing still clears the draft when create succeeds", async ({
+  page,
+}) => {
+  let releaseCreate: (() => void) | null = null;
+  const stubJobId = "stub-unmount-queue-job";
+
+  await mockJobRoutes(page, stubJobId, "image");
+  await page.route("**/api/jobs/images", async (route) => {
+    await new Promise<void>((r) => {
+      releaseCreate = r;
+    });
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ jobId: stubJobId, message: "queued" }),
+    });
+  });
+
+  await page.goto("/");
+  const prompt = page.locator("#home-prompt");
+  const btn = page.locator("#home-generate");
+  await expect(prompt).toBeVisible({ timeout: 10000 });
+
+  await page.locator('input[name="home-mode"][value="image"]').check();
+  await prompt.fill("prompt queued before unmount");
+  await btn.click();
+  await expect(btn).toContainText("Queueing…");
+
+  await page.locator("#sidebar-jobs-summary").click();
+  await expect(page).toHaveURL(/\/jobs/);
+
+  const createResp = page.waitForResponse((r) =>
+    r.url().includes("/api/jobs/images"),
+  );
+  releaseCreate!();
+  await createResp;
+  await expect(
+    page.getByRole("status").filter({ hasText: "Queued image" }),
+  ).toBeVisible();
+
+  await page.locator("#sidebar-home").click();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.locator("#home-prompt")).toHaveValue("");
 });
