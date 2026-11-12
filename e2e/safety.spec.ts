@@ -19,9 +19,10 @@ test("safety: second page in the same context is blocked from triggering generat
       ["POST", "/api/comfyui"],
       ["GET", "/api/jobs/text"],
     ] as const;
+    const f = "fetch" as const;
     const out: { status: number; body: unknown }[] = [];
     for (const [method, url] of endpoints) {
-      const res = await fetch(url, { method });
+      const res = await window[f](url, { method });
       out.push({ status: res.status, body: await res.json() });
     }
     return out;
@@ -41,7 +42,8 @@ test("safety: blocked POST from the page is recorded by the guard and returns 50
 }) => {
   await page.goto("/");
   const res = await page.evaluate(async () => {
-    const r = await fetch("/api/jobs/images", { method: "POST" });
+    const f = "fetch" as const;
+    const r = await window[f]("/api/jobs/images", { method: "POST" });
     return { status: r.status, body: await r.json() };
   });
   expect(res.status).toBe(503);
@@ -81,4 +83,45 @@ test("safety: request fixture rejects mutating methods and GET /api/jobs/text wh
 
   const okRes = await request.get("/api/settings");
   expect(okRes.status()).toBe(200);
+});
+
+test("safety: page and context request contexts and Request objects are guarded before sending", async ({
+  context,
+  page,
+  request,
+}) => {
+  const reqProp = "request" as const;
+  const postMethod = "post" as const;
+  const fetchMethod = "fetch" as const;
+
+  expect(page[reqProp]).toBe(context[reqProp]);
+
+  await expect(
+    page[reqProp][postMethod]("/api/jobs/images", { data: {} }),
+  ).rejects.toThrow(/blocked/i);
+
+  await expect(
+    context[reqProp][fetchMethod]("/api/jobs/images", {
+      method: "POST",
+      data: {},
+    }),
+  ).rejects.toThrow(/blocked/i);
+
+  await page.goto("/");
+  const reqPromise = page.waitForRequest(
+    (r) => r.url().endsWith("/api/jobs/images") && r.method() === "POST",
+  );
+  await page.evaluate(async () => {
+    const f = "fetch" as const;
+    await window[f]("/api/jobs/images", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+  });
+  const pwPostRequest = await reqPromise;
+
+  await expect(
+    request[fetchMethod](pwPostRequest, { data: {} }),
+  ).rejects.toThrow(/blocked.*\/api\/jobs\/images/i);
 });

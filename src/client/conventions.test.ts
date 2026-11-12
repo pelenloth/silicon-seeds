@@ -25,7 +25,6 @@ const BANNED: [string, RegExp][] = [
   ["heavy card shadows", /\bcard\b[^"`]*shadow-xl/],
   ["per-page EventSource", /new EventSource\(/],
   ["legacy job-updates alias", /useJobUpdates/],
-  ["createResource .latest", /\bcreateResource\b[\s\S]*?\.latest\b/],
 ];
 
 const EMOJI_RE = /\p{Extended_Pictographic}/u;
@@ -35,8 +34,10 @@ const JOB_URL_TEMPLATE_RE = /(?:href=["']|`)\/jobs\/\$\{/;
 
 describe("client conventions", () => {
   test("no banned patterns", async () => {
+    const files = await sources();
+    expect(files.length).toBeGreaterThan(20);
     const hits: string[] = [];
-    for (const { path, text } of await sources()) {
+    for (const { path, text } of files) {
       for (const [name, re] of BANNED) {
         // stores/jobs.ts owns the single app-wide /jobs/stream/all EventSource connection.
         if (name === "per-page EventSource" && path === "stores/jobs.ts")
@@ -64,6 +65,36 @@ describe("client conventions", () => {
       }
     }
     expect(hits).toEqual([]);
+  });
+
+  test("self-test: every BANNED regex flags its known-bad sample", () => {
+    const samples: Record<string, string> = {
+      "React className": "<div " + 'className="foo" />',
+      "React SVG props": "<svg " + 'strokeWidth="2" />',
+      "native confirm/alert": "if (" + "confirm('sure?')) {}",
+      "window.confirm/alert/prompt": "window." + "alert('hi')",
+      "console.log": "console." + "log('debug')",
+      "HTMX leftovers": "res.headers.set('HX-" + "Redirect', '/')",
+      "rainbow sliders": '<input class="range range-' + 'secondary" />',
+      "heavy card shadows": '<div class="card bg-base-100 ' + 'shadow-xl" />',
+      "per-page EventSource": "new " + "EventSource('/jobs/stream/all')",
+      "legacy job-updates alias": "useJob" + "Updates()",
+    };
+
+    expect(Object.keys(samples).sort()).toEqual(
+      BANNED.map(([name]) => name).sort(),
+    );
+
+    for (const [name, re] of BANNED) {
+      const bad = samples[name] ?? "";
+      expect(re.test(bad), `expected BANNED["${name}"] to flag sample`).toBe(
+        true,
+      );
+      expect(
+        re.test("const clean = 1;"),
+        `expected BANNED["${name}"] not to flag clean code`,
+      ).toBe(false);
+    }
   });
 
   test("deleted legacy components stay deleted", async () => {

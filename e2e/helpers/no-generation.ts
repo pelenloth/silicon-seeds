@@ -73,6 +73,24 @@ export async function blockGeneration(
   await target.route("**/api/loras**", rejectMutating);
   await target.route("**/api/style-presets**", rejectMutating);
 
+  const guardedReq = guardRequestContext(target.request);
+  Object.defineProperty(target, "request", {
+    get: () => guardedReq,
+    configurable: true,
+  });
+  if ("pages" in target && typeof target.pages === "function") {
+    const guardPageReq = (p: Page) => {
+      Object.defineProperty(p, "request", {
+        get: () => guardedReq,
+        configurable: true,
+      });
+    };
+    for (const p of target.pages()) {
+      guardPageReq(p);
+    }
+    target.on("page", guardPageReq);
+  }
+
   return {
     calls: () => [...recorded],
   };
@@ -139,17 +157,27 @@ export function guardRequestContext(
       }
       if (prop === "fetch") {
         return (
-          urlOrRequest: string | { url(): string },
+          urlOrRequest: string | { url(): string; method?: () => string },
           options?: Parameters<APIRequestContext["fetch"]>[1],
         ) => {
-          const method = (options?.method ?? "GET").toUpperCase();
+          const reqMethod =
+            typeof urlOrRequest === "object" &&
+            urlOrRequest !== null &&
+            typeof urlOrRequest.method === "function"
+              ? urlOrRequest.method()
+              : undefined;
+          const method = (options?.method ?? reqMethod ?? "GET").toUpperCase();
           if (MUTATING_METHODS.has(method)) {
             return rejectMutatingCall(method, urlOrRequest);
           }
           if (isJobsTextUrl(urlOrRequest)) {
+            const url =
+              typeof urlOrRequest === "string"
+                ? urlOrRequest
+                : urlOrRequest.url();
             return Promise.reject(
               new Error(
-                `Blocked ${method} /api/jobs/text in e2e test: /api/jobs/text triggers LLM generation`,
+                `Blocked ${method} ${url} in e2e test: /api/jobs/text triggers LLM generation`,
               ),
             );
           }

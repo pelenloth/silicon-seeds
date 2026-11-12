@@ -175,8 +175,9 @@ test("ui kit: Segmented re-syncs radio checked state when parent rejects an opti
 
 test("ui kit: hovering a video tile plays the video visibly above the poster", async ({
   page,
+  request,
 }) => {
-  const galleryRes = await page.request.get(
+  const galleryRes = await request.get(
     "/api/gallery/items?limit=12&type=video",
   );
   const galleryData = (await galleryRes.json()) as { items?: unknown[] };

@@ -102,9 +102,9 @@ test("gallery: fits a phone without horizontal scroll", async ({ page }) => {
   ).toBe(true);
 });
 
-test("gallery: keeps loading on a tall screen", async ({ page }) => {
+test("gallery: keeps loading on a tall screen", async ({ page, request }) => {
   await page.setViewportSize({ width: 1600, height: 1600 });
-  const res = await page.request.get("/api/gallery/items?limit=21");
+  const res = await request.get("/api/gallery/items?limit=21");
   const data = (await res.json()) as { items?: unknown[] };
   test.skip(
     (data.items?.length ?? 0) <= 20,

@@ -118,7 +118,6 @@ cd silicon-seeds
 bun install
 cp .env.example .env   # edit paths above
 bun run db:migrate      # creates silicon-seeds.sqlite + style presets/loras tables
-bun run build:css       # builds static/style.css from src/client/index.css
 ```
 
 Validate setup:
@@ -147,7 +146,6 @@ Production build (serves SPA from `dist/client`):
 
 ```bash
 bun run build           # -> dist/client (vite, outDir ../../dist/client from src/client)
-bun run build:css       # -> static/style.css
 bun run start           # serves http://localhost:3000
 ```
 

@@ -21,7 +21,6 @@ Setup:
 cp .env.example .env   # edit paths, model ids, HOST/PORT
 bun install
 bun run db:migrate      # creates data/silicon-seeds.sqlite (override via DB_PATH)
-bun run build:css       # builds static/style.css from src/client/index.css
 ```
 
 Start the server in hot reload mode:
