@@ -500,3 +500,37 @@ describe("detectKind: animate", () => {
     );
   });
 });
+
+describe("detectKind: a video phrase must lead the prompt", () => {
+  const cases: readonly [
+    string,
+    string | undefined,
+    "image" | "video" | "audio",
+  ][] = [
+    ["a YouTube thumbnail for a video of my trip to Japan", "image", "image"],
+    ["a YouTube thumbnail for a video of my trip to Japan", "video", "image"],
+    ["a poster for a video of my band", "image", "image"],
+    ["a poster for a video of my band", "video", "image"],
+    ["a still from a movie of a train robbery", "image", "image"],
+    ["cover art for an animation of dragons", "video", "image"],
+    ["a title card for a video of my trip", "image", "image"],
+    ["a video of a painting being restored", "image", "video"],
+    ["make a short video of a paper boat", "image", "video"],
+    ["i want a gif of a cat jumping", "image", "video"],
+    ["a 5 second clip of rain on a window", "image", "video"],
+    ["a soundtrack for a video of a storm", "audio", "audio"],
+    ["a poster for a video of my band", undefined, "image"],
+    ["a video of a cat", undefined, "video"],
+  ];
+
+  test("table of prompts and hints", () => {
+    for (const [text, hint, expected] of cases) {
+      expect(detectKind(text, hint)).toBe(expected);
+    }
+  });
+  test("new image nouns keep a video phrase from leading", () => {
+    expect(detectKind("a banner, video of a sunrise", "image")).toBe("image");
+    expect(detectKind("storyboard frames of a chase", "video")).toBe("image");
+    expect(detectKind("album covers for a jazz band", "video")).toBe("image");
+  });
+});

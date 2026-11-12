@@ -30,6 +30,13 @@ const IMAGE_NOUNS = [
   "poster",
   "logo",
   "icon",
+  "thumbnail",
+  "screenshot",
+  "banner",
+  "storyboard",
+  "sticker",
+  "cover art",
+  "album cover",
 ] as const;
 
 // Video request phrases that override an explicit image noun (e.g. "a video of a painting").
@@ -216,11 +223,23 @@ function withoutVideoFalsePositives(norm: string): string {
     .replace(ANIMATED_FALSE_POSITIVE_RE, " ");
 }
 
+// A head ending in one of these makes the video the context of something else
+// ("a poster for a video of ...", "a still from a movie of ...").
+const CONTEXT_PREPOSITION_TAIL_RE =
+  /\b(?:for|from|of|in|inside|about|like|on|to|with)(?:\s+(?:a|an|the|my|our|your|his|her|their|this|that|some))?\s*$/;
+
+// A video request phrase is the request only when it leads the prompt: the
+// text before it names no image and does not end in a context preposition.
+function leadsWithVideoRequest(clean: string): boolean {
+  const match = VIDEO_REQUEST_OVERRIDE_RE.exec(clean);
+  if (!match) return false;
+  const head = clean.slice(0, match.index).trim();
+  return !hasExplicitImageNoun(head) && !CONTEXT_PREPOSITION_TAIL_RE.test(head);
+}
+
 function hasVideoRequestPhrase(norm: string): boolean {
   const clean = withoutVideoFalsePositives(norm).trim();
-  return (
-    VIDEO_REQUEST_OVERRIDE_RE.test(clean) || ANIMATE_IMPERATIVE_RE.test(clean)
-  );
+  return leadsWithVideoRequest(clean) || ANIMATE_IMPERATIVE_RE.test(clean);
 }
 
 function hasAudioRequestPhrase(norm: string): boolean {
