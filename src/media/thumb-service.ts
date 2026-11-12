@@ -153,6 +153,31 @@ export function createThumbService(deps: ThumbServiceDeps): {
     return true;
   }
 
+  // Environment failures (ffmpeg missing, cache dir unwritable, rename
+  // failure) are process-wide: remember them briefly so tile requests and
+  // client retries do not spawn ffmpeg again every time.
+  const ENV_FAILURE_WINDOW_MS = 60_000;
+  let envFailedAt: number | null = null;
+
+  function envFailureActive(): boolean {
+    if (envFailedAt === null) return false;
+    if (now() - envFailedAt >= ENV_FAILURE_WINDOW_MS) {
+      envFailedAt = null;
+      return false;
+    }
+    return true;
+  }
+
+  function recordEnvFailure(): void {
+    if (envFailureActive()) return;
+    envFailedAt = now();
+    try {
+      Logger.warn(
+        `[Thumbs] environment failure, not retrying for ${ENV_FAILURE_WINDOW_MS / 1000}s`,
+      );
+    } catch {}
+  }
+
   function recordFailure(key: string): void {
     if (failureTtlMs <= 0) return;
     if (negativeCache.has(key)) {
@@ -326,7 +351,7 @@ export function createThumbService(deps: ThumbServiceDeps): {
         }
       } catch {}
 
-      if (isNegativelyCached(out)) {
+      if (isNegativelyCached(out) || envFailureActive()) {
         return { ok: false, reason: "failed" };
       }
 
@@ -345,6 +370,8 @@ export function createThumbService(deps: ThumbServiceDeps): {
           }
           if (slotRes.value === "failed") {
             recordFailure(out);
+          } else if (slotRes.value === "env-failed") {
+            recordEnvFailure();
           }
           return { ok: false, reason: "failed" };
         })().finally(() => {

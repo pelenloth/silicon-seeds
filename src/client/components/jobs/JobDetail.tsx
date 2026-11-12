@@ -177,12 +177,14 @@ export function JobDetail(props: JobDetailProps) {
       }
       lastAppliedDetailSeq = seq;
       setDetailLoading(false);
-      if (jobData()) {
-        setRefetchError(true);
-      } else if (err instanceof ApiError && err.status === 404) {
+      if (err instanceof ApiError && err.status === 404) {
+        // The job is gone (removed here or in another tab).
         setNotFound(true);
         setLoadError(null);
+        setRefetchError(false);
         focusMobileTarget(targetId, () => fallbackFocusRef);
+      } else if (jobData()) {
+        setRefetchError(true);
       } else {
         setNotFound(false);
         const msg = err instanceof Error ? err.message : "Failed to load job";

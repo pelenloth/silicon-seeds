@@ -223,6 +223,49 @@ test("jobs: refetch error keeps existing detail content and shows non-blocking n
   await page.unroute(detailUrlPattern);
 });
 
+test("jobs: an update for a removed job shows Job not found without an error notice", async ({
+  page,
+  request,
+}) => {
+  const { jobs } = (await (await request.get("/api/jobs?limit=1")).json()) as {
+    jobs: Job[];
+  };
+  test.skip(jobs.length === 0, "no jobs in this database");
+  const job = jobs[0];
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`/jobs/${job.id}`);
+  const detail = page.locator("#job-detail");
+  await expect(detail.getByRole("heading", { level: 2 })).toHaveText(job.name, {
+    timeout: 10000,
+  });
+
+  const detailUrlPattern = `**/api/jobs/${encodeURIComponent(job.id)}`;
+  await page.route(detailUrlPattern, (route) =>
+    route.fulfill({
+      status: 404,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "Job not found" }),
+    }),
+  );
+
+  const respPromise = page.waitForResponse(
+    (r) =>
+      r.url().endsWith(`/api/jobs/${encodeURIComponent(job.id)}`) &&
+      r.status() === 404,
+  );
+  await page.evaluate((id) => {
+    window.dispatchEvent(
+      new CustomEvent("job-update", { detail: { jobId: id } }),
+    );
+  }, job.id);
+  await respPromise;
+
+  await expect(detail.getByText("Job not found")).toBeVisible();
+  await expect(detail.getByText(/Could not refresh/i)).toHaveCount(0);
+  await page.unroute(detailUrlPattern);
+});
+
 test("jobs: exactly one active tab in detail and one active filter in list", async ({
   page,
   request,

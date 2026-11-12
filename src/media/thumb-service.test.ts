@@ -291,10 +291,12 @@ describe("createThumbService", () => {
     await writeFile(path.join(outputDir, "img.png"), "data");
     // Block cacheDir creation by placing a regular file at cacheDir path
     await writeFile(cacheDir, "blocking-file");
+    let clock = 1_000_000;
 
     const svc = createThumbService({
       outputDir,
       cacheDir,
+      now: () => clock,
       spawn: okSpawn(),
     });
 
@@ -303,6 +305,7 @@ describe("createThumbService", () => {
 
     // Remove the blocking file so mkdir can succeed on the next call (even with default failureTtlMs)
     await rm(cacheDir, { force: true });
+    clock += 61_000; // past the environment failure window
     const second = await svc.get("img.png", 320);
     expect(second.ok).toBe(true);
   });
@@ -426,12 +429,14 @@ describe("createThumbService", () => {
     await writeFile(path.join(outputDir, "boom.png"), "image1");
     await writeFile(path.join(outputDir, "after.png"), "image2");
     let throwFirst = true;
+    let clock = 1_000_000;
 
     const svc = createThumbService({
       outputDir,
       cacheDir,
       maxConcurrent: 1,
       failureTtlMs: 300_000,
+      now: () => clock,
       spawn: (args) => {
         if (throwFirst) {
           throwFirst = false;
@@ -449,11 +454,12 @@ describe("createThumbService", () => {
     const r1 = await svc.get("boom.png", 320);
     expect(r1).toEqual({ ok: false, reason: "failed" });
 
-    // Slot was released so another file succeeds
+    // Slot was released so another file succeeds once the environment failure window has passed
+    clock += 61_000;
     const r2 = await svc.get("after.png", 320);
     expect(r2.ok).toBe(true);
 
-    // Environment error (spawn throw) was NOT negative-cached even with positive failureTtlMs, so retrying boom.png spawns again and succeeds
+    // Environment error (spawn throw) is not negative-cached per file, so retrying boom.png spawns again and succeeds
     const r3 = await svc.get("boom.png", 320);
     expect(r3.ok).toBe(true);
   });
@@ -463,11 +469,13 @@ describe("createThumbService", () => {
     await writeFile(imgPath, "image-bytes");
     let blockTargetDir = true;
     let spawns = 0;
+    let clock = 1_000_000;
 
     const svc = createThumbService({
       outputDir,
       cacheDir,
       failureTtlMs: 300_000,
+      now: () => clock,
       spawn: (args) => {
         spawns++;
         const tmpPath = args[args.length - 1];
@@ -489,8 +497,16 @@ describe("createThumbService", () => {
     expect(r1).toEqual({ ok: false, reason: "failed" });
     expect(spawns).toBe(1);
 
-    // Unblock target path and retry immediately within failureTtlMs -> must NOT be negative-cached
+    // Within the window the failure is returned at once without spawning
+    expect(await svc.get("rename-fail.png", 320)).toEqual({
+      ok: false,
+      reason: "failed",
+    });
+    expect(spawns).toBe(1);
+
+    // Unblock target path; after the window the next request tries again
     blockTargetDir = false;
+    clock += 61_000;
     const entries = await readdir(cacheDir);
     for (const entry of entries) {
       await rm(path.join(cacheDir, entry), { recursive: true, force: true });
@@ -498,6 +514,70 @@ describe("createThumbService", () => {
 
     const r2 = await svc.get("rename-fail.png", 320);
     expect(r2.ok).toBe(true);
+    expect(spawns).toBe(2);
+  });
+
+  test("an environment failure is remembered process-wide for 60 seconds", async () => {
+    await writeFile(path.join(outputDir, "a.png"), "a");
+    await writeFile(path.join(outputDir, "b.png"), "b");
+    let clock = 1_000_000;
+    let spawns = 0;
+    let broken = true;
+    const svc = createThumbService({
+      outputDir,
+      cacheDir,
+      now: () => clock,
+      spawn: (args) => {
+        spawns++;
+        if (broken) throw new Error("spawn ENOENT");
+        const outPath = args[args.length - 1];
+        return {
+          exited: writeFile(outPath, "ok-jpeg").then(() => 0),
+          stderr: null,
+          kill: () => {},
+        };
+      },
+    });
+
+    expect(await svc.get("a.png", 320)).toEqual({
+      ok: false,
+      reason: "failed",
+    });
+    expect(spawns).toBe(1);
+
+    // Inside the window every request fails at once, for any file
+    clock += 59_000;
+    expect(await svc.get("a.png", 320)).toEqual({
+      ok: false,
+      reason: "failed",
+    });
+    expect(await svc.get("b.png", 320)).toEqual({
+      ok: false,
+      reason: "failed",
+    });
+    expect(spawns).toBe(1);
+
+    // After the window the next request tries again
+    clock += 2_000;
+    broken = false;
+    expect((await svc.get("a.png", 320)).ok).toBe(true);
+    expect(spawns).toBe(2);
+  });
+
+  test("a normal success is unaffected by the environment failure window", async () => {
+    await writeFile(path.join(outputDir, "a.png"), "a");
+    await writeFile(path.join(outputDir, "b.png"), "b");
+    let spawns = 0;
+    const svc = createThumbService({
+      outputDir,
+      cacheDir,
+      now: () => 1_000_000,
+      spawn: okSpawn(() => {
+        spawns++;
+      }),
+    });
+    expect((await svc.get("a.png", 320)).ok).toBe(true);
+    expect((await svc.get("b.png", 320)).ok).toBe(true);
     expect(spawns).toBe(2);
   });
 

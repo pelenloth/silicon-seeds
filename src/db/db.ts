@@ -259,6 +259,7 @@ export namespace DB {
         // Then delete the job
         await trx.deleteFrom("jobs").where("id", "=", id).execute();
       });
+      notifyJob(id);
     }
 
     export async function updateStatus(id: string, status: JobLifecycleStatus) {
