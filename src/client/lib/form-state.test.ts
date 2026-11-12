@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   clearDraft,
+  createDraftTracker,
+  draftOf,
   loadDraft,
   mergeInitial,
   resolveInitialValues,
@@ -130,5 +132,54 @@ describe("form-state", () => {
     });
     expect(out).toEqual({ prompt: "ok", resolution: "720p" });
     expect(Object.keys(out)).toEqual(["prompt", "resolution"]);
+  });
+  test("touch, draftOf and reset: sparse draft includes only touched fields, reset clears draft and touched set so later default change is picked up", () => {
+    const s = fakeStorage();
+    const tracker = createDraftTracker({
+      route: "/create/image",
+      allowedKeys: ["prompt", "resolution", "image_model"],
+      storage: s,
+    });
+
+    const values = {
+      prompt: "a desert fox",
+      resolution: "720p",
+      image_model: "z-image-turbo",
+    };
+
+    tracker.touch("prompt");
+    expect(tracker.draftOf(values)).toEqual({ prompt: "a desert fox" });
+    expect(draftOf(values, tracker.touched)).toEqual({
+      prompt: "a desert fox",
+    });
+
+    tracker.persist(values);
+    expect(loadDraft("/create/image", s)).toEqual({ prompt: "a desert fox" });
+    expect(tracker.isUntouched("prompt")).toBe(false);
+    expect(tracker.isUntouched("resolution")).toBe(true);
+
+    tracker.reset();
+    expect(tracker.touched.size).toBe(0);
+    expect(tracker.draftOf(values)).toEqual({});
+    expect(loadDraft("/create/image", s)).toBeNull();
+    expect(tracker.isUntouched("prompt")).toBe(true);
+    expect(tracker.isUntouched("resolution")).toBe(true);
+
+    // After reset, a later untouched default change is picked up
+    const nextDefaults = {
+      prompt: "",
+      resolution: "1080p",
+      image_model: "flux2-klein-9b",
+    };
+    for (const [k, v] of Object.entries(nextDefaults)) {
+      if (tracker.isUntouched(k)) {
+        (values as Record<string, string>)[k] = v;
+      }
+    }
+    expect(values).toEqual({
+      prompt: "",
+      resolution: "1080p",
+      image_model: "flux2-klein-9b",
+    });
   });
 });

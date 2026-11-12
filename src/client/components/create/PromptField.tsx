@@ -75,7 +75,7 @@ export function PromptField(props: PromptFieldProps) {
           `Enhanced text was trimmed to ${props.maxLength} characters.`,
         );
       }
-      setUndoText(sourceText);
+      setUndoText(sentFieldValue);
       props.onInput(next);
     } catch (err) {
       if (disposed || (ctrl.signal.aborted && !timedOut)) return;

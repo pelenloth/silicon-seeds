@@ -259,3 +259,91 @@ test("gallery: /gallery?type=video selects Videos and choosing Images replaces U
   await page.goBack();
   await expect(page).toHaveURL(/\/settings/);
 });
+
+test("gallery: progress guard shows Could not load more. Try again when page stalls, and clicking Try again appends 20 new items", async ({
+  page,
+  request,
+}) => {
+  const sampleRes = await request.get("/api/gallery/items?limit=1");
+  const sampleData = (await sampleRes.json()) as {
+    items?: Record<string, unknown>[];
+  };
+  test.skip(
+    !sampleData.items || sampleData.items.length === 0,
+    "no gallery items in DB",
+  );
+  const template = sampleData.items![0]!;
+
+  const makeItems = (prefix: string) =>
+    Array.from({ length: 20 }, (_, i) => {
+      const n = i + 1;
+      const id = `${prefix}-${n}`;
+      return {
+        ...template,
+        id,
+        meta_id: id,
+        event_id: `evt-${id}`,
+        job_name: `Tile ${id}`,
+        filename:
+          typeof template.filename === "string"
+            ? template.filename
+            : `file-${id}.png`,
+      };
+    });
+
+  const page1Items = makeItems("p1");
+  const page2Items = makeItems("p2");
+  let retried = false;
+
+  const pattern = "**/api/gallery/items*";
+  await page.route(pattern, async (route) => {
+    const url = new URL(route.request().url());
+    const cursor = url.searchParams.get("cursor");
+    if (!cursor) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          items: page1Items,
+          next_cursor: "cursor-stall-1",
+        }),
+      });
+      return;
+    }
+    if (!retried) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          items: page1Items,
+          next_cursor: "cursor-stall-1",
+        }),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: page2Items,
+        next_cursor: null,
+      }),
+    });
+  });
+
+  await page.goto("/gallery");
+  const grid = page.locator("#gallery-grid");
+  const tiles = grid.locator('button[aria-label^="Open "]');
+  await expect(tiles).toHaveCount(20, { timeout: 10000 });
+  await expect(grid.getByText("Could not load more.")).toBeVisible({
+    timeout: 10000,
+  });
+  const retryBtn = grid.getByRole("button", { name: "Try again" });
+  await expect(retryBtn).toBeVisible();
+
+  retried = true;
+  await retryBtn.click();
+  await expect(grid.getByText("Could not load more.")).toHaveCount(0);
+  await expect(tiles).toHaveCount(40);
+  await page.unroute(pattern);
+});

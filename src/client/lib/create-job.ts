@@ -133,13 +133,11 @@ export type CreateValidationRules<K extends string = string> = {
 export function validateCreateFields<T extends Record<string, string>>(
   values: T,
   rules: CreateValidationRules<keyof T & string>,
-): { errors: Record<string, string>; firstInvalid: string | null } {
+): { errors: Record<string, string> } {
   const errors: Record<string, string> = {};
-  let firstInvalid: string | null = null;
   const mark = (field: string, msg: string) => {
     if (!Object.hasOwn(errors, field)) {
       errors[field] = msg;
-      if (!firstInvalid) firstInvalid = field;
     }
   };
 
@@ -198,7 +196,20 @@ export function validateCreateFields<T extends Record<string, string>>(
     }
   }
 
-  return { errors, firstInvalid };
+  return { errors };
+}
+
+export function firstInvalidInOrder(
+  orderedNames: readonly string[],
+  errors: Readonly<Record<string, string>>,
+): string | null {
+  for (const name of orderedNames) {
+    if (name && Object.hasOwn(errors, name) && errors[name]) {
+      return name;
+    }
+  }
+  const firstFallback = Object.keys(errors).find((k) => Boolean(errors[k]));
+  return firstFallback ?? null;
 }
 
 function humanizeFieldKey(key: string): string {
@@ -236,11 +247,13 @@ export function mapServerErrors(
         rawKey.startsWith("loras.") ||
         /^loras\[\d+\]/.test(rawKey);
       if (isLoraPath && known.has("loras")) {
+        const normalizedKey = rawKey.replace(/^loras\[(\d+)\]/, "loras.$1");
+        fieldErrors[normalizedKey] = msg;
         fieldErrors[rawKey] = msg;
         if (!Object.hasOwn(fieldErrors, "loras")) {
           fieldErrors.loras = msg;
         }
-        if (!firstField) firstField = "loras";
+        if (!firstField) firstField = normalizedKey;
       } else if (known.has(rawKey)) {
         fieldErrors[rawKey] = msg;
         if (!firstField) firstField = rawKey;

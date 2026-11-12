@@ -27,9 +27,11 @@ import {
   jobKindMeta,
   jobToPrefill,
   plural,
+  shouldMoveMobileFocusForActive,
   type JobAction,
   type JobEvent,
   type JobSummary,
+  type MobileFocusLocation,
 } from "../../lib/job-view";
 import { onJobUpdate } from "../../lib/sse";
 import { jobs, regenerateEvent, runJobAction } from "../../stores/jobs";
@@ -72,10 +74,20 @@ function isMobileViewport(): boolean {
 function shouldMoveMobileFocus(): boolean {
   if (!isMobileViewport() || typeof document === "undefined") return false;
   const active = document.activeElement;
-  if (!active || active === document.body) return true;
-  const listEl = document.getElementById("job-list");
-  const detailEl = document.getElementById("job-detail");
-  return Boolean(listEl?.contains(active) || detailEl?.contains(active));
+  let activeIn: MobileFocusLocation = "other";
+  if (!active || active === document.body) {
+    activeIn = "body";
+  } else if (
+    active instanceof HTMLElement &&
+    active.hasAttribute("data-skeleton-back")
+  ) {
+    activeIn = "skeleton-back";
+  } else if (document.getElementById("job-list")?.contains(active)) {
+    activeIn = "list";
+  } else if (document.getElementById("job-detail")?.contains(active)) {
+    activeIn = "detail";
+  }
+  return shouldMoveMobileFocusForActive({ activeIn });
 }
 
 const ACTION_META: Record<JobAction, { label: string; cls: string }> = {
@@ -356,10 +368,14 @@ export function JobDetail(props: JobDetailProps) {
     return evt ? canRegenerate(evt.type) : false;
   };
 
-  const BackToJobs = (backProps: { ref?: (el: HTMLAnchorElement) => void }) => (
+  const BackToJobs = (backProps: {
+    ref?: (el: HTMLAnchorElement) => void;
+    skeleton?: boolean;
+  }) => (
     <A
       ref={backProps.ref}
       href={backHref()}
+      data-skeleton-back={backProps.skeleton ? "" : undefined}
       class="btn btn-ghost btn-xs mb-2 self-start lg:hidden"
     >
       <Icons.ChevronLeft class="size-4" />
@@ -373,7 +389,7 @@ export function JobDetail(props: JobDetailProps) {
         when={!notFound()}
         fallback={
           <div class="page flex flex-1 flex-col">
-            <BackToJobs ref={(el) => (fallbackFocusRef = el)} />
+            <BackToJobs ref={(el) => (fallbackFocusRef = el)} skeleton />
             <div class="flex flex-1 items-center justify-center">
               <EmptyState
                 title="Job not found"
@@ -396,7 +412,10 @@ export function JobDetail(props: JobDetailProps) {
                 <Show when={detailLoading()}>
                   <>
                     <header class="shrink-0 border-b border-base-300 bg-base-100 px-4 pt-4 pb-3 lg:px-6">
-                      <BackToJobs ref={(el) => (fallbackFocusRef = el)} />
+                      <BackToJobs
+                        ref={(el) => (fallbackFocusRef = el)}
+                        skeleton
+                      />
                       <div class="skeleton h-6 w-48" />
                       <div class="skeleton mt-2 h-4 w-64" />
                     </header>
@@ -410,7 +429,7 @@ export function JobDetail(props: JobDetailProps) {
             >
               {(errMsg) => (
                 <div class="page flex flex-col">
-                  <BackToJobs ref={(el) => (fallbackFocusRef = el)} />
+                  <BackToJobs ref={(el) => (fallbackFocusRef = el)} skeleton />
                   <div role="alert" class="alert alert-error alert-soft">
                     <span class="flex-1 text-sm">{errMsg()}</span>
                     <button
@@ -619,7 +638,6 @@ export function JobDetail(props: JobDetailProps) {
                     <Match when={props.tab === "events"}>
                       <JobTimeline
                         events={eventsStore}
-                        jobStatus={currentJob().status}
                         actionPending={actionPending()}
                         onRegenerate={(evtId) => void handleRegenerate(evtId)}
                       />

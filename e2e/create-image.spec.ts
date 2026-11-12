@@ -190,7 +190,7 @@ test("create image: Ctrl+Enter in prompt submits once; Enter alone does not subm
 
   await prompt.press("Control+Enter");
   await expect(page.getByText("Stubbed submit check")).toBeVisible();
-  expect(submitCount).toBe(1);
+  await expect.poll(() => submitCount).toBe(1);
 });
 
 test("create image: two fast clicks on Generate send only one request", async ({
@@ -214,12 +214,15 @@ test("create image: two fast clicks on Generate send only one request", async ({
   await expect(prompt).toBeVisible({ timeout: 10000 });
   await prompt.fill("double click test");
 
+  const firstResp = page.waitForResponse("**/api/jobs/images");
   await page.evaluate(() => {
     const btn = document.getElementById("submit-btn") as HTMLButtonElement;
     btn.click();
     btn.click();
   });
 
+  await expect.poll(() => submitCount).toBe(1);
+  await firstResp;
   await expect(page.getByText("Stubbed double click check")).toBeVisible();
   expect(submitCount).toBe(1);
 });
@@ -270,12 +273,20 @@ test("create image: 400 naming batch_size or collapsed field shows error and ope
 test("create image: Enhance replaces untouched text with Undo, and preserves edits typed while in flight", async ({
   page,
 }) => {
+  let enhanceCall = 0;
   await page.route("**/api/enhance**", async (route) => {
-    await new Promise((r) => setTimeout(r, 400));
+    enhanceCall++;
+    const currentCall = enhanceCall;
+    await new Promise((r) => setTimeout(r, 300));
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ enhanced: "enhanced masterpiece prompt" }),
+      body: JSON.stringify({
+        enhanced:
+          currentCall === 2
+            ? "second enhanced prompt"
+            : "enhanced masterpiece prompt",
+      }),
     });
   });
 
@@ -283,13 +294,15 @@ test("create image: Enhance replaces untouched text with Undo, and preserves edi
   const prompt = page.locator('textarea[name="prompt"]');
   await expect(prompt).toBeVisible({ timeout: 10000 });
 
-  // (a) untouched text is replaced and Undo restores it
+  // (a) untouched text is replaced, a second Enhance replaces the first, and Undo restores the text replaced by the second Enhance
   await prompt.fill("original fox");
   const enhanceBtn = page.getByRole("button", { name: "Prompt: Enhance" });
   await enhanceBtn.click();
   await expect(prompt).toHaveValue("enhanced masterpiece prompt");
+  await enhanceBtn.click();
+  await expect(prompt).toHaveValue("second enhanced prompt");
   await page.getByRole("button", { name: "Undo" }).click();
-  await expect(prompt).toHaveValue("original fox");
+  await expect(prompt).toHaveValue("enhanced masterpiece prompt");
 
   // (b) text typed during the request is kept and the info toast appears
   await enhanceBtn.click();
@@ -365,7 +378,7 @@ test("create image: stubbed create response shows job, and switching to a second
   });
 
   await page.route(`**/api/jobs/${secondJobId}`, async (route) => {
-    await new Promise((r) => setTimeout(r, 800));
+    await new Promise((r) => setTimeout(r, 150));
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -404,10 +417,13 @@ test("create image: stubbed create response shows job, and switching to a second
   nextCreateId = secondJobId;
   await page.locator("#submit-btn").click();
 
-  // While secondJobId detail/media are still delayed, firstJob's tiles must already be gone
-  await expect(firstTiles).toHaveCount(0);
+  // Wait until the result panel left the pending state (mocked job detail answered) while media is still delayed
+  await expect(panel.getByText("Starting your job")).toHaveCount(0);
   await expect(panel).toContainText("Second Stub Job", { timeout: 5000 });
-  await expect(firstTiles).toHaveCount(1);
+  await expect(firstTiles).toHaveCount(0);
+
+  // Then once media finishes arriving, the new job's tile appears
+  await expect(firstTiles).toHaveCount(1, { timeout: 5000 });
 });
 
 test("create image: focused last control in Advanced does not intersect sticky submit bar at 390x844 and 1280x800", async ({
@@ -422,11 +438,19 @@ test("create image: focused last control in Advanced does not intersect sticky s
     const prompt = page.locator('textarea[name="prompt"]');
     await expect(prompt).toBeVisible({ timeout: 10000 });
 
-    const advSummary = page.locator("summary", { hasText: "Advanced" });
-    const details = page.locator("details", { has: advSummary });
-    if (!(await details.evaluate((el: HTMLDetailsElement) => el.open))) {
-      await advSummary.click();
+    // Open all collapsible sections so the form is taller than the viewport and really scrolls
+    for (const label of ["Style guide", "LoRAs", "Advanced"]) {
+      const sum = page.locator("summary", { hasText: label });
+      const det = page.locator("details", { has: sum });
+      if (!(await det.evaluate((el: HTMLDetailsElement) => el.open))) {
+        await sum.click();
+      }
     }
+    await prompt.evaluate((el: HTMLTextAreaElement) => {
+      el.rows = 18;
+    });
+
+    const advSummary = page.locator("summary", { hasText: "Advanced" });
     const modelSelect = page.locator('select[name="image_model"]');
     await expect(modelSelect).toBeVisible();
     await advSummary.focus();
@@ -443,6 +467,30 @@ test("create image: focused last control in Advanced does not intersect sticky s
       modelBox!.x + modelBox!.width > barBox!.x;
     if (horizOverlap) {
       expect(modelBox!.y + modelBox!.height).toBeLessThanOrEqual(barBox!.y + 1);
+    }
+
+    if (size.width === 1280) {
+      await page.setViewportSize({ width: 1280, height: 800 });
+      const barRect = await page.locator("#submit-bar").boundingBox();
+      const panelRect = await page.locator("#result-panel").boundingBox();
+      expect(barRect).not.toBeNull();
+      expect(panelRect).not.toBeNull();
+      expect(barRect!.x + barRect!.width).toBeLessThanOrEqual(panelRect!.x + 1);
+
+      const scrolled = await page.evaluate(() => {
+        const main =
+          document.getElementById("app-main") ?? document.documentElement;
+        main.scrollTop = main.scrollHeight;
+        return main.scrollTop > 0;
+      });
+      expect(scrolled).toBe(true);
+      await expect(page.locator("#submit-btn")).toBeInViewport();
+      await page.evaluate(() => {
+        const main =
+          document.getElementById("app-main") ?? document.documentElement;
+        main.scrollTop = 0;
+      });
+      await expect(page.locator("#submit-btn")).toBeInViewport();
     }
   }
 });

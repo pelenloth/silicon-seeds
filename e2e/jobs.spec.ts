@@ -405,6 +405,7 @@ test("jobs: media cap shows Showing the first N and Show all requests limit=1000
   await expect(detail.getByText("Showing the first 3")).toBeVisible({
     timeout: 10000,
   });
+  expect(requestedLimits[0]).toBe("100");
   await expect(detail.getByText("3+ outputs")).toBeVisible();
   await expect(
     detail
@@ -417,6 +418,17 @@ test("jobs: media cap shows Showing the first N and Show all requests limit=1000
   await showAllBtn.click();
   await expect.poll(() => requestedLimits.includes("1000")).toBe(true);
   await expect(detail.getByText("Showing the first 3")).toHaveCount(0);
+
+  const countBeforeRefetch = requestedLimits.length;
+  await page.evaluate((id) => {
+    window.dispatchEvent(
+      new CustomEvent("job-update", { detail: { jobId: id } }),
+    );
+  }, job.id);
+  await expect
+    .poll(() => requestedLimits.length)
+    .toBeGreaterThan(countBeforeRefetch);
+  expect(requestedLimits[requestedLimits.length - 1]).toBe("1000");
   await page.unroute(mediaPattern);
 });
 

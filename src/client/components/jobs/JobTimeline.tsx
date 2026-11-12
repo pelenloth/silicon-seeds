@@ -14,7 +14,6 @@ import { StatusBadge } from "../ui/StatusBadge";
 
 export type JobTimelineProps = {
   events: JobEvent[];
-  jobStatus?: string;
   actionPending?: boolean;
   onRegenerate: (eventId: string) => void;
 };
@@ -33,7 +32,7 @@ export function JobTimeline(props: JobTimelineProps) {
       <ol class="flex max-w-4xl flex-col gap-2">
         <For each={props.events}>
           {(e) => {
-            const displayStatus = () => eventDisplayStatus(e, props.jobStatus);
+            const displayStatus = () => eventDisplayStatus(e);
             const hasDetails = () =>
               Boolean(
                 e.prompt ||

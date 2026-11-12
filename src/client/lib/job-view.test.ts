@@ -11,6 +11,7 @@ import {
   filterJobs,
   formatDuration,
   formatRelativeTime,
+  galleryPageDecision,
   isCancelledEvent,
   jobDurationMs,
   jobKindMeta,
@@ -21,6 +22,7 @@ import {
   nextBackoffMs,
   plural,
   shouldApplyResponse,
+  shouldMoveMobileFocusForActive,
   shouldShowNewMedia,
   splitPrompt,
   summarizeEvents,
@@ -573,9 +575,8 @@ describe("cancelled events, plural and shouldShowNewMedia", () => {
     expect(isCancelledEvent(doneEvt)).toBe(false);
 
     expect(eventDisplayStatus(cancelledEvt)).toBe("cancelled");
-    expect(eventDisplayStatus(failedEvt, "cancelled")).toBe("cancelled");
-    expect(eventDisplayStatus(failedEvt, "failed")).toBe("failed");
-    expect(eventDisplayStatus(doneEvt, "cancelled")).toBe("complete");
+    expect(eventDisplayStatus(failedEvt)).toBe("failed");
+    expect(eventDisplayStatus(doneEvt)).toBe("complete");
 
     const s = summarizeEvents([
       { type: "new_image_prompt", status: "complete" },
@@ -619,5 +620,53 @@ describe("cancelled events, plural and shouldShowNewMedia", () => {
     expect(shouldShowNewMedia(5, 4)).toBe(false);
     expect(shouldShowNewMedia(0, 1)).toBe(true);
     expect(shouldShowNewMedia(5, 6)).toBe(true);
+  });
+
+  test("galleryPageDecision handles continue, end, and stalled cases", () => {
+    expect(
+      galleryPageDecision({
+        added: 20,
+        nextCursor: "c2",
+        prevCursor: "c1",
+      }),
+    ).toBe("continue");
+    expect(
+      galleryPageDecision({
+        added: 20,
+        nextCursor: null,
+        prevCursor: "c1",
+      }),
+    ).toBe("end");
+    expect(
+      galleryPageDecision({
+        added: 0,
+        nextCursor: undefined,
+        prevCursor: "c1",
+      }),
+    ).toBe("end");
+    expect(
+      galleryPageDecision({
+        added: 20,
+        nextCursor: "c1",
+        prevCursor: "c1",
+      }),
+    ).toBe("stalled");
+    expect(
+      galleryPageDecision({
+        added: 0,
+        nextCursor: "c2",
+        prevCursor: "c1",
+      }),
+    ).toBe("stalled");
+  });
+
+  test("shouldMoveMobileFocusForActive moves focus only for body, list or skeleton-back", () => {
+    expect(shouldMoveMobileFocusForActive({ activeIn: "body" })).toBe(true);
+    expect(shouldMoveMobileFocusForActive({ activeIn: "list" })).toBe(true);
+    expect(shouldMoveMobileFocusForActive({ activeIn: "skeleton-back" })).toBe(
+      true,
+    );
+    expect(shouldMoveMobileFocusForActive({ activeIn: "detail" })).toBe(false);
+    expect(shouldMoveMobileFocusForActive({ activeIn: "other" })).toBe(false);
   });
 });

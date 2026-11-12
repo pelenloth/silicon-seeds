@@ -101,14 +101,11 @@ export function isCancelledEvent(event: {
   );
 }
 
-export function eventDisplayStatus(
-  event: { status: string; error?: string | null },
-  jobStatus?: string,
-): string {
-  if (
-    isCancelledEvent(event) ||
-    (jobStatus === "cancelled" && event.status === "failed")
-  ) {
+export function eventDisplayStatus(event: {
+  status: string;
+  error?: string | null;
+}): string {
+  if (isCancelledEvent(event)) {
     return "cancelled";
   }
   return event.status;
@@ -584,4 +581,33 @@ export function shouldShowNewMedia(
   nextCompleted: number,
 ): boolean {
   return typeof prevCompleted === "number" && nextCompleted > prevCompleted;
+}
+
+export type GalleryPageOutcome = "continue" | "end" | "stalled";
+
+export function galleryPageDecision(opts: {
+  added: number;
+  nextCursor: string | null | undefined;
+  prevCursor: string | null | undefined;
+}): GalleryPageOutcome {
+  if (!opts.nextCursor) {
+    return "end";
+  }
+  if (opts.nextCursor === opts.prevCursor || opts.added <= 0) {
+    return "stalled";
+  }
+  return "continue";
+}
+
+export type MobileFocusLocation =
+  "body" | "list" | "detail" | "skeleton-back" | "other";
+
+export function shouldMoveMobileFocusForActive(opts: {
+  activeIn: MobileFocusLocation;
+}): boolean {
+  return (
+    opts.activeIn === "body" ||
+    opts.activeIn === "list" ||
+    opts.activeIn === "skeleton-back"
+  );
 }

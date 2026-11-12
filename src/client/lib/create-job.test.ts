@@ -3,6 +3,7 @@ import { ApiError } from "./api-client";
 import {
   AUDIO_DEFAULTS,
   CREATE_KINDS,
+  firstInvalidInOrder,
   mapServerErrors,
   quickCreateValues,
   submitCreateJob,
@@ -150,7 +151,7 @@ describe("submitCreateJob", () => {
   });
 });
 
-describe("validateCreateFields", () => {
+describe("validateCreateFields and firstInvalidInOrder", () => {
   test("checks required fields, max lengths and numeric ranges", () => {
     const res1 = validateCreateFields(
       { prompt: "   ", style_guide: "a".repeat(2005), batch_size: "20" },
@@ -160,7 +161,6 @@ describe("validateCreateFields", () => {
         ranges: [{ field: "batch_size", min: 1, max: 16, label: "Images" }],
       },
     );
-    expect(res1.firstInvalid).toBe("prompt");
     expect(res1.errors.prompt).toBe("Prompt is required");
     expect(res1.errors.style_guide).toContain("2000");
     expect(res1.errors.batch_size).toContain("16");
@@ -173,8 +173,41 @@ describe("validateCreateFields", () => {
         ranges: [{ field: "batch_size", min: 1, max: 16, label: "Images" }],
       },
     );
-    expect(res2.firstInvalid).toBeNull();
     expect(res2.errors).toEqual({});
+  });
+
+  test("firstInvalidInOrder chooses the first invalid field by DOM order rather than rule order", () => {
+    const { errors } = validateCreateFields(
+      { prompt: "ok", style_guide: "a".repeat(2005), batch_size: "99" },
+      {
+        required: [{ field: "prompt", message: "Prompt is required" }],
+        maxLengths: [{ field: "style_guide", max: 2000, label: "Style guide" }],
+        ranges: [{ field: "batch_size", min: 1, max: 16, label: "Images" }],
+        loras: [
+          { name: "first.safetensors", strength: 0.7 },
+          { name: "second.safetensors", strength: 5 },
+        ],
+      },
+    );
+    expect(
+      firstInvalidInOrder(
+        [
+          "prompt",
+          "batch_size",
+          "style_guide",
+          "loras.0.strength",
+          "loras.1.strength",
+        ],
+        errors,
+      ),
+    ).toBe("batch_size");
+    expect(
+      firstInvalidInOrder(
+        ["loras.0.strength", "loras.1.strength", "style_guide"],
+        errors,
+      ),
+    ).toBe("loras.1.strength");
+    expect(firstInvalidInOrder(["prompt", "batch_size"], {})).toBeNull();
   });
 });
 

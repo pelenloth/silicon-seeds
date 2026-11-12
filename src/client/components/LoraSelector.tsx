@@ -161,6 +161,7 @@ export function LoraSelector(props: {
           <For each={props.value}>
             {(spec, idx) => (
               <div
+                data-lora-index={idx()}
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={(e) => onDrop(e, idx())}
                 class="flex items-center gap-2 rounded-field border border-base-300 bg-base-200 p-2"
@@ -181,6 +182,7 @@ export function LoraSelector(props: {
                   min="0.1"
                   max="2"
                   step="0.1"
+                  data-lora-index={idx()}
                   aria-label={`Strength for ${spec.name}`}
                   value={String(spec.strength)}
                   onInput={(e) =>

@@ -26,6 +26,7 @@ import {
 } from "../lib/api-client";
 import { setPrefill } from "../lib/form-state";
 import {
+  galleryPageDecision,
   jobToPrefill,
   plural,
   shouldShowNewMedia,
@@ -105,6 +106,7 @@ export default function Gallery() {
   const [error, setError] = createSignal<string | null>(null);
   const [reloadError, setReloadError] = createSignal(false);
   const [hasMore, setHasMore] = createSignal(true);
+  const [stalled, setStalled] = createSignal(false);
   const [hasNew, setHasNew] = createSignal(false);
   const [loadedAnnouncement, setLoadedAnnouncement] = createSignal("");
   const [lightboxKey, setLightboxKey] = createSignal<string | null>(null);
@@ -131,7 +133,8 @@ export default function Gallery() {
     if (typeof requestAnimationFrame !== "function") return;
     rearmFrame = requestAnimationFrame(() => {
       rearmFrame = null;
-      if (disposed || !observer || !sentinelRef || !hasMore()) return;
+      if (disposed || !observer || !sentinelRef || !hasMore() || stalled())
+        return;
       observer.unobserve(sentinelRef);
       observer.observe(sentinelRef);
     });
@@ -169,17 +172,21 @@ export default function Gallery() {
         setError(null);
         setReloadError(false);
         setHasMore(true);
+        setStalled(false);
+        setHasNew(false);
         setLoading(true);
       });
       cursorValue = undefined;
     } else if (mode === "reload") {
       batch(() => {
         setReloadError(false);
+        setStalled(false);
         setLoading(true);
       });
     } else {
       batch(() => {
         setError(null);
+        setStalled(false);
         setLoading(true);
       });
     }
@@ -207,20 +214,6 @@ export default function Gallery() {
         "next_cursor" in data &&
         data.next_cursor !== undefined;
 
-      if (
-        hasNextCursorField &&
-        mode === "append" &&
-        data.next_cursor !== null &&
-        data.next_cursor === c
-      ) {
-        batch(() => {
-          setHasMore(false);
-          setError("Could not load more.");
-          setLoading(false);
-        });
-        return;
-      }
-
       const lastMetaId =
         raw.length > 0 ? raw[raw.length - 1]?.meta_id : undefined;
       const more = hasNextCursorField
@@ -228,30 +221,51 @@ export default function Gallery() {
         : raw.length >= 20 && Boolean(lastMetaId);
       const nextCursor = hasNextCursorField
         ? (data.next_cursor ?? undefined)
-        : lastMetaId;
+        : more
+          ? lastMetaId
+          : undefined;
+
+      const deduped: KeyedMediaItem[] = [];
+      if (mode === "append") {
+        const existingKeys = new Set(items.map((it) => it.id));
+        for (const it of nextKeyed) {
+          if (!existingKeys.has(it.id)) {
+            existingKeys.add(it.id);
+            deduped.push(it);
+          }
+        }
+      } else {
+        const seen = new Set<string>();
+        for (const it of nextKeyed) {
+          if (!seen.has(it.id)) {
+            seen.add(it.id);
+            deduped.push(it);
+          }
+        }
+      }
+
+      if (mode === "append") {
+        const decision = galleryPageDecision({
+          added: deduped.length,
+          nextCursor,
+          prevCursor: c,
+        });
+        if (decision === "stalled") {
+          batch(() => {
+            setStalled(true);
+            setError("Could not load more.");
+            setLoading(false);
+          });
+          return;
+        }
+      }
 
       batch(() => {
         if (mode === "append") {
-          const existingKeys = new Set(items.map((it) => it.id));
-          const deduped: KeyedMediaItem[] = [];
-          for (const it of nextKeyed) {
-            if (!existingKeys.has(it.id)) {
-              existingKeys.add(it.id);
-              deduped.push(it);
-            }
-          }
           if (deduped.length > 0) {
             setItems((prev) => [...prev, ...deduped]);
           }
         } else {
-          const seen = new Set<string>();
-          const deduped: KeyedMediaItem[] = [];
-          for (const it of nextKeyed) {
-            if (!seen.has(it.id)) {
-              seen.add(it.id);
-              deduped.push(it);
-            }
-          }
           setItems(reconcile(deduped, { key: "id", merge: true }));
         }
 
@@ -261,6 +275,7 @@ export default function Gallery() {
           cursorValue = undefined;
         }
         setHasMore(more);
+        setStalled(false);
         setError(null);
         setReloadError(false);
         setLoading(false);
@@ -344,6 +359,7 @@ export default function Gallery() {
           if (
             entries.some((e) => e.isIntersecting) &&
             hasMore() &&
+            !stalled() &&
             !loading() &&
             !error() &&
             !reloadError()
@@ -468,7 +484,7 @@ export default function Gallery() {
             </button>
           </div>
         </Show>
-        <Show when={!loading() && !error() && items.length === 0}>
+        <Show when={!loading() && !error() && !hasMore() && items.length === 0}>
           <EmptyState
             title="Nothing here yet"
             description="Generated images, videos and audio collect here."
@@ -506,7 +522,10 @@ export default function Gallery() {
               <button
                 type="button"
                 class="btn btn-ghost btn-xs"
-                onClick={() => void fetchPage("append")}
+                onClick={() => {
+                  setStalled(false);
+                  void fetchPage("append");
+                }}
               >
                 Try again
               </button>
