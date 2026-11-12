@@ -22,6 +22,7 @@ import {
   jobSignature,
   jobStatusMeta,
   jobToPrefill,
+  mediaItemKey,
   mediaKindLabel,
   mediaTitle,
   nextBackoffMs,
@@ -873,5 +874,19 @@ describe("live updates helpers (isStreamStale, jobSignature, changedJobIds)", ()
     expect(progressFraction({ ...P0, total: 0, complete: 1 })).toBeNull();
     expect(progressFraction({ ...P0, total: 1, complete: 0 })).toBe("0/1");
     expect(progressFraction({ ...P0, total: 4, complete: 2 })).toBe("2/4");
+  });
+
+  test("mediaItemKey changes with meta_id and keeps the old key without one", () => {
+    const base = { subfolder: "s", filename: "a.png" };
+    expect(mediaItemKey(base)).toBe("s/a.png");
+    expect(mediaItemKey({ ...base, meta_id: "m1" })).not.toBe(
+      mediaItemKey({ ...base, meta_id: "m2" }),
+    );
+    expect(mediaItemKey({ ...base, meta_id: "m1" })).not.toBe(
+      mediaItemKey(base),
+    );
+    expect(mediaItemKey({ ...base, id: "explicit", meta_id: "m1" })).toBe(
+      "explicit",
+    );
   });
 });

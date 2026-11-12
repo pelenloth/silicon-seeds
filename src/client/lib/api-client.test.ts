@@ -242,3 +242,39 @@ describe("thumbUrl", () => {
     );
   });
 });
+
+describe("versioned media urls", () => {
+  const base = { subfolder: "a b", filename: "x.png" };
+  test("thumbUrl appends v=<meta_id> when present, unchanged otherwise", () => {
+    expect(thumbUrl({ ...base, meta_id: "m1" }, 640)).toBe(
+      "/thumbs/a%20b/x.png?w=640&v=m1",
+    );
+    expect(thumbUrl(base, 640)).toBe("/thumbs/a%20b/x.png?w=640");
+  });
+  test("mediaUrl appends v=<meta_id> when present, unchanged otherwise", () => {
+    expect(mediaUrl({ ...base, mediaType: "image", meta_id: "m1" })).toBe(
+      "/assets/a%20b/x.png?v=m1",
+    );
+    expect(mediaUrl({ ...base, mediaType: "image" })).toBe(
+      "/assets/a%20b/x.png",
+    );
+  });
+  test("a meta_id that needs encoding is URL-encoded", () => {
+    expect(thumbUrl({ ...base, meta_id: "a&b=c/d" }, 96)).toBe(
+      "/thumbs/a%20b/x.png?w=96&v=a%26b%3Dc%2Fd",
+    );
+    expect(mediaUrl({ ...base, mediaType: "image", meta_id: "a&b=c/d" })).toBe(
+      "/assets/a%20b/x.png?v=a%26b%3Dc%2Fd",
+    );
+  });
+  test("an explicit src is returned unchanged", () => {
+    expect(
+      mediaUrl({
+        ...base,
+        mediaType: "image",
+        meta_id: "m1",
+        src: "/blob/custom.png",
+      }),
+    ).toBe("/blob/custom.png");
+  });
+});

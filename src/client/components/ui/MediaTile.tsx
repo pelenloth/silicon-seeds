@@ -80,7 +80,7 @@ export function MediaTile(props: MediaTileProps) {
 
   const itemKey = createMemo(
     () =>
-      `${props.item.src ?? ""}|${props.item.subfolder ?? ""}|${props.item.filename}|${props.item.mediaType ?? ""}`,
+      `${props.item.src ?? ""}|${props.item.meta_id ?? ""}|${props.item.subfolder ?? ""}|${props.item.filename}|${props.item.mediaType ?? ""}`,
   );
 
   createEffect(

@@ -27,6 +27,7 @@ import {
   type JobAction,
   type JobEvent,
   type JobSummary,
+  mediaItemKey,
 } from "../../lib/job-view";
 import { onJobUpdate } from "../../lib/sse";
 import { jobs, runJobAction } from "../../stores/jobs";
@@ -47,11 +48,6 @@ export type ResultPanelProps = {
 };
 
 type KeyedMediaItem = MediaItem & { id: string; jobId: string };
-
-function mediaItemKey(item: MediaItem & { id?: string }): string {
-  if (typeof item.id === "string" && item.id) return item.id;
-  return `${item.subfolder ?? ""}/${item.filename}`;
-}
 
 const COMPOSE_STEPS: readonly { kind: EventKind; label: string }[] = [
   { kind: "text", label: "Script" },

@@ -769,3 +769,57 @@ test("jobs: dismissing Delete or Cancel confirm dialog with Escape restores focu
   await expect(cancelDialog).toBeHidden();
   await expect(cancelBtn).toBeFocused();
 });
+
+test("jobs: a regenerated output replaces the old picture (versioned media urls)", async ({
+  page,
+  request,
+}) => {
+  const { jobs } = (await (await request.get("/api/jobs?limit=1")).json()) as {
+    jobs: Job[];
+  };
+  test.skip(jobs.length === 0, "no jobs in this database");
+  const job = jobs[0];
+
+  let metaId = "m1";
+  const mediaPattern = `**/api/jobs/${encodeURIComponent(job.id)}/media**`;
+  await page.route(mediaPattern, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: [
+          {
+            filename: "a.png",
+            subfolder: "mock",
+            mediaType: "image",
+            meta_id: metaId,
+            event_id: "evt-1",
+            job_id: job.id,
+            job_name: job.name,
+          },
+        ],
+        total: 1,
+        hasMore: false,
+      }),
+    }),
+  );
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`/jobs/${job.id}?tab=media`);
+  const detail = page.locator("#job-detail");
+  await expect(detail.locator('img[src*="v=m1"]').first()).toBeAttached({
+    timeout: 10000,
+  });
+
+  metaId = "m2";
+  await page.evaluate((id) => {
+    window.dispatchEvent(
+      new CustomEvent("job-update", { detail: { jobId: id } }),
+    );
+  }, job.id);
+  await expect(detail.locator('img[src*="v=m2"]').first()).toBeAttached({
+    timeout: 10000,
+  });
+  await expect(page.locator('img[src*="v=m1"]')).toHaveCount(0);
+  await page.unroute(mediaPattern);
+});

@@ -171,10 +171,17 @@ app.get("/jobs", async (c) => {
     });
     sigs.set(r.job_id, list);
   }
-  const outputs = new Map<string, { filename: string; subfolder: string }[]>();
+  const outputs = new Map<
+    string,
+    { filename: string; subfolder: string; meta_id: string }[]
+  >();
   for (const r of outputRows) {
     const list = outputs.get(r.job_id) ?? [];
-    list.push({ filename: r.filename, subfolder: r.subfolder });
+    list.push({
+      filename: r.filename,
+      subfolder: r.subfolder,
+      meta_id: String(r.meta_id),
+    });
     outputs.set(r.job_id, list);
   }
   return c.json({

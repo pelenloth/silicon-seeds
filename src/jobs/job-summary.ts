@@ -16,6 +16,7 @@ export type MediaType = "image" | "video" | "audio";
 export type JobThumb = {
   subfolder: string;
   filename: string;
+  meta_id?: string;
   mediaType: MediaType;
 };
 
@@ -100,7 +101,7 @@ export function aggregateProgress(sigs: readonly EventSig[]): JobProgress {
 }
 
 export function pickThumb(
-  rows: readonly { filename: string; subfolder: string }[],
+  rows: readonly { filename: string; subfolder: string; meta_id?: string }[],
 ): JobThumb | null {
   let firstVideo: JobThumb | null = null;
   for (const row of rows) {
@@ -110,6 +111,7 @@ export function pickThumb(
         subfolder: row.subfolder,
         filename: row.filename,
         mediaType: "image",
+        ...(row.meta_id ? { meta_id: row.meta_id } : {}),
       };
     }
     if (mediaType === "video" && !firstVideo) {
@@ -117,6 +119,7 @@ export function pickThumb(
         subfolder: row.subfolder,
         filename: row.filename,
         mediaType: "video",
+        ...(row.meta_id ? { meta_id: row.meta_id } : {}),
       };
     }
   }

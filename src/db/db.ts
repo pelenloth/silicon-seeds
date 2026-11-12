@@ -226,7 +226,12 @@ export namespace DB {
       return await db
         .selectFrom("meta")
         .innerJoin("events", "events.id", "meta.event_id")
-        .select(["events.job_id as job_id", "meta.filename", "meta.subfolder"])
+        .select([
+          "events.job_id as job_id",
+          "meta.id as meta_id",
+          "meta.filename",
+          "meta.subfolder",
+        ])
         .where("meta.type", "=", "output")
         .where("events.job_id", "in", jobIds)
         .orderBy("meta.id", "asc")

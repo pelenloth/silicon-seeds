@@ -228,17 +228,22 @@ export function getAssetPath(subfolder: string, filename: string): string {
   return `/assets/${segments.map(encodeURIComponent).join("/")}`;
 }
 
+function versionQuery(metaId: string | undefined, first: "?" | "&"): string {
+  return metaId ? `${first}v=${encodeURIComponent(metaId)}` : "";
+}
+
 export function mediaUrl(item: MediaItem): string {
-  return item.src ?? getAssetPath(item.subfolder, item.filename);
+  if (item.src) return item.src;
+  return `${getAssetPath(item.subfolder, item.filename)}${versionQuery(item.meta_id, "?")}`;
 }
 
 export function thumbUrl(
-  item: { subfolder: string; filename: string },
+  item: { subfolder: string; filename: string; meta_id?: string },
   width: 96 | 320 | 640,
 ): string {
   const segments = [
     ...item.subfolder.split("/").filter(Boolean),
     item.filename,
   ];
-  return `/thumbs/${segments.map(encodeURIComponent).join("/")}?w=${width}`;
+  return `/thumbs/${segments.map(encodeURIComponent).join("/")}?w=${width}${versionQuery(item.meta_id, "&")}`;
 }

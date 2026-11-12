@@ -139,6 +139,22 @@ describe("media helpers", () => {
     expect(pickThumb([{ filename: "a.wav", subfolder: "" }])).toBeNull();
     expect(pickThumb([])).toBeNull();
   });
+  test("pickThumb carries the meta_id of the chosen row", () => {
+    expect(
+      pickThumb([
+        { filename: "a.mp4", subfolder: "", meta_id: "m1" },
+        { filename: "b.png", subfolder: "x", meta_id: "m2" },
+      ]),
+    ).toEqual({
+      subfolder: "x",
+      filename: "b.png",
+      mediaType: "image",
+      meta_id: "m2",
+    });
+    expect(
+      pickThumb([{ filename: "a.mp4", subfolder: "", meta_id: "m1" }]),
+    ).toMatchObject({ mediaType: "video", meta_id: "m1" });
+  });
   test("takePage slices items, computes total up to offset + limit, and reports hasMore from look-ahead or scan-cap", async () => {
     const { takePage } = await import("./job-summary");
     expect(takePage(["a", "b", "c"], 0, 2)).toEqual({

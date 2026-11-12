@@ -33,6 +33,7 @@ import {
   type JobEvent,
   type JobSummary,
   type MobileFocusLocation,
+  mediaItemKey,
 } from "../../lib/job-view";
 import { onJobUpdate } from "../../lib/sse";
 import { jobs, regenerateEvent, runJobAction } from "../../stores/jobs";
@@ -54,11 +55,6 @@ export type JobDetailProps = {
 };
 
 type KeyedMediaItem = MediaItem & { id: string };
-
-function mediaItemKey(item: MediaItem & { id?: string }): string {
-  if (typeof item.id === "string" && item.id) return item.id;
-  return `${item.subfolder ?? ""}/${item.filename}`;
-}
 
 function isMobileViewport(): boolean {
   try {

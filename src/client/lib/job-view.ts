@@ -18,6 +18,7 @@ export type JobProgress = {
 export type JobThumb = {
   subfolder: string;
   filename: string;
+  meta_id?: string;
   mediaType: MediaType;
 };
 export type JobSummary = {
@@ -712,4 +713,15 @@ export function changedJobIds(
     }
   }
   return changed;
+}
+
+export function mediaItemKey(item: {
+  id?: string;
+  subfolder?: string;
+  filename: string;
+  meta_id?: string;
+}): string {
+  if (typeof item.id === "string" && item.id) return item.id;
+  const base = `${item.subfolder ?? ""}/${item.filename}`;
+  return item.meta_id ? `${base}#${item.meta_id}` : base;
 }
