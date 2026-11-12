@@ -1,53 +1,79 @@
 import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { describe, expect, test } from "bun:test";
 
 const E2E_DIR = join(process.cwd(), "e2e");
 
-const CREATE_ENHANCE_INTENT_RE =
-  /\/api\/(?:jobs\/(?:images|videos|audio|scenes|instrumental)|enhance|intent)/;
-
-function hasForbiddenRoutePassthrough(src: string): boolean {
-  const parts = src.split("page.route");
-  for (let i = 1; i < parts.length; i++) {
-    const chunk = parts[i] ?? "";
-    const firstLine = chunk.slice(0, 200);
-    if (!CREATE_ENHANCE_INTENT_RE.test(firstLine)) continue;
-    if (/route\.(?:continue|fallback)\s*\(/.test(chunk)) {
-      return true;
+function listTsFiles(dir: string): string[] {
+  const out: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      out.push(...listTsFiles(full));
+    } else if (entry.isFile() && entry.name.endsWith(".ts")) {
+      out.push(full);
     }
+  }
+  return out.sort();
+}
+
+function importsTestFromPlaywright(src: string): boolean {
+  const importRe =
+    /\b(?:import|export)\s+(?:type\s+)?\{([^}]*)\}\s+from\s+["']@playwright\/test["']/g;
+  let m: RegExpExecArray | null;
+  while ((m = importRe.exec(src)) !== null) {
+    const specifiers = (m[1] ?? "").split(",");
+    for (const raw of specifiers) {
+      const cleaned = raw.replace(/\btype\b/g, "").trim();
+      const firstToken = cleaned.split(/\s+/)[0];
+      if (firstToken === "test") return true;
+    }
+  }
+  if (
+    /\bimport\s+test\b[^;]*from\s+["']@playwright\/test["']/.test(src) ||
+    /\bimport\s+\*\s+as\s+\w+\s+from\s+["']@playwright\/test["']/.test(src)
+  ) {
+    return true;
   }
   return false;
 }
 
 describe("e2e generation guard", () => {
-  const files = readdirSync(E2E_DIR)
-    .filter((f) => f.endsWith(".spec.ts"))
-    .sort();
+  const files = listTsFiles(E2E_DIR);
 
-  test("discovers e2e spec files", () => {
+  test("discovers e2e .ts files recursively", () => {
     expect(files.length).toBeGreaterThan(0);
   });
 
-  for (const file of files) {
-    test(`${file} imports test from ./helpers/test and never forwards create/enhance/intent routes`, () => {
-      const src = readFileSync(join(E2E_DIR, file), "utf8");
+  for (const absPath of files) {
+    const rel = relative(process.cwd(), absPath).replace(/\\/g, "/");
+    test(`${rel} obeys e2e safety guard rules`, () => {
+      const src = readFileSync(absPath, "utf8");
+
+      if (rel !== "e2e/helpers/test.ts" && importsTestFromPlaywright(src)) {
+        throw new Error(
+          `${rel} imports test from @playwright/test; import test and expect from "./helpers/test" instead.`,
+        );
+      }
+
       if (
-        src.includes('"@playwright/test"') ||
-        src.includes("'@playwright/test'")
+        rel !== "e2e/helpers/no-generation.ts" &&
+        src.includes(".continue(")
       ) {
         throw new Error(
-          `${file} imports from @playwright/test directly; import test and expect from "./helpers/test" instead.`,
+          `${rel} calls .continue(; use route.fallback() or route.fulfill() instead so the generation block still runs.`,
         );
       }
-      if (!src.includes("./helpers/test")) {
+
+      if (/\brequest\.(?:post|put|patch|delete|fetch)\s*\(/.test(src)) {
         throw new Error(
-          `${file} must import test and expect from "./helpers/test".`,
+          `${rel} calls a mutating request method; use request.get() or stub page routes instead.`,
         );
       }
-      if (hasForbiddenRoutePassthrough(src)) {
+
+      if (/\b(?:browser\.newContext|chromium\.launch)\s*\(/.test(src)) {
         throw new Error(
-          `${file} registers a create/enhance/intent route that calls route.continue() or route.fallback(); import from "./helpers/test" and fulfill the stub instead.`,
+          `${rel} calls browser.newContext( or chromium.launch(; use the context or page fixture from "./helpers/test" instead so the generation block is installed.`,
         );
       }
     });

@@ -81,7 +81,7 @@ async function mockJobRoutes(page: Page, jobId: string, kind = "image") {
         }),
       });
     } else {
-      await route.continue();
+      await route.fallback();
     }
   });
 }
@@ -485,7 +485,7 @@ test("home: In progress section displays active job with progress, link, and can
         }),
       });
     } else {
-      await route.continue();
+      await route.fallback();
     }
   });
 
@@ -531,7 +531,7 @@ test("home: In progress section displays active job with progress, link, and can
         body: JSON.stringify({ jobs: [] }),
       });
     } else {
-      await route.continue();
+      await route.fallback();
     }
   });
   await page.reload();
@@ -1078,7 +1078,7 @@ test("home: auto mode planner failure (503 and 502) shows error toast, switches 
     page.getByText(
       "Could not plan that automatically. Pick a format and try again.",
     ),
-  ).toBeVisible();
+  ).toHaveCount(2);
   await expect(
     page.locator('input[name="home-mode"][value="image"]'),
   ).toBeChecked();
@@ -1127,7 +1127,7 @@ test("home: auto mode malformed plan answer is treated as planner failure", asyn
     page.getByText(
       "Could not plan that automatically. Pick a format and try again.",
     ),
-  ).toBeVisible();
+  ).toHaveCount(2);
   await expect(
     page.locator('input[name="home-mode"][value="image"]'),
   ).toBeChecked();
