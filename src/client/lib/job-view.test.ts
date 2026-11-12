@@ -668,6 +668,13 @@ describe("cancelled events, plural and shouldShowNewMedia", () => {
         nextCursor: "c2",
         prevCursor: "c1",
       }),
+    ).toBe("skip");
+    expect(
+      galleryPageDecision({
+        added: 0,
+        nextCursor: "c1",
+        prevCursor: "c1",
+      }),
     ).toBe("stalled");
   });
 

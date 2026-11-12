@@ -46,6 +46,7 @@ const FILTER_OPTIONS: readonly { value: FilterType; label: string }[] = [
 ];
 
 const SKELETON_INDICES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] as const;
+const MAX_CONSECUTIVE_SKIPS = 10;
 
 function parseFilterType(raw: string | string[] | undefined): FilterType {
   const val = Array.isArray(raw) ? raw[0] : raw;
@@ -191,66 +192,61 @@ export default function Gallery() {
       });
     }
 
-    const q = new URLSearchParams();
-    if (c) q.set("cursor", c);
-    if (filterType !== "all") q.set("type", filterType);
-    q.set("limit", "20");
-
     let shouldRearm = false;
+    let pageCursor = c;
+    const replacePending = mode !== "append";
+    let skips = 0;
     try {
-      const data = await apiGet<GalleryPageResponse>(
-        `/api/gallery/items?${q.toString()}`,
-        { signal: controller.signal },
-      );
-      if (disposed || seq !== requestSeq || filterType !== type()) {
-        return;
-      }
+      for (;;) {
+        const q = new URLSearchParams();
+        if (pageCursor) q.set("cursor", pageCursor);
+        if (filterType !== "all") q.set("type", filterType);
+        q.set("limit", "20");
 
-      const raw = Array.isArray(data?.items) ? data.items : [];
-      const nextKeyed = toKeyedMediaItems(raw);
-      const hasNextCursorField =
-        data !== null &&
-        typeof data === "object" &&
-        "next_cursor" in data &&
-        data.next_cursor !== undefined;
+        const data = await apiGet<GalleryPageResponse>(
+          `/api/gallery/items?${q.toString()}`,
+          { signal: controller.signal },
+        );
+        if (disposed || seq !== requestSeq || filterType !== type()) {
+          return;
+        }
 
-      const lastMetaId =
-        raw.length > 0 ? raw[raw.length - 1]?.meta_id : undefined;
-      const more = hasNextCursorField
-        ? data.next_cursor !== null && Boolean(data.next_cursor)
-        : raw.length >= 20 && Boolean(lastMetaId);
-      const nextCursor = hasNextCursorField
-        ? (data.next_cursor ?? undefined)
-        : more
-          ? lastMetaId
-          : undefined;
+        const raw = Array.isArray(data?.items) ? data.items : [];
+        const nextKeyed = toKeyedMediaItems(raw);
+        const hasNextCursorField =
+          data !== null &&
+          typeof data === "object" &&
+          "next_cursor" in data &&
+          data.next_cursor !== undefined;
 
-      const deduped: KeyedMediaItem[] = [];
-      if (mode === "append") {
-        const existingKeys = new Set(items.map((it) => it.id));
+        const lastMetaId =
+          raw.length > 0 ? raw[raw.length - 1]?.meta_id : undefined;
+        const more = hasNextCursorField
+          ? data.next_cursor !== null && Boolean(data.next_cursor)
+          : raw.length >= 20 && Boolean(lastMetaId);
+        const nextCursor = hasNextCursorField
+          ? (data.next_cursor ?? undefined)
+          : more
+            ? lastMetaId
+            : undefined;
+
+        const deduped: KeyedMediaItem[] = [];
+        const existingKeys = new Set(
+          replacePending ? [] : items.map((it) => it.id),
+        );
         for (const it of nextKeyed) {
           if (!existingKeys.has(it.id)) {
             existingKeys.add(it.id);
             deduped.push(it);
           }
         }
-      } else {
-        const seen = new Set<string>();
-        for (const it of nextKeyed) {
-          if (!seen.has(it.id)) {
-            seen.add(it.id);
-            deduped.push(it);
-          }
-        }
-      }
 
-      if (mode === "append") {
         const decision = galleryPageDecision({
           added: deduped.length,
           nextCursor,
-          prevCursor: c,
+          prevCursor: pageCursor,
         });
-        if (decision === "stalled") {
+        if (decision === "stalled" && mode === "append") {
           batch(() => {
             setStalled(true);
             setError("Could not load more.");
@@ -258,30 +254,43 @@ export default function Gallery() {
           });
           return;
         }
-      }
+        if (decision === "skip" && nextCursor) {
+          cursorValue = nextCursor;
+          skips += 1;
+          if (skips > MAX_CONSECUTIVE_SKIPS) {
+            batch(() => {
+              setStalled(true);
+              setError("Could not load more.");
+              setLoading(false);
+            });
+            return;
+          }
+          pageCursor = nextCursor;
+          continue;
+        }
 
-      batch(() => {
-        if (mode === "append") {
-          if (deduped.length > 0) {
+        batch(() => {
+          if (replacePending) {
+            setItems(reconcile(deduped, { key: "id", merge: true }));
+          } else if (deduped.length > 0) {
             setItems((prev) => [...prev, ...deduped]);
           }
-        } else {
-          setItems(reconcile(deduped, { key: "id", merge: true }));
-        }
 
-        if (nextCursor) {
-          cursorValue = nextCursor;
-        } else if (mode !== "append") {
-          cursorValue = undefined;
-        }
-        setHasMore(more);
-        setStalled(false);
-        setError(null);
-        setReloadError(false);
-        setLoading(false);
-        setLoadedAnnouncement(`Loaded ${plural(items.length, "item")}`);
-      });
-      shouldRearm = more;
+          if (nextCursor) {
+            cursorValue = nextCursor;
+          } else if (mode !== "append") {
+            cursorValue = undefined;
+          }
+          setHasMore(more);
+          setStalled(false);
+          setError(null);
+          setReloadError(false);
+          setLoading(false);
+          setLoadedAnnouncement(`Loaded ${plural(items.length, "item")}`);
+        });
+        shouldRearm = more;
+        break;
+      }
     } catch (err) {
       if (
         disposed ||
@@ -478,7 +487,14 @@ export default function Gallery() {
             <button
               type="button"
               class="btn btn-xs"
-              onClick={() => void fetchPage("reset")}
+              onClick={() => {
+                if (stalled() && cursorValue) {
+                  setStalled(false);
+                  void fetchPage("append");
+                } else {
+                  void fetchPage("reset");
+                }
+              }}
             >
               Try again
             </button>

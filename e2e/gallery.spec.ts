@@ -347,3 +347,106 @@ test("gallery: progress guard shows Could not load more. Try again when page sta
   await expect(tiles).toHaveCount(40);
   await page.unroute(pattern);
 });
+
+const mockItem = (id: string) => ({
+  id,
+  meta_id: id,
+  event_id: `evt-${id}`,
+  job_id: `job-${id}`,
+  job_name: `Tile ${id}`,
+  filename: `${id}.png`,
+  subfolder: "mock",
+  created_at: "2026-01-01T00:00:00Z",
+  mediaType: "image",
+});
+
+const mockItems = (prefix: string, n: number) =>
+  Array.from({ length: n }, (_, i) => mockItem(`${prefix}-${i + 1}`));
+
+test("gallery: keeps paging past an empty page when the cursor moved", async ({
+  page,
+}) => {
+  const pattern = "**/api/gallery/items*";
+  await page.route(pattern, async (route) => {
+    const cursor = new URL(route.request().url()).searchParams.get("cursor");
+    const body =
+      cursor === null
+        ? { items: mockItems("a", 20), next_cursor: "c1" }
+        : cursor === "c1"
+          ? { items: [], next_cursor: "c2" }
+          : { items: mockItems("b", 5), next_cursor: null };
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(body),
+    });
+  });
+
+  await page.goto("/gallery");
+  const grid = page.locator("#gallery-grid");
+  const tiles = grid.locator('button[aria-label^="Open "]');
+  await expect(tiles.first()).toBeVisible({ timeout: 10000 });
+  await page.evaluate(() => {
+    const main = document.getElementById("app-main");
+    if (main) main.scrollTop = main.scrollHeight;
+  });
+  await expect(tiles).toHaveCount(25, { timeout: 10000 });
+  await expect(page.getByText("Could not load more.")).toHaveCount(0);
+  await page.unroute(pattern);
+});
+
+test("gallery: an empty first page with a cursor moves on to the next page", async ({
+  page,
+}) => {
+  const pattern = "**/api/gallery/items*";
+  await page.route(pattern, async (route) => {
+    const cursor = new URL(route.request().url()).searchParams.get("cursor");
+    const body =
+      cursor === null
+        ? { items: [], next_cursor: "c1" }
+        : { items: mockItems("f", 3), next_cursor: null };
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(body),
+    });
+  });
+
+  await page.goto("/gallery");
+  const tiles = page
+    .locator("#gallery-grid")
+    .locator('button[aria-label^="Open "]');
+  await expect(tiles).toHaveCount(3, { timeout: 10000 });
+  await expect(page.getByText(/Nothing here yet/i)).toHaveCount(0);
+  await page.unroute(pattern);
+});
+
+test("gallery: endless empty pages stop after 11 requests and Try again continues from the newest cursor", async ({
+  page,
+}) => {
+  const sent: (string | null)[] = [];
+  const pattern = "**/api/gallery/items*";
+  await page.route(pattern, async (route) => {
+    const cursor = new URL(route.request().url()).searchParams.get("cursor");
+    sent.push(cursor);
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ items: [], next_cursor: `c${sent.length}` }),
+    });
+  });
+
+  await page.goto("/gallery");
+  const grid = page.locator("#gallery-grid");
+  await expect(grid.getByText("Could not load more.")).toBeVisible({
+    timeout: 10000,
+  });
+  expect(sent.length).toBeLessThanOrEqual(11);
+  const before = sent.length;
+  const seen = new Set(sent);
+
+  await grid.getByRole("button", { name: "Try again" }).click();
+  await expect.poll(() => sent.length).toBeGreaterThan(before);
+  expect(seen.has(sent[before] ?? null)).toBe(false);
+  await page.unroute(pattern);
+});

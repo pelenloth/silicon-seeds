@@ -585,7 +585,7 @@ export function shouldShowNewMedia(
   return typeof prevCompleted === "number" && nextCompleted > prevCompleted;
 }
 
-export type GalleryPageOutcome = "continue" | "end" | "stalled";
+export type GalleryPageOutcome = "continue" | "end" | "stalled" | "skip";
 
 export function galleryPageDecision(opts: {
   added: number;
@@ -595,8 +595,11 @@ export function galleryPageDecision(opts: {
   if (!opts.nextCursor) {
     return "end";
   }
-  if (opts.nextCursor === opts.prevCursor || opts.added <= 0) {
+  if (opts.nextCursor === opts.prevCursor) {
     return "stalled";
+  }
+  if (opts.added <= 0) {
+    return "skip";
   }
   return "continue";
 }
