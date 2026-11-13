@@ -389,7 +389,7 @@ function leadsWithVideoRequest(clean: string): boolean {
   const head = clean.slice(0, match.index).replace(/\u2019/g, "'");
   return head
     .split(/\s+/)
-    .map((t) => t.replace(/^[^a-z0-9']+|[^a-z0-9']+$/g, ""))
+    .map((t) => t.replace(/^[^\p{L}\p{N}']+|[^\p{L}\p{N}']+$/gu, ""))
     .filter((t) => t !== "")
     .every(
       (t) => REQUEST_FRAMING_WORDS.has(t) || REQUEST_FRAMING_TOKEN_RE.test(t),
@@ -546,6 +546,15 @@ export function decadeNumbers(text: string): number[] {
   return out;
 }
 
+// A planner number that only appears in the text as part of a decade token
+// ("1920s", "80s") is a style, not a count; "20 photos from the 1920s" keeps
+// its 20 because the number also stands on its own.
+function isDecadeOnly(n: number, text: string): boolean {
+  if (!decadeNumbers(text).includes(n)) return false;
+  const alone = new RegExp(`(?<![\\p{L}\\p{N}'])${n}(?![\\p{L}\\p{N}'])`, "u");
+  return !alone.test(text);
+}
+
 function sanitizeResolution(res: string, kind: PlanKind): string {
   const valid = VALID_RESOLUTIONS.has(res) ? res : "720p";
   if (kind === "video") {
@@ -564,7 +573,11 @@ export function normalizePlan(
   const kind = detectKind(text, raw?.kind);
   const rawPrompt = typeof raw?.prompt === "string" ? raw.prompt.trim() : "";
   const prompt = (rawPrompt || text.trim()).slice(0, 4000);
-  const count = kind === "image" ? clampRound(raw?.count, 1, 1, 8) : 1;
+  const plannerCount =
+    typeof raw?.count === "number" && isDecadeOnly(raw.count, text)
+      ? undefined
+      : raw?.count;
+  const count = kind === "image" ? clampRound(plannerCount, 1, 1, 8) : 1;
   const safeFallbackRes = VALID_RESOLUTIONS.has(fallback.resolution)
     ? fallback.resolution
     : "720p";

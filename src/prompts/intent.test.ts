@@ -583,3 +583,36 @@ describe("detectKind: a video phrase is the request only after plain request fra
     }
   });
 });
+
+describe("detectKind: words in other scripts are request framing blockers", () => {
+  test.each([
+    ["постер для video of my band", "image"],
+    ["一张海报 video of my band", "image"],
+    ["да, please make a video of a cat", "image"],
+    ["- make a video of a cat", "video"],
+    ["🎬 please make a video of a cat", "video"],
+    ['"make a video of a cat"', "video"],
+  ] as const)("%s (image hint) -> %s", (text, expected) => {
+    expect(detectKind(text, "image")).toBe(expected);
+  });
+});
+
+describe("normalizePlan: a decade is not an image count", () => {
+  const count = (raw: number, text: string) =>
+    normalizePlan({ kind: "image", count: raw }, text, PRESETS, FB).count;
+
+  test("a planner count equal to a decade number is dropped", () => {
+    expect(count(1920, "a 1920s photo of a jazz band")).toBe(1);
+    expect(count(20, "a 1920s photo of a jazz band")).toBe(1);
+    expect(count(80, "an 80s style portrait")).toBe(1);
+  });
+
+  test("a number that is not a decade is clamped as before", () => {
+    expect(count(20, "20 photos of a jazz band")).toBe(8);
+  });
+
+  test("a number that also stands on its own in the text is kept", () => {
+    expect(count(20, "20 photos from the 1920s")).toBe(8);
+    expect(count(3, "three 1980s posters")).toBe(3);
+  });
+});
