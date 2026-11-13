@@ -382,6 +382,23 @@ export function countByStatus(jobs: readonly { status: string }[]): {
   return counts;
 }
 
+/**
+ * The video a result panel shows as the outcome. `items` are in API order
+ * (newest first): the composed video wins, otherwise the newest video.
+ */
+export function pickFinalVideo<T extends { event_id?: string }>(
+  items: readonly T[],
+  events: readonly { id: string; type: string }[],
+): T | undefined {
+  const compositionIds = new Set(
+    events.filter((e) => eventKind(e.type) === "composition").map((e) => e.id),
+  );
+  return (
+    items.find((it) => it.event_id && compositionIds.has(it.event_id)) ??
+    items[0]
+  );
+}
+
 export function availableJobActions(status: string): JobAction[] {
   switch (status) {
     case "active":

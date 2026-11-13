@@ -26,6 +26,7 @@ import {
   mediaKindLabel,
   mediaTitle,
   nextBackoffMs,
+  pickFinalVideo,
   plural,
   progressFraction,
   shouldApplyResponse,
@@ -888,5 +889,43 @@ describe("live updates helpers (isStreamStale, jobSignature, changedJobIds)", ()
     expect(mediaItemKey({ ...base, id: "explicit", meta_id: "m1" })).toBe(
       "explicit",
     );
+  });
+});
+
+describe("pickFinalVideo", () => {
+  const events = [
+    { id: "e-scene-1", type: "new_video_prompt" },
+    { id: "e-scene-2", type: "new_video_prompt" },
+    { id: "e-compose", type: "new_video_composition" },
+  ];
+
+  test("returns the composition item when it is first (newest first)", () => {
+    const items = [
+      { event_id: "e-compose", filename: "composed.mp4" },
+      { event_id: "e-scene-2", filename: "scene-2.mp4" },
+      { event_id: "e-scene-1", filename: "scene-1.mp4" },
+    ];
+    expect(pickFinalVideo(items, events)).toBe(items[0]);
+  });
+
+  test("returns the composition item when it is not first", () => {
+    const items = [
+      { event_id: "e-scene-2", filename: "scene-2.mp4" },
+      { event_id: "e-compose", filename: "composed.mp4" },
+      { event_id: "e-scene-1", filename: "scene-1.mp4" },
+    ];
+    expect(pickFinalVideo(items, events)).toBe(items[1]);
+  });
+
+  test("returns the first (newest) item without a composition event", () => {
+    const items = [
+      { event_id: "e-scene-2", filename: "scene-2.mp4" },
+      { event_id: "e-scene-1", filename: "scene-1.mp4" },
+    ];
+    expect(pickFinalVideo(items, events.slice(0, 2))).toBe(items[0]);
+  });
+
+  test("returns nothing for an empty list", () => {
+    expect(pickFinalVideo([], events)).toBeUndefined();
   });
 });

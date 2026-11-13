@@ -386,3 +386,80 @@ test("compose: saved draft voice_id is kept while profiles load and after they s
   await page.reload();
   await expect(voice).toHaveValue("v1", { timeout: 10000 });
 });
+
+test("compose: the final cut tile shows the composed video, not the first scene clip", async ({
+  page,
+}) => {
+  const jobId = "stub-compose-final-cut";
+  const nowIso = new Date().toISOString();
+  const evt = (id: string, type: string) => ({
+    id,
+    jobId,
+    type,
+    mode: "video",
+    status: "complete",
+    created_at: nowIso,
+  });
+
+  await page.route(`**/api/jobs/${jobId}`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        job: {
+          id: jobId,
+          name: "Final Cut Job",
+          status: "complete",
+          created_at: nowIso,
+          kind: "compose",
+          progress: {
+            total: 3,
+            complete: 3,
+            running: 0,
+            pending: 0,
+            failed: 0,
+          },
+          thumb: null,
+        },
+        events: [
+          evt("evt-scene-1", "new_video_prompt"),
+          evt("evt-scene-2", "new_video_prompt"),
+          evt("evt-compose", "new_video_composition"),
+        ],
+      }),
+    });
+  });
+
+  const video = (eventId: string, filename: string, metaId: string) => ({
+    meta_id: metaId,
+    event_id: eventId,
+    filename,
+    subfolder: "",
+    type: "output",
+    created_at: nowIso,
+    job_id: jobId,
+    job_name: "Final Cut Job",
+    mediaType: "video",
+  });
+
+  // The API answers newest first: composition, scene 2, scene 1.
+  await page.route(`**/api/jobs/${jobId}/media**`, async (route) => {
+    const items = [
+      video("evt-compose", "composed-final.mp4", "m3"),
+      video("evt-scene-2", "scene-two.mp4", "m2"),
+      video("evt-scene-1", "scene-one.mp4", "m1"),
+    ];
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ items, total: items.length, hasMore: false }),
+    });
+  });
+
+  await page.goto(`/compose?job_id=${jobId}`);
+  const panel = page.locator("#result-panel");
+  await expect(panel).toContainText("Final Cut Job", { timeout: 10000 });
+  const tile = panel.locator("video");
+  await expect(tile).toHaveCount(1);
+  await expect(tile).toHaveAttribute("src", /composed-final\.mp4/);
+});

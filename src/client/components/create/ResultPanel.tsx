@@ -19,6 +19,7 @@ import {
 import { CREATE_KINDS, type CreateKind } from "../../lib/create-job";
 import {
   eventKind,
+  pickFinalVideo,
   isCancelledEvent,
   jobStatusMeta,
   MEDIA_RETRY_BACKOFF_MS,
@@ -525,6 +526,7 @@ export function ResultPanel(props: ResultPanelProps) {
     currentMedia().filter((m) => m.mediaType === "image");
   const videoItems = () =>
     currentMedia().filter((m) => m.mediaType === "video");
+  const finalVideo = () => pickFinalVideo(videoItems(), currentEvents());
   const audioItems = () =>
     currentMedia().filter((m) => m.mediaType === "audio");
 
@@ -749,7 +751,7 @@ export function ResultPanel(props: ResultPanelProps) {
                           >
                             <div class="flex flex-col gap-4">
                               <Show
-                                when={videoItems()[videoItems().length - 1]}
+                                when={finalVideo()}
                                 fallback={
                                   <Show
                                     when={
@@ -895,7 +897,7 @@ export function ResultPanel(props: ResultPanelProps) {
                               <Show
                                 when={
                                   currentJob().status === "complete" &&
-                                  videoItems()[videoItems().length - 1]
+                                  finalVideo()
                                 }
                               >
                                 {(finalCut) => (
