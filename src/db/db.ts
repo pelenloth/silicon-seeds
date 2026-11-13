@@ -17,7 +17,7 @@ import { Lora } from "../styles/presets";
 import { Utils } from "../utils/utils";
 import { clampGalleryLimit, pickGalleryPage } from "../media/gallery-page";
 import { finalizeDecision } from "../jobs/job-summary";
-import { JOB_CANCELLED_ERROR } from "../shared/job-cancel";
+import { JOB_CANCELLED_ERROR, canCancelJob } from "../shared/job-cancel";
 
 export interface DbSchema {
   settings: {
@@ -316,6 +316,14 @@ export namespace DB {
           .where("id", "=", id)
           .executeTakeFirstOrThrow();
 
+        if (!canCancelJob(job.status)) {
+          const err: any = new Error(
+            `cannot cancel job in status ${job.status}`,
+          );
+          err.status = 409;
+          throw err;
+        }
+
         const events = await trx
           .selectFrom("events")
           .select(["id", "status"])
@@ -329,29 +337,27 @@ export namespace DB {
           .filter((event) => event.status === JobStatus.Pending)
           .map((event) => event.id);
 
-        if (job.status === JobLifecycleStatus.Active) {
-          await trx
-            .updateTable("jobs")
-            .set({ status: JobLifecycleStatus.Cancelled })
-            .where("id", "=", id)
-            .execute();
+        await trx
+          .updateTable("jobs")
+          .set({ status: JobLifecycleStatus.Cancelled })
+          .where("id", "=", id)
+          .execute();
 
-          await trx
-            .updateTable("events")
-            .set({
-              status: JobStatus.Failed,
-              claimed_at: null,
-              error: JOB_CANCELLED_ERROR,
-            })
-            .where("job_id", "=", id)
-            .where((eb) =>
-              eb.or([
-                eb("status", "=", JobStatus.Pending),
-                eb("status", "=", JobStatus.Running),
-              ]),
-            )
-            .execute();
-        }
+        await trx
+          .updateTable("events")
+          .set({
+            status: JobStatus.Failed,
+            claimed_at: null,
+            error: JOB_CANCELLED_ERROR,
+          })
+          .where("job_id", "=", id)
+          .where((eb) =>
+            eb.or([
+              eb("status", "=", JobStatus.Pending),
+              eb("status", "=", JobStatus.Running),
+            ]),
+          )
+          .execute();
 
         return {
           job,

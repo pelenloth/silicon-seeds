@@ -866,3 +866,81 @@ test("jobs: a regenerated output replaces the old picture (versioned media urls)
   await expect(page.locator('img[src*="v=m1"]')).toHaveCount(0);
   await page.unroute(mediaPattern);
 });
+
+test("jobs: cancelling a paused job posts to the server and shows a refusal as the error", async ({
+  page,
+}) => {
+  const nowIso = new Date().toISOString();
+  const pausedJob = {
+    id: "stub-paused-cancel",
+    name: "Paused cancel job",
+    status: "paused",
+    created_at: nowIso,
+    kind: "image",
+    progress: { total: 2, complete: 1, running: 0, pending: 1, failed: 0 },
+    thumb: null,
+  };
+
+  await page.route("**/api/jobs", async (route) => {
+    if (new URL(route.request().url()).pathname !== "/api/jobs") {
+      await route.fallback();
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ jobs: [pausedJob] }),
+    });
+  });
+
+  let cancelPosts = 0;
+  await page.route("**/api/jobs/stub-paused-cancel/**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith("/cancel")) {
+      cancelPosts++;
+      await route.fulfill({
+        status: 409,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "cannot cancel job in status complete" }),
+      });
+      return;
+    }
+    if (url.pathname.endsWith("/media")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ items: [], total: 0, hasMore: false }),
+      });
+      return;
+    }
+    await route.fallback();
+  });
+  await page.route("**/api/jobs/stub-paused-cancel", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ job: pausedJob, events: [] }),
+    });
+  });
+
+  await page.goto("/jobs/stub-paused-cancel");
+  const detail = page.locator("#job-detail");
+  await expect(detail.getByRole("heading", { level: 2 })).toHaveText(
+    "Paused cancel job",
+    { timeout: 10000 },
+  );
+  await detail.getByRole("button", { name: "Cancel" }).click();
+  const dialog = page.getByRole("dialog", { name: "Cancel this job?" });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "Cancel job" }).click();
+
+  await expect.poll(() => cancelPosts).toBe(1);
+  await expect(
+    page.getByRole("status").filter({
+      hasText: "cannot cancel job in status complete",
+    }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("status").filter({ hasText: "Cancelled" }),
+  ).toHaveCount(0);
+});

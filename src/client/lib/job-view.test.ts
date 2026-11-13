@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { canCancelJob } from "../../shared/job-cancel";
 import {
   availableJobActions,
   canRegenerate,
@@ -927,5 +928,22 @@ describe("pickFinalVideo", () => {
 
   test("returns nothing for an empty list", () => {
     expect(pickFinalVideo([], events)).toBeUndefined();
+  });
+});
+
+describe("availableJobActions and canCancelJob", () => {
+  test("the UI offers Cancel exactly when the server accepts it", () => {
+    for (const status of [
+      "active",
+      "paused",
+      "complete",
+      "failed",
+      "cancelled",
+      "unknown",
+    ]) {
+      expect(availableJobActions(status).includes("cancel")).toBe(
+        canCancelJob(status),
+      );
+    }
   });
 });
