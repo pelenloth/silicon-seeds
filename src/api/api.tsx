@@ -1,10 +1,19 @@
+import { basename } from "node:path";
 import { Hono } from "hono";
+import { HTTPException } from "hono/http-exception";
 import { Utils } from "../utils/utils";
 import { Metadata } from "../meta/meta";
 import { not_found } from "./not_found";
 import { Logger } from "../logger/logger";
 import apiRoutes from "./api/index";
 import jobsRoutes from "./jobs/jobs";
+import { parseRange } from "./range";
+import { Thumbs } from "../media/thumb-service";
+import {
+  clampThumbWidth,
+  normalizeRelPath,
+  resolveMediaPath,
+} from "../media/thumbs";
 
 const app = new Hono();
 
@@ -139,8 +148,12 @@ app.use("/assets/*", async (c, next) => {
 
 // Serve media files under /assets/* from OUTPUT_DIR
 app.use("/assets/*", async (c) => {
-  const pathAfterAssets = c.req.path.replace("/assets", "");
-  const filePath = `${Bun.env.OUTPUT_DIR}${pathAfterAssets}`;
+  const rawRel = new URL(c.req.url).pathname.slice("/assets/".length);
+  const rel = normalizeRelPath(rawRel);
+  const filePath = rel ? resolveMediaPath(Bun.env.OUTPUT_DIR ?? "", rel) : null;
+  if (!filePath) {
+    return c.text("Not found", 404);
+  }
   const file = Bun.file(filePath);
 
   if (await file.exists()) {
@@ -151,27 +164,29 @@ app.use("/assets/*", async (c) => {
     if (ifNoneMatch === etag) {
       return new Response(null, { status: 304, headers: { ETag: etag } });
     }
-    const range = c.req.header("Range");
-    if (range) {
-      const match = range.match(/bytes=(\d+)-(\d+)/);
-      if (match) {
-        const start = parseInt(match[1]);
-        const end = parseInt(match[2]) || stats.size - 1;
-        const contentLength = end - start + 1;
-        const buffer = (await file.arrayBuffer()).slice(start, end + 1);
-        return new Response(buffer, {
-          status: 206,
-          headers: {
-            "Content-Type": contentType,
-            "Content-Length": contentLength.toString(),
-            "Content-Range": `bytes ${start}-${end}/${stats.size}`,
-            "Cache-Control": "public, max-age=31536000, immutable",
-            ETag: etag,
-            "Accept-Ranges": "bytes",
-            Vary: "Accept-Encoding",
-          },
-        });
-      }
+    const parsed = parseRange(c.req.header("Range"), stats.size);
+    if (parsed === "unsatisfiable") {
+      return new Response(null, {
+        status: 416,
+        headers: {
+          "Content-Range": `bytes */${stats.size}`,
+          "Accept-Ranges": "bytes",
+        },
+      });
+    }
+    if (parsed) {
+      const { start, end } = parsed;
+      return new Response(file.slice(start, end + 1) as unknown as BodyInit, {
+        status: 206,
+        headers: {
+          "Content-Type": contentType,
+          "Content-Length": String(end - start + 1),
+          "Content-Range": `bytes ${start}-${end}/${stats.size}`,
+          "Cache-Control": "public, max-age=31536000, immutable",
+          ETag: etag,
+          "Accept-Ranges": "bytes",
+        },
+      });
     }
     const acceptEnc = c.req.header("Accept-Encoding") || "";
     if (acceptEnc.includes("gzip") && isCompressibleContentType(contentType)) {
@@ -208,14 +223,59 @@ app.use("/assets/*", async (c) => {
   return c.text("Not found", 404);
 });
 
+// Serve cached CPU-only JPEG thumbnails under /thumbs/*
+app.get("/thumbs/*", async (c) => {
+  const rawRel = new URL(c.req.url).pathname.slice("/thumbs/".length);
+  const rel = normalizeRelPath(rawRel);
+  if (!rel) {
+    return c.json({ error: "Not found" }, 404);
+  }
+  const result = await Thumbs.get(rel, clampThumbWidth(c.req.query("w")));
+
+  if (!result.ok) {
+    if (result.reason === "busy") {
+      return c.json({ error: "Thumbnail service busy" }, 503, {
+        "Retry-After": "1",
+      });
+    }
+    if (result.reason === "failed") {
+      return c.json({ error: "Thumbnail failed" }, 500);
+    }
+    return c.json({ error: "Not found" }, 404);
+  }
+  const etag = `"${basename(result.file)}"`;
+  const cacheControl = "public, max-age=604800";
+  if (c.req.header("If-None-Match") === etag) {
+    return new Response(null, {
+      status: 304,
+      headers: {
+        ETag: etag,
+        "Cache-Control": cacheControl,
+      },
+    });
+  }
+  return new Response(Bun.file(result.file) as unknown as BodyInit, {
+    status: 200,
+    headers: {
+      "Content-Type": "image/jpeg",
+      "Cache-Control": cacheControl,
+      ETag: etag,
+    },
+  });
+});
+
 app.onError((error, c) => {
-  Logger.error("[API] error", error);
+  const status = error instanceof HTTPException ? error.status : 500;
+  if (status >= 500) {
+    Logger.error("[API] error", error);
+  }
   return c.json(
     {
-      name: error.name,
+      error: error.message,
       message: error.message,
+      name: error.name,
     },
-    500,
+    status,
   );
 });
 
@@ -230,6 +290,7 @@ app.use("/*", async (c, next) => {
   const isApi =
     path.startsWith("/api/") ||
     path.startsWith("/assets/") ||
+    path.startsWith("/thumbs/") ||
     path.startsWith("/static/");
   // Allow SSE path to pass through
   if (path.startsWith("/jobs/stream")) return next();

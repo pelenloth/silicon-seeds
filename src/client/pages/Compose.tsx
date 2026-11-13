@@ -1,537 +1,403 @@
-import { createSignal, createResource, Show, For } from "solid-js";
-import { useSearchParams, useNavigate } from "@solidjs/router";
-import { useJobUpdates } from "../lib/sse";
-import { apiGet } from "../lib/api-client";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js";
 import { Icons } from "../components/Icons";
-import LoraSelector, { LoraSpec } from "../components/LoraSelector";
+import LoraSelector from "../components/LoraSelector";
 import StylePresetSelect from "../components/StylePresetSelect";
-import EnhanceButton from "../components/EnhanceButton";
+import { useCreateForm } from "../components/create/create-form";
+import { PromptField } from "../components/create/PromptField";
+import { ResultPanel } from "../components/create/ResultPanel";
+import { CollapsibleSection, Section } from "../components/create/Section";
+import { StudioLayout } from "../components/create/StudioLayout";
+import { SubmitBar } from "../components/create/SubmitBar";
+import { Field } from "../components/ui/Field";
+import { SelectField } from "../components/ui/SelectField";
+import { SliderField } from "../components/ui/SliderField";
+import { apiGet } from "../lib/api-client";
+import {
+  IMAGE_MODELS,
+  labelOf,
+  RESOLUTIONS,
+  VIDEO_MODELS,
+} from "../lib/defaults";
+
+type VoiceProfile = {
+  id: string;
+  name: string;
+  language: string;
+  voiceType: string;
+};
+
+type VoiceOption = {
+  value: string;
+  label: string;
+};
+
+const DEFAULT_VOICE_OPTION: VoiceOption = {
+  value: "preset:kokoro:af_bella",
+  label: "Default (Kokoro)",
+};
 
 export default function Compose() {
-  const [search, setSearch] = useSearchParams();
-  const navigate = useNavigate();
-  const showProgress = () => search.show_progress === "true" && !!search.job_id;
-  const jobId = () => search.job_id as string | undefined;
+  const [voiceOptions, setVoiceOptions] = createSignal<readonly VoiceOption[]>([
+    DEFAULT_VOICE_OPTION,
+  ]);
+  const [voicesLoaded, setVoicesLoaded] = createSignal(false);
+  const [fileName, setFileName] = createSignal("");
+  let fileInput: HTMLInputElement | undefined;
+  let formEl: HTMLFormElement | undefined;
+  let disposed = false;
 
-  const [fps, setFps] = createSignal(16);
-  const [clipDuration, setClipDuration] = createSignal(5);
-  const [transitionDuration, setTransitionDuration] = createSignal(3);
-  const [loras, setLoras] = createSignal<LoraSpec[]>([]);
-  const [isSubmitting, setIsSubmitting] = createSignal(false);
-  const [error, setError] = createSignal<string | null>(null);
-
-  const [voiceOptions] = createResource(async () => {
-    try {
-      const r = await fetch("/api/tts/profiles-options");
-      if (!r.ok) return null;
-      const html = await r.text();
-      const opts: { value: string; label: string }[] = [];
-      const re = /<option[^>]*value="([^"]*)"[^>]*>([^<]*)<\/option>/g;
-      let m: RegExpExecArray | null;
-      while ((m = re.exec(html))) opts.push({ value: m[1], label: m[2] });
-      if (opts.length === 0)
-        return [{ value: "preset:kokoro:af_bella", label: "Default (Kokoro)" }];
-      return opts;
-    } catch {
-      return [{ value: "preset:kokoro:af_bella", label: "Default (Kokoro)" }];
-    }
-  });
-
-  const [eventsData, { refetch: refetchEvents }] = createResource(
-    () => (showProgress() ? jobId() : undefined),
-    async (id) => {
-      if (!id) return { events: [] as unknown[], total: 0 };
-      try {
-        const data = await apiGet<{ events: unknown[]; total: number }>(
-          `/api/jobs/${id}/events?limit=50`,
-        );
-        return data;
-      } catch {
-        return { events: [], total: 0 };
+  const f = useCreateForm({
+    kind: "compose",
+    fallback: (d) => ({
+      script: "",
+      style_guide: "",
+      voice_id: DEFAULT_VOICE_OPTION.value,
+      image_model: d.image_model,
+      video_model: d.video_model,
+      resolution: d.resolution,
+      style_preset: d.style_preset,
+      clip_duration: String(d.clip_duration),
+      transition_duration: String(d.transition_duration),
+      fps: String(d.fps),
+    }),
+    required: [],
+    maxLengths: [{ field: "style_guide", max: 2000, label: "Style guide" }],
+    ranges: [
+      {
+        field: "clip_duration",
+        min: 1,
+        max: 10,
+        integer: true,
+        label: "Clip",
+      },
+      {
+        field: "transition_duration",
+        min: 1,
+        max: 10,
+        integer: true,
+        label: "Transition",
+      },
+      {
+        field: "fps",
+        min: 1,
+        max: 24,
+        integer: true,
+        label: "FPS",
+      },
+    ],
+    validate: (values) => {
+      const hasFile = Boolean(
+        fileName() ||
+        (fileInput?.files &&
+          fileInput.files.length > 0 &&
+          (fileInput.files[0]?.size ?? 0) > 0),
+      );
+      if (values.script.trim().length < 3 && !hasFile) {
+        return { script: "Write a script or upload a file" };
+      }
+      return undefined;
+    },
+    labels: {
+      script: "Video script",
+      script_file: "Script file",
+      style_guide: "Style guide",
+      voice_id: "Voice",
+      style_preset: "Style preset",
+      image_model: "Image model",
+      video_model: "Video model",
+      resolution: "Resolution",
+      clip_duration: "Clip",
+      transition_duration: "Transition",
+      loras: "LoRAs",
+      fps: "FPS",
+    },
+    beforeSubmit: (fd) => {
+      const file = fd.get("script_file");
+      if (
+        !(file instanceof File) ||
+        (file.size === 0 && file.name === "") ||
+        !fileName()
+      ) {
+        fd.delete("script_file");
       }
     },
-  );
+  });
 
-  useJobUpdates(jobId, () => refetchEvents());
+  const displayedVoiceOptions = createMemo<readonly VoiceOption[]>(() => {
+    const opts = voiceOptions();
+    if (voicesLoaded()) return opts;
+    const current = f.values.voice_id;
+    if (!current || opts.some((o) => o.value === current)) return opts;
+    return [...opts, { value: current, label: current }];
+  });
 
-  const onSubmit = async (e: SubmitEvent) => {
-    e.preventDefault();
-    setError(null);
-    setIsSubmitting(true);
-    const form = e.currentTarget as HTMLFormElement;
-    const fd = new FormData(form);
-    if (loras().length) fd.set("loras", JSON.stringify(loras()));
-    const f = fd.get("script_file") as File | null;
-    if (f && f.size === 0 && f.name === "") fd.delete("script_file");
-    try {
-      const res = await fetch("/api/jobs/videos/compose", {
-        method: "POST",
-        body: fd,
-      });
-      if (!res.ok) {
-        const txt = await res.text();
-        setError(txt.slice(0, 500));
-        setIsSubmitting(false);
-        return;
-      }
-      const redirect =
-        res.headers.get("HX-Redirect") || res.headers.get("hx-redirect");
-      if (redirect) {
-        const url = new URL(redirect, window.location.origin);
-        const jid = url.searchParams.get("job_id");
-        if (jid) {
-          setSearch({ show_progress: "true", job_id: jid });
-          navigate(`/compose?show_progress=true&job_id=${jid}`);
-          setIsSubmitting(false);
-          return;
-        }
-      }
-      try {
-        const j = await res.clone().json();
-        if (j.jobId) {
-          navigate(`/compose?show_progress=true&job_id=${j.jobId}`);
-          setSearch({ show_progress: "true", job_id: j.jobId });
-        }
-      } catch {}
-    } catch (err) {
-      setError(String(err));
-    } finally {
-      setIsSubmitting(false);
+  const syncVoiceSelection = (opts: readonly VoiceOption[]) => {
+    const first = opts[0]?.value ?? DEFAULT_VOICE_OPTION.value;
+    const current = f.values.voice_id;
+    if (!current || !opts.some((o) => o.value === current)) {
+      f.setUntouched("voice_id", first);
     }
   };
 
+  const fetchVoices = async () => {
+    try {
+      const data = await apiGet<VoiceProfile[]>("/api/tts/profiles");
+      if (disposed) return;
+      const mapped: VoiceOption[] = Array.isArray(data)
+        ? data
+            .filter((v) => v && typeof v.id === "string" && v.id.trim())
+            .map((v) => ({
+              value: v.id,
+              label: `${v.name} (${v.language}, ${v.voiceType})`,
+            }))
+        : [];
+      const next = mapped.length > 0 ? mapped : [DEFAULT_VOICE_OPTION];
+      setVoiceOptions(next);
+      setVoicesLoaded(true);
+      syncVoiceSelection(next);
+    } catch {
+      if (disposed) return;
+      const next = [DEFAULT_VOICE_OPTION];
+      setVoiceOptions(next);
+      setVoicesLoaded(true);
+      syncVoiceSelection(next);
+    }
+  };
+
+  onMount(() => {
+    void fetchVoices();
+  });
+
+  onCleanup(() => {
+    disposed = true;
+  });
+
+  createEffect(() => {
+    if (!voicesLoaded()) return;
+    syncVoiceSelection(voiceOptions());
+  });
+
+  const clearFile = () => {
+    if (fileInput) {
+      fileInput.value = "";
+    }
+    setFileName("");
+  };
+
+  const handleReset = () => {
+    clearFile();
+    f.reset();
+    if (voicesLoaded()) {
+      syncVoiceSelection(voiceOptions());
+    }
+  };
+
+  const clipDuration = () => Number(f.values.clip_duration) || 5;
+  const transitionDuration = () => Number(f.values.transition_duration) || 2;
+  const fps = () => Number(f.values.fps) || 16;
+  const summary = () =>
+    `${clipDuration()}s clips · ${labelOf(RESOLUTIONS, f.values.resolution)} · ${labelOf(VIDEO_MODELS, f.values.video_model)}`;
+
   return (
-    <div class="flex flex-col sm:px-6 py-5 min-h-[calc(100vh-4rem)] bg-base-200">
-      <Show when={error()}>
-        <div class="alert alert-error mb-4">
-          <span>{error()}</span>
-        </div>
-      </Show>
-      <form
-        class="grid grid-cols-1 xl:grid-cols-12 gap-4 xl:items-start"
-        onSubmit={onSubmit}
-        enctype="multipart/form-data"
-      >
-        {/* col1 - script + style guide - unified with image view, prompt full height, styleguide higher */}
-        <div class="flex flex-col gap-4 xl:col-span-5 min-h-0">
-          <div class="card bg-base-100 shadow-xl border border-base-300 flex flex-col overflow-hidden xl:h-[52vh] min-h-[340px]">
-            <div class="card-body flex flex-col flex-1 p-4 min-h-0">
-              <div class="flex items-center justify-between">
-                <h2 class="card-title text-base font-semibold flex items-center gap-2 mb-2">
-                  <Icons.DocumentIcon />
-                  Video Script
-                </h2>
-                <EnhanceButton
-                  textareaId="co-script"
-                  kind="script"
-                  getPreset={() =>
-                    (
-                      document.querySelector(
-                        'select[name="style_preset"]',
-                      ) as HTMLSelectElement | null
-                    )?.value
-                  }
+    <StudioLayout
+      formRef={(el) => {
+        formEl = el;
+      }}
+      onSubmit={(form) => {
+        formEl = form;
+        void f.submit(form);
+      }}
+      form={
+        <>
+          <PromptField
+            label="Video script"
+            name="script"
+            id="co-script"
+            rows={7}
+            required
+            value={f.values.script}
+            onInput={(v) => f.set("script", v)}
+            placeholder="Write your video script here..."
+            enhanceKind="script"
+            getPreset={() => f.values.style_preset}
+            error={f.errors().script}
+          >
+            <div class="flex items-center gap-2 pb-1 text-xs">
+              <label class="btn btn-ghost btn-xs gap-1">
+                <Icons.Upload class="size-4" />
+                Upload .txt / .md
+                <input
+                  type="file"
+                  name="script_file"
+                  accept=".txt,.md"
+                  class="hidden"
+                  ref={(el) => {
+                    fileInput = el;
+                  }}
+                  onChange={(e) => {
+                    const name = e.currentTarget.files?.[0]?.name ?? "";
+                    setFileName(name);
+                    if (name) {
+                      f.clearError("script");
+                    }
+                  }}
                 />
-              </div>
-              <textarea
-                name="script"
-                id="co-script"
-                class="textarea textarea-ghost w-full flex-1 resize-none min-h-0 focus:outline-none text-sm leading-relaxed"
-                placeholder="Write your video script here..."
-              ></textarea>
-              <div class="divider my-2">OR</div>
-              <input
-                type="file"
-                name="script_file"
-                accept=".txt,.md"
-                class="file-input file-input-bordered file-input-sm w-full"
-              />
-            </div>
-          </div>
-          <div class="card bg-base-100 shadow-xl border border-base-300 flex flex-col overflow-hidden xl:h-[28vh] min-h-[220px]">
-            <div class="card-body flex flex-col flex-1 p-4 min-h-0">
-              <div class="flex items-center justify-between">
-                <h2 class="card-title text-base font-semibold flex items-center gap-2 mb-2">
-                  <Icons.PaintBrushIcon />
-                  Style Guide
-                </h2>
-                <EnhanceButton
-                  textareaId="co-style"
-                  kind="style_guide"
-                  getPreset={() =>
-                    (
-                      document.querySelector(
-                        'select[name="style_preset"]',
-                      ) as HTMLSelectElement | null
-                    )?.value
-                  }
-                />
-              </div>
-              <textarea
-                name="style_guide"
-                id="co-style"
-                maxLength={2000}
-                class="textarea textarea-ghost w-full flex-1 resize-none min-h-0 focus:outline-none text-sm leading-relaxed"
-                placeholder={
-                  "Define consistent style across all images...\n• warm ochre palette\n• watercolor texture\n• ancient Egypt only - no modern items\n• consistent character appearance"
-                }
-              ></textarea>
-            </div>
-          </div>
-          <Show when={showProgress() && jobId()}>
-            <div class="card bg-base-100 shadow-xl border border-base-300 xl:hidden">
-              <div class="card-body p-4">
-                <div class="flex items-center justify-between gap-2 mb-2">
-                  <h2 class="card-title text-base flex items-center gap-2">
-                    <Icons.PulseWavesIcon />
-                    Job Progress
-                  </h2>
-                  <span class="badge badge-warning badge-sm">Active</span>
-                </div>
-                <p class="text-xs opacity-70 mb-3">Monitoring job: {jobId()}</p>
-                <Show when={(eventsData()?.events?.length ?? 0) === 0}>
-                  <div class="text-sm opacity-60">Waiting for events…</div>
-                </Show>
-                <Show when={(eventsData()?.events?.length ?? 0) > 0}>
-                  <ul class="timeline timeline-compact timeline-vertical">
-                    <For
-                      each={
-                        (eventsData()?.events as unknown as {
-                          id: string;
-                          type: string;
-                          status: string;
-                        }[]) ?? []
-                      }
-                    >
-                      {(evt, idx) => {
-                        const isComplete = () => evt.status === "complete";
-                        return (
-                          <li>
-                            {idx() !== 0 && (
-                              <hr class={isComplete() ? "bg-success" : ""} />
-                            )}
-                            <div class="timeline-end timeline-box w-[98%] border border-base-300 bg-base-100 text-xs">
-                              {evt.type}{" "}
-                              <span
-                                class={
-                                  isComplete()
-                                    ? "badge badge-success badge-xs ml-1"
-                                    : "badge badge-warning badge-xs ml-1"
-                                }
-                              >
-                                {evt.status}
-                              </span>
-                            </div>
-                            <div class="timeline-middle">
-                              <div
-                                class={`w-5 h-5 rounded-full grid place-items-center text-xs ${isComplete() ? "bg-success text-success-content" : "bg-base-200"}`}
-                              >
-                                ✓
-                              </div>
-                            </div>
-                            {idx() !==
-                              (eventsData()?.events?.length ?? 0) - 1 && (
-                              <hr class={isComplete() ? "bg-success" : ""} />
-                            )}
-                          </li>
-                        );
-                      }}
-                    </For>
-                  </ul>
-                </Show>
-                <a
-                  href={`/jobs?job_id=${jobId()}&filter=all&tab=status`}
-                  class="btn btn-primary btn-sm mt-3 w-full"
-                >
-                  View Job
-                </a>
-              </div>
-            </div>
-          </Show>
-        </div>
-
-        {/* col2 middle - AI Models + Video Settings + Style Preset + Loras + Action (moved from col3) */}
-        <div class="flex flex-col gap-4 xl:col-span-3">
-          <div class="card bg-base-100 shadow-xl border border-base-300">
-            <div class="card-body p-4">
-              <h2 class="card-title text-base font-semibold flex items-center gap-2 mb-2">
-                <Icons.SparkleIcon />
-                AI Models
-              </h2>
-              <label class="fieldset-label text-xs font-medium opacity-70 flex items-center gap-2">
-                <Icons.PhotoCameraSmall />
-                Image Generation Model
               </label>
-              <select
-                name="image_model"
-                class="select select-bordered select-sm w-full"
-              >
-                <option value="z-image-turbo">Z-Image-Turbo</option>
-              </select>
-              <label class="fieldset-label text-xs font-medium opacity-70 flex items-center gap-2 mt-3">
-                <Icons.VideoCameraSmall />
-                Video Generation Model
-              </label>
-              <select
-                name="video_model"
-                class="select select-bordered select-sm w-full"
-              >
-                <option value="wan2.2">Wan 2.2</option>
-                <option value="ltx2.3">LTX 2.3</option>
-              </select>
-            </div>
-          </div>
-
-          <div class="card bg-base-100 shadow-xl border border-base-300">
-            <div class="card-body p-4">
-              <h2 class="card-title text-base font-semibold flex items-center gap-2 mb-2">
-                <Icons.CogSettingsIcon />
-                Video Settings
-              </h2>
-              <label class="fieldset-label text-xs font-medium flex items-center justify-between">
-                FPS <span class="badge badge-primary badge-sm">{fps()}</span>
-              </label>
-              <input
-                type="range"
-                name="fps"
-                value={String(fps())}
-                min="1"
-                max="24"
-                step="1"
-                class="range range-primary range-xs w-full"
-                onInput={(e) => setFps(parseInt(e.currentTarget.value))}
-              />
-              <div class="flex justify-between text-[11px] opacity-50">
-                <span>1</span>
-                <span>24</span>
-              </div>
-              <label class="fieldset-label text-xs font-medium flex items-center justify-between mt-3">
-                Clip{" "}
-                <span class="badge badge-secondary badge-sm">
-                  {clipDuration()}s
-                </span>
-              </label>
-              <input
-                type="range"
-                name="clip_duration"
-                value={String(clipDuration())}
-                min="1"
-                max="10"
-                step="1"
-                class="range range-secondary range-xs w-full"
-                onInput={(e) =>
-                  setClipDuration(parseInt(e.currentTarget.value))
-                }
-              />
-              <label class="fieldset-label text-xs font-medium flex items-center justify-between mt-3">
-                Transition{" "}
-                <span class="badge badge-accent badge-sm">
-                  {transitionDuration()}s
-                </span>
-              </label>
-              <input
-                type="range"
-                name="transition_duration"
-                value={String(transitionDuration())}
-                min="1"
-                max="10"
-                step="1"
-                class="range range-accent range-xs w-full"
-                onInput={(e) =>
-                  setTransitionDuration(parseInt(e.currentTarget.value))
-                }
-              />
-              <label class="fieldset-label text-xs font-medium opacity-70 mt-3 flex items-center gap-2">
-                <Icons.SquaresGridIcon />
-                Resolution
-              </label>
-              <select
-                name="resolution"
-                class="select select-bordered select-sm w-full"
-              >
-                <option value="480p">480p</option>
-                <option value="720p">720p</option>
-                <option value="1080p">1080p</option>
-                <option value="9_16_SD">9:16 (SD)</option>
-                <option value="9_16_HD">9:16 (HD)</option>
-              </select>
-            </div>
-          </div>
-
-          <div class="card bg-base-100 shadow-xl border border-base-300">
-            <div class="card-body p-4">
-              <h2 class="card-title text-base font-semibold flex items-center gap-2 mb-2">
-                <Icons.PaintBrushLarge />
-                Style Preset
-              </h2>
-              <StylePresetSelect
-                name="style_preset"
-                class="select select-bordered select-sm w-full"
-              />
-            </div>
-          </div>
-
-          <div class="card bg-base-100 shadow-xl border border-base-300">
-            <div class="card-body p-4">
-              <h2 class="card-title text-base font-semibold flex items-center gap-2 mb-2">
-                LoRAs{" "}
-                <span class="badge badge-ghost badge-xs">drag · 0.1-2.0</span>
-              </h2>
-              <LoraSelector value={loras()} onChange={setLoras} />
-            </div>
-          </div>
-
-          <div class="card bg-base-100 shadow-xl border border-base-300">
-            <div class="card-body p-4">
-              <h2 class="card-title text-base font-semibold flex items-center gap-2 mb-2">
-                <Icons.LightningBoltIcon />
-                Action
-              </h2>
-              <div class="card-actions justify-end flex gap-2">
-                <button type="reset" class="btn btn-ghost btn-sm">
-                  Reset
-                </button>
+              <Show when={fileName()}>
+                <span class="truncate font-mono">{fileName()}</span>
                 <button
-                  type="submit"
-                  id="submit-btn"
-                  class="btn btn-primary btn-sm w-auto px-6"
-                  disabled={isSubmitting()}
+                  type="button"
+                  class="btn btn-ghost btn-xs btn-square"
+                  aria-label="Remove file"
+                  onClick={clearFile}
                 >
-                  Generate Video{" "}
-                  <Show when={isSubmitting()}>
-                    <span class="loading loading-spinner loading-xs ml-1" />
-                  </Show>
+                  <Icons.XMark class="size-4" />
                 </button>
-              </div>
+              </Show>
             </div>
-          </div>
-        </div>
-
-        {/* col3 - Voice + double height preview + progress */}
-        <div class="flex flex-col gap-4 xl:col-span-4">
-          <div class="card bg-base-100 shadow-xl border border-base-300">
-            <div class="card-body p-4">
-              <h2 class="card-title text-base font-semibold flex items-center gap-2 mb-2">
-                <Icons.MicIcon />
-                Voice
-              </h2>
-              <select
+          </PromptField>
+          <CollapsibleSection
+            title="Style guide"
+            hint="optional"
+            open={
+              f.values.style_guide.length > 0 || Boolean(f.errors().style_guide)
+            }
+          >
+            <PromptField
+              bare
+              label="Style guide"
+              name="style_guide"
+              id="co-style"
+              rows={4}
+              maxLength={2000}
+              value={f.values.style_guide}
+              onInput={(v) => f.set("style_guide", v)}
+              placeholder="Palette, medium, things to avoid"
+              enhanceKind="style_guide"
+              getPreset={() => f.values.style_preset}
+              error={f.errors().style_guide}
+            />
+          </CollapsibleSection>
+          <Section title="Settings">
+            <div class="grid gap-3 sm:grid-cols-2">
+              <SelectField
+                label="Voice"
                 name="voice_id"
-                class="select select-bordered select-sm w-full"
+                value={f.values.voice_id}
+                onChange={(v) => f.set("voice_id", v)}
+                options={displayedVoiceOptions()}
+                error={f.errors().voice_id}
+              />
+              <Field
+                label="Style preset"
+                for="co-preset"
+                error={f.errors().style_preset}
               >
-                <Show
-                  when={voiceOptions()}
-                  fallback={
-                    <option value="preset:kokoro:af_bella">
-                      Default (Kokoro)
-                    </option>
-                  }
-                >
-                  {(opts) => (
-                    <For each={opts()}>
-                      {(o) => <option value={o.value}>{o.label}</option>}
-                    </For>
-                  )}
-                </Show>
-              </select>
-            </div>
-          </div>
-
-          <div class="card bg-base-100 shadow-xl border border-base-300 hidden xl:flex flex-col overflow-hidden xl:h-[30vh] min-h-[220px]">
-            <div class="card-body p-4 flex flex-col flex-1 min-h-0 relative">
-              <h3 class="font-semibold text-sm flex items-center gap-2 mb-2">
-                <Icons.Video /> Preview
-              </h3>
-              <div class="flex-1 grid place-items-center bg-base-200 rounded-box border border-dashed border-base-300 min-h-0 p-6">
-                <div class="flex flex-col items-center gap-3">
-                  <div class="w-16 h-16 rounded-box bg-base-300 grid place-items-center opacity-40 shrink-0">
-                    <Icons.VideoCameraSmall />
-                  </div>
-                  <p class="text-sm font-medium opacity-60 text-center">
-                    Video preview
-                  </p>
-                </div>
+                <StylePresetSelect
+                  id="co-preset"
+                  name="style_preset"
+                  class="select select-sm w-full"
+                  value={f.values.style_preset}
+                  onChange={(v) => f.set("style_preset", v)}
+                />
+              </Field>
+              <SelectField
+                label="Image model"
+                name="image_model"
+                value={f.values.image_model}
+                onChange={(v) => f.set("image_model", v)}
+                options={IMAGE_MODELS}
+                error={f.errors().image_model}
+              />
+              <SelectField
+                label="Video model"
+                name="video_model"
+                value={f.values.video_model}
+                onChange={(v) => f.set("video_model", v)}
+                options={VIDEO_MODELS}
+                error={f.errors().video_model}
+              />
+              <div class="sm:col-span-2">
+                <SelectField
+                  label="Resolution"
+                  name="resolution"
+                  value={f.values.resolution}
+                  onChange={(v) => f.set("resolution", v)}
+                  options={RESOLUTIONS}
+                  error={f.errors().resolution}
+                />
               </div>
+              <SliderField
+                label="Clip"
+                name="clip_duration"
+                min={1}
+                max={10}
+                value={clipDuration()}
+                onInput={(v) => f.set("clip_duration", String(v))}
+                format={(v) => `${v}s`}
+                error={f.errors().clip_duration}
+              />
+              <SliderField
+                label="Transition"
+                name="transition_duration"
+                min={1}
+                max={10}
+                value={transitionDuration()}
+                onInput={(v) => f.set("transition_duration", String(v))}
+                format={(v) => `${v}s`}
+                error={f.errors().transition_duration}
+              />
             </div>
-          </div>
-
-          <Show when={showProgress() && jobId()}>
-            <div class="card bg-base-100 shadow-xl border border-base-300 hidden xl:flex flex-col max-h-[38vh] overflow-hidden">
-              <div class="card-body p-4 flex flex-col min-h-0">
-                <div class="flex items-center justify-between gap-2 mb-2">
-                  <h2 class="card-title text-base flex items-center gap-2">
-                    <Icons.PulseWavesIcon />
-                    Job Progress
-                  </h2>
-                  <span class="badge badge-warning badge-sm">Active</span>
-                </div>
-                <p class="text-xs opacity-60 mb-3 truncate">
-                  Monitoring {jobId()}
-                </p>
-                <div class="flex-1 overflow-y-auto min-h-0">
-                  <Show when={(eventsData()?.events?.length ?? 0) === 0}>
-                    <div class="text-sm opacity-60">Waiting for events…</div>
-                  </Show>
-                  <Show when={(eventsData()?.events?.length ?? 0) > 0}>
-                    <ul class="timeline timeline-compact timeline-vertical">
-                      <For
-                        each={
-                          (eventsData()?.events as unknown as {
-                            id: string;
-                            type: string;
-                            status: string;
-                          }[]) ?? []
-                        }
-                      >
-                        {(evt, idx) => {
-                          const isComplete = () => evt.status === "complete";
-                          return (
-                            <li>
-                              {idx() !== 0 && (
-                                <hr class={isComplete() ? "bg-success" : ""} />
-                              )}
-                              <div class="timeline-end timeline-box text-xs py-1 px-2 border border-base-300">
-                                {evt.type}{" "}
-                                <span
-                                  class={
-                                    isComplete()
-                                      ? "badge badge-success badge-xs"
-                                      : "badge badge-warning badge-xs"
-                                  }
-                                >
-                                  {evt.status}
-                                </span>
-                              </div>
-                              <div class="timeline-middle">
-                                <div
-                                  class={`w-5 h-5 rounded-full grid place-items-center text-[10px] ${isComplete() ? "bg-success text-success-content" : "bg-base-200"}`}
-                                >
-                                  {isComplete() ? "✓" : "·"}
-                                </div>
-                              </div>
-                              {idx() !==
-                                (eventsData()?.events?.length ?? 0) - 1 && (
-                                <hr class={isComplete() ? "bg-success" : ""} />
-                              )}
-                            </li>
-                          );
-                        }}
-                      </For>
-                    </ul>
-                  </Show>
-                </div>
-                <a
-                  href={`/jobs?job_id=${jobId()}&filter=all&tab=status`}
-                  class="btn btn-primary btn-sm mt-3 w-full"
-                >
-                  View Job
-                </a>
-              </div>
-            </div>
-          </Show>
-        </div>
-      </form>
-      <dialog id="job-action-modal" class="modal"></dialog>
-    </div>
+          </Section>
+          <CollapsibleSection
+            title="LoRAs"
+            count={f.loras().length}
+            open={Boolean(f.errors().loras)}
+          >
+            <LoraSelector
+              value={f.loras()}
+              onChange={f.setLoras}
+              error={f.errors().loras}
+            />
+          </CollapsibleSection>
+          <CollapsibleSection title="Advanced" open={Boolean(f.errors().fps)}>
+            <SliderField
+              label="FPS"
+              name="fps"
+              min={1}
+              max={24}
+              value={fps()}
+              onInput={(v) => f.set("fps", String(v))}
+              format={(v) => `${v} fps`}
+              error={f.errors().fps}
+            />
+          </CollapsibleSection>
+          <SubmitBar
+            label="Generate Video"
+            summary={summary()}
+            submitting={f.submitting()}
+            formError={f.formError()}
+            onReset={handleReset}
+          />
+        </>
+      }
+      result={
+        <ResultPanel
+          jobId={f.jobId()}
+          kind="compose"
+          emptyTitle="Your video appears here"
+          emptyHint="Write a script and press Generate Video. Scenes, clips and narration are produced step by step."
+          pending={f.submitting()}
+          onGenerateAgain={() => formEl?.requestSubmit()}
+        />
+      }
+    />
   );
 }

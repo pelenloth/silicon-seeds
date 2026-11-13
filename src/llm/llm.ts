@@ -59,13 +59,18 @@ export namespace LLM {
   export async function structured<T extends z.ZodTypeAny>(
     msg: string,
     schema: T,
+    opts?: { signal?: AbortSignal },
   ) {
     try {
       return (await llmModel.respond(msg, {
         structured: schema,
         maxTokens: MAX_TOKENS,
+        ...(opts?.signal ? { signal: opts.signal } : {}),
       })) as unknown as { parsed: z.infer<T> } | null;
     } catch (error) {
+      if (opts?.signal?.aborted) {
+        return null;
+      }
       Logger.error("Failed to receive structured message from LLM", error);
       return null;
     }

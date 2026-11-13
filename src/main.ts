@@ -40,7 +40,6 @@ import { SocketServer } from "./socket/socket-server";
 // - distinct mode: video generation
 //
 // Bugs
-// - user-facing API errors are inconsistent between JSON and HTML fragment flows
 // - image/video asset path generation is duplicated across templates and can drift
 //
 // Workflows

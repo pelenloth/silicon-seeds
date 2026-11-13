@@ -1,6 +1,9 @@
-import { createSignal, createResource, For, Show } from "solid-js";
+import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { apiGet } from "../lib/api-client";
+import { Icons } from "./Icons";
 
 export type LoraSpec = { name: string; strength: number };
+
 type LoraRow = {
   id: string;
   comfyui_name: string;
@@ -10,36 +13,72 @@ type LoraRow = {
   sort_order: number;
 };
 
-export default function LoraSelector(props: {
+export function LoraSelector(props: {
   value: LoraSpec[];
   onChange: (v: LoraSpec[]) => void;
+  error?: string;
 }) {
-  const [loras] = createResource(async () => {
-    try {
-      const r = await fetch("/api/loras");
-      if (!r.ok) return [];
-      const j = await r.json();
-      return (j.loras as LoraRow[]).filter((l) => l.is_active);
-    } catch {
-      return [];
-    }
-  });
+  const [loras, setLoras] = createSignal<LoraRow[]>([]);
+  const [loading, setLoading] = createSignal(true);
+  const [loadError, setLoadError] = createSignal(false);
   const [selectedName, setSelectedName] = createSignal("");
+  const [alreadyAdded, setAlreadyAdded] = createSignal(false);
+  let disposed = false;
+
+  const fetchLoras = async () => {
+    setLoading(true);
+    setLoadError(false);
+    try {
+      const data = await apiGet<{ loras?: LoraRow[] }>("/api/loras");
+      if (disposed) return;
+      const list = Array.isArray(data?.loras)
+        ? data.loras.filter((l) => l.is_active)
+        : [];
+      setLoras(list);
+    } catch {
+      if (disposed) return;
+      setLoadError(true);
+    } finally {
+      if (!disposed) setLoading(false);
+    }
+  };
+
+  onMount(() => {
+    void fetchLoras();
+  });
+
+  onCleanup(() => {
+    disposed = true;
+  });
+
+  const isDuplicateSelected = () => {
+    const name = selectedName();
+    return Boolean(name && props.value.some((v) => v.name === name));
+  };
 
   const add = () => {
     const name = selectedName();
     if (!name) return;
-    if (props.value.some((v) => v.name === name)) return;
+    if (props.value.some((v) => v.name === name)) {
+      setAlreadyAdded(true);
+      return;
+    }
+    setAlreadyAdded(false);
     props.onChange([...props.value, { name, strength: 0.7 }]);
     setSelectedName("");
   };
-  const remove = (idx: number) =>
+
+  const remove = (idx: number) => {
+    setAlreadyAdded(false);
     props.onChange(props.value.filter((_, i) => i !== idx));
+  };
+
   const updateStrength = (idx: number, s: number) => {
     const copy = [...props.value];
     copy[idx] = { ...copy[idx], strength: s };
     props.onChange(copy);
   };
+
   const move = (idx: number, dir: number) => {
     const arr = [...props.value];
     const t = idx + dir;
@@ -47,12 +86,14 @@ export default function LoraSelector(props: {
     [arr[idx], arr[t]] = [arr[t], arr[idx]];
     props.onChange(arr);
   };
+
   const onDragStart = (e: DragEvent, idx: number) =>
     e.dataTransfer?.setData("text/plain", String(idx));
+
   const onDrop = (e: DragEvent, idx: number) => {
     e.preventDefault();
     const from = parseInt(e.dataTransfer?.getData("text/plain") ?? "", 10);
-    if (isNaN(from)) return;
+    if (Number.isNaN(from) || from < 0 || from >= props.value.length) return;
     const arr = [...props.value];
     const [moved] = arr.splice(from, 1);
     arr.splice(idx, 0, moved);
@@ -63,87 +104,130 @@ export default function LoraSelector(props: {
     <div class="flex flex-col gap-2">
       <div class="flex gap-2">
         <select
-          class="select select-bordered select-sm flex-1"
+          class="select select-sm flex-1"
+          aria-label="Select LoRA"
+          disabled={loading()}
           value={selectedName()}
-          onChange={(e) => setSelectedName(e.currentTarget.value)}
+          onChange={(e) => {
+            const val = e.currentTarget.value;
+            setSelectedName(val);
+            setAlreadyAdded(
+              Boolean(val && props.value.some((v) => v.name === val)),
+            );
+          }}
         >
-          <option value="">Select lora</option>
-          <For each={loras() ?? []}>
-            {(l) => (
-              <option value={l.comfyui_name}>
-                {l.display_name} ({l.comfyui_name})
-              </option>
-            )}
+          <option value="">
+            {loading() ? "Loading LoRAs…" : "Select LoRA"}
+          </option>
+          <For each={loras()}>
+            {(l) => <option value={l.comfyui_name}>{l.display_name}</option>}
           </For>
         </select>
-        <button type="button" class="btn btn-sm btn-primary" onClick={add}>
+        <button
+          type="button"
+          class="btn btn-primary btn-sm"
+          disabled={!selectedName() || loading()}
+          onClick={add}
+        >
+          <Show when={loading()}>
+            <span class="loading loading-spinner loading-xs" />
+          </Show>
           Add
         </button>
       </div>
-      <Show when={props.value.length === 0}>
-        <span class="text-xs opacity-60">
-          No loras selected. Add from DB catalog.
-        </span>
+      <Show when={alreadyAdded() || isDuplicateSelected()}>
+        <p class="text-xs text-warning" role="status">
+          Already added
+        </p>
       </Show>
-      <div class="flex flex-col gap-2">
-        <For each={props.value}>
-          {(spec, idx) => (
-            <div
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => onDrop(e, idx())}
-              class="flex items-center gap-2 p-2 bg-base-200 rounded border border-base-300 hover:border-primary/20"
-            >
-              <span
-                draggable
-                onDragStart={(e) => onDragStart(e, idx())}
-                class="cursor-grab active:cursor-grabbing opacity-50 hover:opacity-80 select-none px-1"
+      <Show when={props.error}>
+        <p class="text-xs text-error" role="alert">
+          {props.error}
+        </p>
+      </Show>
+      <Show when={loadError()}>
+        <p class="text-xs text-base-content/60">
+          Could not load LoRAs.{" "}
+          <button type="button" class="link" onClick={() => void fetchLoras()}>
+            Try again
+          </button>
+        </p>
+      </Show>
+      <Show when={props.value.length === 0}>
+        <p class="text-xs text-base-content/60">No LoRAs added</p>
+      </Show>
+      <Show when={props.value.length > 0}>
+        <div class="flex flex-col gap-2">
+          <For each={props.value}>
+            {(spec, idx) => (
+              <div
+                data-lora-index={idx()}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => onDrop(e, idx())}
+                class="flex items-center gap-2 rounded-field border border-base-300 bg-base-200 p-2"
               >
-                ≡
-              </span>
-              <span class="flex-1 text-sm font-mono truncate">{spec.name}</span>
-              <input
-                type="range"
-                min="0.1"
-                max="2"
-                step="0.1"
-                value={String(spec.strength)}
-                onInput={(e) =>
-                  updateStrength(idx(), parseFloat(e.currentTarget.value))
-                }
-                onPointerDown={(e) => e.stopPropagation()}
-                onMouseDown={(e) => e.stopPropagation()}
-                onTouchStart={(e) => e.stopPropagation()}
-                class="range range-primary range-sm w-32 cursor-pointer"
-                style="touch-action: pan-x;"
-              />
-              <span class="text-xs w-8 text-center tabular-nums">
-                {spec.strength.toFixed(1)}
-              </span>
-              <button
-                type="button"
-                class="btn btn-xs"
-                onClick={() => move(idx(), -1)}
-              >
-                ↑
-              </button>
-              <button
-                type="button"
-                class="btn btn-xs"
-                onClick={() => move(idx(), 1)}
-              >
-                ↓
-              </button>
-              <button
-                type="button"
-                class="btn btn-xs btn-error"
-                onClick={() => remove(idx())}
-              >
-                x
-              </button>
-            </div>
-          )}
-        </For>
-      </div>
+                <span
+                  draggable
+                  aria-hidden="true"
+                  onDragStart={(e) => onDragStart(e, idx())}
+                  class="cursor-grab select-none px-1 text-base-content/50 active:cursor-grabbing"
+                >
+                  <Icons.Bars3 class="size-4" />
+                </span>
+                <span class="min-w-0 flex-1 truncate font-mono text-xs">
+                  {spec.name}
+                </span>
+                <input
+                  type="range"
+                  min="0.1"
+                  max="2"
+                  step="0.1"
+                  data-lora-index={idx()}
+                  aria-label={`Strength for ${spec.name}`}
+                  value={String(spec.strength)}
+                  onInput={(e) =>
+                    updateStrength(idx(), parseFloat(e.currentTarget.value))
+                  }
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onTouchStart={(e) => e.stopPropagation()}
+                  class="range range-primary range-xs w-28 cursor-pointer"
+                  style="touch-action: pan-x;"
+                />
+                <span class="w-8 text-center text-xs tabular-nums">
+                  {spec.strength.toFixed(1)}
+                </span>
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-xs btn-square"
+                  aria-label="Move up"
+                  onClick={() => move(idx(), -1)}
+                >
+                  <Icons.ChevronDown class="size-4 rotate-180" />
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-xs btn-square"
+                  aria-label="Move down"
+                  onClick={() => move(idx(), 1)}
+                >
+                  <Icons.ChevronDown class="size-4" />
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-xs btn-square text-error"
+                  aria-label="Remove"
+                  onClick={() => remove(idx())}
+                >
+                  <Icons.XMark class="size-4" />
+                </button>
+              </div>
+            )}
+          </For>
+        </div>
+      </Show>
     </div>
   );
 }
+
+export default LoraSelector;

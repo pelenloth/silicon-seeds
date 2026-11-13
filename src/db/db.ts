@@ -15,6 +15,9 @@ import {
 import { JobUpdates } from "../sse/job-updates";
 import { Lora } from "../styles/presets";
 import { Utils } from "../utils/utils";
+import { clampGalleryLimit, pickGalleryPage } from "../media/gallery-page";
+import { finalizeDecision } from "../jobs/job-summary";
+import { JOB_CANCELLED_ERROR, canCancelJob } from "../shared/job-cancel";
 
 export interface DbSchema {
   settings: {
@@ -189,6 +192,16 @@ export namespace DB {
         .executeTakeFirstOrThrow();
     }
 
+    export async function findByIdOrNull(
+      id: string,
+    ): Promise<JobsSchema | undefined> {
+      return await DB.db
+        .selectFrom("jobs")
+        .selectAll()
+        .where("id", "=", id)
+        .executeTakeFirst();
+    }
+
     export async function findByName(name: string) {
       return await DB.db
         .selectFrom("jobs")
@@ -197,12 +210,56 @@ export namespace DB {
         .executeTakeFirst();
     }
 
-    export async function deleteById(id: string) {
-      // First delete all related events to avoid orphaned records
-      await db.deleteFrom("events").where("job_id", "=", id).execute();
+    export async function eventSignatures(jobIds: string[]) {
+      if (jobIds.length === 0) return [];
+      return await db
+        .selectFrom("events")
+        .select(["job_id", "type", "mode", "status"])
+        .select((eb) => eb.fn.countAll<number>().as("count"))
+        .where("job_id", "in", jobIds)
+        .groupBy(["job_id", "type", "mode", "status"])
+        .execute();
+    }
 
-      // Then delete the job
-      await db.deleteFrom("jobs").where("id", "=", id).execute();
+    export async function outputFiles(jobIds: string[]) {
+      if (jobIds.length === 0) return [];
+      return await db
+        .selectFrom("meta")
+        .innerJoin("events", "events.id", "meta.event_id")
+        .select([
+          "events.job_id as job_id",
+          "meta.id as meta_id",
+          "meta.filename",
+          "meta.subfolder",
+        ])
+        .where("meta.type", "=", "output")
+        .where("events.job_id", "in", jobIds)
+        .orderBy("meta.id", "asc")
+        .execute();
+    }
+
+    export async function deleteById(id: string) {
+      await db.transaction().execute(async (trx) => {
+        const eventRows = await trx
+          .selectFrom("events")
+          .select("id")
+          .where("job_id", "=", id)
+          .execute();
+        const eventIds = eventRows.map((r) => r.id);
+        if (eventIds.length > 0) {
+          await trx
+            .deleteFrom("meta")
+            .where("event_id", "in", eventIds)
+            .execute();
+        }
+
+        // First delete all related events to avoid orphaned records
+        await trx.deleteFrom("events").where("job_id", "=", id).execute();
+
+        // Then delete the job
+        await trx.deleteFrom("jobs").where("id", "=", id).execute();
+      });
+      notifyJob(id);
     }
 
     export async function updateStatus(id: string, status: JobLifecycleStatus) {
@@ -259,6 +316,14 @@ export namespace DB {
           .where("id", "=", id)
           .executeTakeFirstOrThrow();
 
+        if (!canCancelJob(job.status)) {
+          const err: any = new Error(
+            `cannot cancel job in status ${job.status}`,
+          );
+          err.status = 409;
+          throw err;
+        }
+
         const events = await trx
           .selectFrom("events")
           .select(["id", "status"])
@@ -272,29 +337,27 @@ export namespace DB {
           .filter((event) => event.status === JobStatus.Pending)
           .map((event) => event.id);
 
-        if (job.status === JobLifecycleStatus.Active) {
-          await trx
-            .updateTable("jobs")
-            .set({ status: JobLifecycleStatus.Cancelled })
-            .where("id", "=", id)
-            .execute();
+        await trx
+          .updateTable("jobs")
+          .set({ status: JobLifecycleStatus.Cancelled })
+          .where("id", "=", id)
+          .execute();
 
-          await trx
-            .updateTable("events")
-            .set({
-              status: JobStatus.Failed,
-              claimed_at: null,
-              error: "job cancelled by user",
-            })
-            .where("job_id", "=", id)
-            .where((eb) =>
-              eb.or([
-                eb("status", "=", JobStatus.Pending),
-                eb("status", "=", JobStatus.Running),
-              ]),
-            )
-            .execute();
-        }
+        await trx
+          .updateTable("events")
+          .set({
+            status: JobStatus.Failed,
+            claimed_at: null,
+            error: JOB_CANCELLED_ERROR,
+          })
+          .where("job_id", "=", id)
+          .where((eb) =>
+            eb.or([
+              eb("status", "=", JobStatus.Pending),
+              eb("status", "=", JobStatus.Running),
+            ]),
+          )
+          .execute();
 
         return {
           job,
@@ -471,7 +534,13 @@ export namespace DB {
       const settledActiveJobs = await db
         .selectFrom("jobs")
         .innerJoin("events", "events.job_id", "jobs.id")
-        .select(["jobs.id", "jobs.workflow"])
+        .select([
+          "jobs.id",
+          "jobs.workflow",
+          "jobs.image_model",
+          "jobs.video_model",
+          "jobs.audio_model",
+        ])
         .distinct()
         .where("jobs.status", "=", JobLifecycleStatus.Active)
         .where((eb) =>
@@ -493,46 +562,18 @@ export namespace DB {
         .execute();
 
       for (const job of settledActiveJobs) {
-        const failedEvent = await db
+        const events = await db
           .selectFrom("events")
-          .select("id")
+          .select(["type", "status"])
           .where("job_id", "=", job.id)
-          .where("status", "=", JobStatus.Failed)
-          .executeTakeFirst();
+          .execute();
 
-        if (failedEvent) {
+        const decision = finalizeDecision({ job, events });
+        if (decision === "failed") {
           await updateStatus(job.id, JobLifecycleStatus.Failed);
-          continue;
+        } else if (decision === "complete") {
+          await completeJob(job.id);
         }
-
-        if (job.workflow === "compose") {
-          const imageEvent = await db
-            .selectFrom("events")
-            .select("id")
-            .where("job_id", "=", job.id)
-            .where("type", "=", Event.NewImagePrompt)
-            .executeTakeFirst();
-
-          if (!imageEvent) {
-            continue;
-          }
-        }
-
-        if (job.workflow === "video") {
-          const videoEvent = await db
-            .selectFrom("events")
-            .select("id")
-            .where("job_id", "=", job.id)
-            .where("type", "=", Event.NewVideoPrompt)
-            .where("status", "=", JobStatus.Complete)
-            .executeTakeFirst();
-
-          if (!videoEvent) {
-            continue;
-          }
-        }
-
-        await completeJob(job.id);
       }
     }
   }
@@ -997,6 +1038,7 @@ export namespace DB {
       type: "input" | "output" | "temp";
       event_created_at: string;
       job_id: string;
+      job_name: string | null;
     };
 
     type ListItemsOptions = {
@@ -1054,8 +1096,10 @@ export namespace DB {
       return getOutputAssetPath(subfolder, filename);
     }
 
-    export async function listItems(options: ListItemsOptions = {}) {
-      const { cursor, type, limit = 20 } = options;
+    export async function listItemsPage(options: ListItemsOptions = {}) {
+      const { cursor, type } = options;
+      const limit = clampGalleryLimit(options.limit);
+      const scanLimit = limit * 2;
 
       let query = DB.db
         .selectFrom("meta")
@@ -1071,6 +1115,7 @@ export namespace DB {
           "events.status as event_status",
           "events.id as event_id",
           "jobs.id as job_id",
+          "jobs.name as job_name",
         ])
         .where("meta.type", "=", "output");
 
@@ -1107,7 +1152,7 @@ export namespace DB {
 
       const results = await query
         .orderBy("meta.id", "desc") // UUID7 is sortable chronologically!
-        .limit(limit * 2)
+        .limit(scanLimit)
         .execute();
 
       const concurrency = 10;
@@ -1144,6 +1189,7 @@ export namespace DB {
               type: row.meta_type,
               created_at: row.event_created_at,
               job_id: row.job_id,
+              job_name: row.job_name ?? null,
               mediaType,
             } as ListItemResult & {
               mediaType: "image" | "video" | "audio";
@@ -1155,7 +1201,20 @@ export namespace DB {
         if (items.length >= limit) break;
       }
 
-      return items.slice(0, limit);
+      const lastScannedMetaId =
+        results.length > 0 ? results[results.length - 1].meta_id : null;
+      return pickGalleryPage({
+        limit,
+        scanLimit,
+        scannedCount: results.length,
+        lastScannedMetaId,
+        surviving: items,
+      });
+    }
+
+    export async function listItems(options: ListItemsOptions = {}) {
+      const { items } = await listItemsPage(options);
+      return items;
     }
   }
 

@@ -1,4 +1,5 @@
 import { AudioGenerator } from "../../audio/audio-generator";
+import { resolveLyrics } from "../../audio/lyrics";
 import { JobOrchestrator } from "../../jobs/jobs";
 import { JobMode } from "../../events/events";
 import { Utils } from "../../utils/utils";
@@ -16,10 +17,6 @@ export async function text_to_audio(
     throw new Error("Instrumental prompt is required");
   }
 
-  if (!lyricPrompt) {
-    throw new Error("Lyric prompt is required");
-  }
-
   const { id: jobId } = await JobOrchestrator.create_job({
     original_prompt: instrumentalPrompt,
     audio_model: "ace-step-1.5",
@@ -29,7 +26,7 @@ export async function text_to_audio(
     jobId,
     mode: JobMode.Song,
     prompt: instrumentalPrompt,
-    lyrics: lyricPrompt,
+    lyrics: resolveLyrics(lyricPrompt),
     duration: options.duration,
     audio_settings: {
       bpm: options.bpm,
@@ -41,11 +38,8 @@ export async function text_to_audio(
     },
   });
 
-  return new Response(JSON.stringify({ message: "job queued" }), {
+  return new Response(JSON.stringify({ message: "job queued", jobId }), {
     status: 200,
-    headers: {
-      "Content-Type": "application/json",
-      "HX-Redirect": `/create/audio?show_progress=true&job_id=${jobId}`,
-    },
+    headers: { "Content-Type": "application/json" },
   });
 }

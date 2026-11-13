@@ -1,4 +1,12 @@
-import { createResource, For, Show } from "solid-js";
+import {
+  createEffect,
+  createSignal,
+  For,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js";
+import { apiGet } from "../lib/api-client";
 
 type Preset = {
   id: string;
@@ -10,40 +18,87 @@ type Preset = {
   texture: string | null;
 };
 
-export default function StylePresetSelect(props: {
+export function StylePresetSelect(props: {
   name?: string;
-  value?: string;
   id?: string;
   class?: string;
+  value?: string;
+  ariaLabel?: string;
+  onChange?: (v: string) => void;
 }) {
-  const [presets] = createResource(async () => {
+  let selectRef: HTMLSelectElement | undefined;
+  const [presets, setPresets] = createSignal<Preset[]>([]);
+  const [loadError, setLoadError] = createSignal(false);
+  let disposed = false;
+
+  const fetchPresets = async () => {
+    setLoadError(false);
     try {
-      const r = await fetch("/api/style-presets");
-      if (!r.ok) return [] as Preset[];
-      const j = await r.json();
-      return (j.presets ?? []) as Preset[];
+      const data = await apiGet<{ presets?: Preset[] }>("/api/style-presets");
+      if (disposed) return;
+      setPresets(Array.isArray(data?.presets) ? data.presets : []);
     } catch {
-      return [] as Preset[];
+      if (disposed) return;
+      setLoadError(true);
+    }
+  };
+
+  onMount(() => {
+    void fetchPresets();
+  });
+
+  onCleanup(() => {
+    disposed = true;
+  });
+
+  const extraValue = () => {
+    const v = props.value;
+    if (!v || v === "none") return undefined;
+    if (presets().some((p) => p.name === v)) return undefined;
+    return v;
+  };
+
+  createEffect(() => {
+    presets();
+    const v = props.value;
+    if (selectRef && v !== undefined) {
+      selectRef.value = v;
     }
   });
 
   return (
-    <select
-      name={props.name ?? "style_preset"}
-      id={props.id}
-      class={props.class ?? "select select-bordered w-full select-sm"}
-    >
-      <Show when={!presets.loading} fallback={<option>Loading...</option>}>
-        <option value="none">none - no style</option>
-        <For each={presets() ?? []}>
+    <>
+      <select
+        ref={selectRef}
+        name={props.name ?? "style_preset"}
+        id={props.id}
+        aria-label={props.ariaLabel}
+        class={props.class ?? "select select-sm w-full"}
+        value={props.value ?? "none"}
+        onChange={(e) => props.onChange?.(e.currentTarget.value)}
+      >
+        <option value="none">No preset</option>
+        <Show when={extraValue()}>
+          {(val) => <option value={val()}>{val()}</option>}
+        </Show>
+        <For each={presets()}>
           {(p) => <option value={p.name}>{p.name}</option>}
         </For>
-        <Show when={(presets() ?? []).length === 0}>
-          <option value="system">system</option>
-          <option value="watercolor">watercolor</option>
-          <option value="pencil_watercolor">pencil_watercolor</option>
-        </Show>
+      </select>
+      <Show when={loadError()}>
+        <p class="mt-1 text-xs text-base-content/60">
+          Could not load presets.{" "}
+          <button
+            type="button"
+            class="link"
+            onClick={() => void fetchPresets()}
+          >
+            Try again
+          </button>
+        </p>
       </Show>
-    </select>
+    </>
   );
 }
+
+export default StylePresetSelect;

@@ -3,23 +3,25 @@
   <head>
     <script>
       (function () {
-        var k = "theme",
-          l = "bumblebee",
-          d = "dracula",
-          t = null;
+        var ids = ["daylight", "tokyonight", "opencode", "dracula"];
+        var legacy = {
+          bumblebee: "daylight",
+          light: "daylight",
+          dark: "tokyonight",
+        };
+        var pref = null;
         try {
-          t = localStorage.getItem(k);
+          pref = localStorage.getItem("theme");
         } catch (e) {}
-        if (t !== d && t !== l) {
+        if (pref && legacy[pref]) pref = legacy[pref];
+        if (ids.indexOf(pref) === -1) {
+          var dark = false;
           try {
-            t = window.matchMedia("(prefers-color-scheme: dark)").matches
-              ? d
-              : l;
-          } catch (e) {
-            t = l;
-          }
+            dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+          } catch (e) {}
+          pref = dark ? "tokyonight" : "daylight";
         }
-        document.documentElement.setAttribute("data-theme", t);
+        document.documentElement.setAttribute("data-theme", pref);
       })();
     </script>
     <meta charset="UTF-8" />
@@ -27,6 +29,13 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, viewport-fit=cover"
     />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#4f46e5" />
+    <meta
+      name="description"
+      content="Silicon Seeds: a local studio for AI images, video and audio."
+    />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>Silicon Seeds</title>
   </head>
   <body>

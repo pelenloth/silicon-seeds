@@ -64,11 +64,8 @@ export async function text_to_image(
 
   void QueueManager.pump();
 
-  return new Response(JSON.stringify({ message: "job queued" }), {
+  return new Response(JSON.stringify({ message: "job queued", jobId }), {
     status: 200,
-    headers: {
-      "Content-Type": "application/json",
-      "HX-Redirect": `/create/image?show_progress=true&job_id=${jobId}`,
-    },
+    headers: { "Content-Type": "application/json" },
   });
 }

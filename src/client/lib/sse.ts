@@ -1,66 +1,34 @@
-import { createEffect, onCleanup } from "solid-js";
+import { createEffect, on } from "solid-js";
+import { jobVersion, streamEpoch } from "../stores/jobs";
 
-export function sseUrl(jobId: string) {
-  return `/jobs/stream?job_id=${encodeURIComponent(jobId)}`;
-}
-
-export function useJobUpdates(
+export function onJobUpdate(
   jobId: () => string | null | undefined,
-  onUpdate: () => void,
+  cb: () => void,
 ) {
-  let es: EventSource | null = null;
-  let reconnectTimer: number | null = null;
-  let onUpdateRef = onUpdate;
+  let prevId: string | null | undefined = jobId();
+  let prevVersion = prevId ? jobVersion(prevId) : 0;
+  let prevEpoch = streamEpoch();
 
-  const cleanup = () => {
-    if (reconnectTimer !== null) {
-      clearTimeout(reconnectTimer);
-      reconnectTimer = null;
-    }
-    if (es) {
-      es.removeEventListener("job-update", onUpdateRef);
-      es.close();
-      es = null;
-    }
-  };
-
-  const scheduleReconnect = () => {
-    reconnectTimer = window.setTimeout(() => {
-      const curId = jobId();
-      if (!curId) return;
-      if (es) return; // already connected
-      onUpdateRef();
-      es = new EventSource(sseUrl(curId));
-      const h = () => onUpdateRef();
-      es.addEventListener("job-update", h);
-      (es as unknown as { _h: typeof h })._h = h;
-      es.onerror = onError;
-    }, 2000);
-  };
-
-  const onError = () => {
-    const failed = es;
-    if (failed) {
-      const h = (failed as unknown as { _h?: () => void })._h;
-      if (h) failed.removeEventListener("job-update", h);
-      failed.close();
-      if (es === failed) es = null;
-    }
-    onUpdateRef();
-    scheduleReconnect();
-  };
-
-  createEffect(() => {
-    const id = jobId();
-    cleanup();
-    if (!id) return;
-    onUpdateRef = onUpdate;
-    es = new EventSource(sseUrl(id));
-    const handler = () => onUpdateRef();
-    es.addEventListener("job-update", handler);
-    (es as unknown as { _h: typeof handler })._h = handler;
-    es.onerror = onError;
-  });
-
-  onCleanup(cleanup);
+  createEffect(
+    on(
+      () => {
+        const id = jobId();
+        const ver = id ? jobVersion(id) : 0;
+        const epoch = streamEpoch();
+        return { id, ver, epoch };
+      },
+      ({ id, ver, epoch }) => {
+        const sameJob = Boolean(id && id === prevId);
+        const versionOrEpochChanged =
+          ver !== prevVersion || epoch !== prevEpoch;
+        prevId = id;
+        prevVersion = ver;
+        prevEpoch = epoch;
+        if (sameJob && versionOrEpochChanged) {
+          cb();
+        }
+      },
+      { defer: true },
+    ),
+  );
 }
