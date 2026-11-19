@@ -115,3 +115,36 @@ describe("PostTextToImageSchema batch_size limit", () => {
     }
   });
 });
+
+describe("PostDistinctAudioSchema per-model duration bounds", () => {
+  const fakeContext = {
+    json: (body: unknown, status?: number) =>
+      new Response(JSON.stringify(body), {
+        status: status ?? 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+  } as unknown as Parameters<typeof validationHook>[1];
+
+  test("rejects duration 200 for stable-audio-3 with a duration field error (model ceiling 180s)", async () => {
+    const { PostDistinctAudioSchema } = await import("./schemas");
+    const result = PostDistinctAudioSchema.safeParse({
+      audio_model: "stable-audio-3",
+      instrumental_prompt: "Crisp rain foley",
+      duration: "200",
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const res = validationHook(
+        { success: false, error: result.error },
+        fakeContext,
+      );
+      expect(res).toBeDefined();
+      expect(res!.status).toBe(400);
+      const body = (await res!.json()) as {
+        error: string;
+        fields: Record<string, string>;
+      };
+      expect(body.fields.duration).toContain("5 and 180");
+    }
+  });
+});

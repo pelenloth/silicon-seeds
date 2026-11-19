@@ -1,7 +1,6 @@
-import { Kysely } from "kysely";
+import { Generated, Kysely, sql } from "kysely";
 import { BunSqliteDialect } from "kysely-bun-sqlite";
 import { Database } from "bun:sqlite";
-import { Generated } from "kysely";
 import { Metadata } from "../meta/meta";
 import { mkdirSync, existsSync, copyFileSync } from "node:fs";
 import { dirname } from "node:path";
@@ -34,6 +33,17 @@ export interface DbSchema {
     texture: string | null;
     created_at: Generated<string> | string;
   };
+  sound_presets: {
+    id: Generated<number>;
+    name: string;
+    description: string;
+    audio_model: string;
+    category: string;
+    instrumental_prompt: string;
+    lyric_prompt: string;
+    settings_json: string;
+    created_at: Generated<string> | string;
+  };
   loras: {
     id: string;
     comfyui_name: string;
@@ -58,6 +68,7 @@ export interface DbSchema {
     image_model?: string;
     video_model?: string;
     audio_model?: string;
+    sound_preset?: string | null;
     style_preset?: string;
     style_guide?: string | null;
   };
@@ -111,21 +122,27 @@ type InsertJob = CreateJob & {
 };
 
 export namespace DB {
+  const isBunTestRunner =
+    Bun.main.endsWith(".test.ts") ||
+    process.argv.some((a) => a.endsWith(".test.ts"));
   const dbPath = (
-    Bun.env.DB_PATH?.trim() || "data/silicon-seeds.sqlite"
+    Bun.env.DB_PATH?.trim() ||
+    (isBunTestRunner ? ":memory:" : "data/silicon-seeds.sqlite")
   ).trim();
-  try {
-    mkdirSync(dirname(dbPath), { recursive: true });
-  } catch (e) {
-    // let Database throw with clearer context if parent dir uncreatable
-    console.error(`[DB] mkdir failed for ${dirname(dbPath)}:`, e);
-  }
-  try {
-    if (!existsSync(dbPath) && existsSync("silicon-seeds.sqlite")) {
-      copyFileSync("silicon-seeds.sqlite", dbPath);
+  if (dbPath !== ":memory:") {
+    try {
+      mkdirSync(dirname(dbPath), { recursive: true });
+    } catch (e) {
+      // let Database throw with clearer context if parent dir uncreatable
+      console.error(`[DB] mkdir failed for ${dirname(dbPath)}:`, e);
     }
-  } catch (e) {
-    console.error(`[DB] legacy migration failed:`, e);
+    try {
+      if (!existsSync(dbPath) && existsSync("silicon-seeds.sqlite")) {
+        copyFileSync("silicon-seeds.sqlite", dbPath);
+      }
+    } catch (e) {
+      console.error(`[DB] legacy migration failed:`, e);
+    }
   }
 
   export const db = new Kysely<DbSchema>({
@@ -1308,6 +1325,78 @@ export namespace DB {
     }
     export async function remove(id: string) {
       await db.deleteFrom("style_presets").where("id", "=", id).execute();
+    }
+  }
+
+  export namespace SoundPresets {
+    export async function list() {
+      return await db
+        .selectFrom("sound_presets")
+        .selectAll()
+        .orderBy("name", "asc")
+        .execute();
+    }
+    export async function findById(id: number) {
+      return await db
+        .selectFrom("sound_presets")
+        .selectAll()
+        .where("id", "=", id)
+        .executeTakeFirst();
+    }
+    export async function findByName(name: string) {
+      return await db
+        .selectFrom("sound_presets")
+        .selectAll()
+        .where(sql<boolean>`lower(name) = lower(${name.trim()})`)
+        .executeTakeFirst();
+    }
+    export async function create(data: {
+      name: string;
+      description?: string;
+      audio_model: string;
+      category?: string;
+      instrumental_prompt: string;
+      lyric_prompt?: string;
+      settings_json?: string;
+    }) {
+      const inserted = await db
+        .insertInto("sound_presets")
+        .values({
+          name: data.name,
+          description: data.description ?? "",
+          audio_model: data.audio_model,
+          category: data.category ?? "Song",
+          instrumental_prompt: data.instrumental_prompt,
+          lyric_prompt: data.lyric_prompt ?? "",
+          settings_json: data.settings_json ?? "{}",
+        })
+        .returningAll()
+        .executeTakeFirst();
+      return inserted;
+    }
+    export async function update(
+      id: number,
+      data: Partial<{
+        name: string;
+        description: string;
+        audio_model: string;
+        category: string;
+        instrumental_prompt: string;
+        lyric_prompt: string;
+        settings_json: string;
+      }>,
+    ) {
+      if (Object.keys(data).length > 0) {
+        await db
+          .updateTable("sound_presets")
+          .set(data)
+          .where("id", "=", id)
+          .execute();
+      }
+      return await findById(id);
+    }
+    export async function remove(id: number) {
+      await db.deleteFrom("sound_presets").where("id", "=", id).execute();
     }
   }
 

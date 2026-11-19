@@ -7,8 +7,9 @@ import ltx2_3_img2vidApi from "./api/video_ltx2_3_i2v.json";
 import ltx2_3_img2transitionApi from "./api/video_ltx2_3_style_transition.json";
 import ltx_t2v_api from "./api/video_ltx2_3_t2v.json";
 // import ace_step_1_0_api from "./api/audio_ace_step_1_0_instrumental.json";
-import ace_step_1_5_api from "./api/audio_ace_step1_5_xl_base_instrumental.json";
-import stable_audio_3_api from "./api/audio_stable_audio_3_medium_base.json";
+import { copyReferenceAudioToInputDir } from "../audio/reference-audio";
+import { normalizeAudioModelId } from "../shared/audio-models";
+import { buildAudioWorkflow } from "./audio-workflows";
 
 import wan2_2_img2vidWorkflow from "./workflows/video_wan2_2_14B_i2v_720p_5s.json";
 import wan2_2_img2transWorkflow from "./workflows/video_wan2_2_14B_transitions.json";
@@ -88,16 +89,12 @@ const COMFYUI_BASE_URL = Bun.env.COMFYUI_BASE_URL;
 const WAN_NATIVE_FPS = 24;
 const LTX_NATIVE_FPS = 25;
 
-Utils.assert(
-  OUTPUT_DIR && INPUT_DIR && COMFYUI_BASE_URL,
-  "ComfyUI env. variables not configured!",
-);
-
 export class ComfyUIClient {
   private baseUrl: string;
 
-  constructor(config: { baseUrl: string }) {
-    this.baseUrl = config.baseUrl;
+  constructor(config: { baseUrl?: string } = {}) {
+    this.baseUrl =
+      config.baseUrl || Bun.env.COMFYUI_BASE_URL || "http://127.0.0.1:8188";
   }
 
   async generate(input: ModelVariant, job: JobsSchema) {
@@ -493,74 +490,27 @@ export class ComfyUIClient {
       }
     }
 
-    if (input.kind === "text-to-song") {
-      // ace 1.0
-      // api = ace_step_1_0_api;
-      //
-      // if (input.prompt) {
-      //   api["14"].inputs.tags = input.prompt;
-      // }
-      // api["59"].inputs.filename_prefix = input.id;
-      // api["17"].inputs.seconds = input.duration;
-
-      api = ace_step_1_5_api;
-
-      if (input.prompt) {
-        api["94"].inputs.tags = input.prompt;
-      }
-      if (input.lyrics) {
-        api["94"].inputs.lyrics = input.lyrics;
-      }
-      if (input.settings) {
-        const settings = input.settings;
-
-        if (typeof settings.bpm === "number") {
-          api["94"].inputs.bpm = settings.bpm;
-        }
-        if (typeof settings.cfg_scale === "number") {
-          api["94"].inputs.cfg_scale = settings.cfg_scale;
-        }
-        if (typeof settings.temperature === "number") {
-          api["94"].inputs.temperature = settings.temperature;
-        }
-        if (typeof settings.top_p === "number") {
-          api["94"].inputs.top_p = settings.top_p;
-        }
-        if (typeof settings.keyscale === "string" && settings.keyscale) {
-          api["94"].inputs.keyscale = settings.keyscale;
-        }
-        if (
-          typeof settings.timesignature === "string" &&
-          settings.timesignature
-        ) {
-          api["94"].inputs.timesignature = settings.timesignature;
-        }
-      }
-      api["107"].inputs.filename_prefix = input.id;
-      api["98"].inputs.seconds = input.duration;
-      api["94"].inputs.duration = input.duration;
-    }
-
-    if (input.kind === "text-to-instrumental") {
-      // ACE Step remains available for song generation. Instrumental generation
-      // now uses the Stable Audio 3 graph.
-      // ace 1.0
-      // api = ace_step_1_0_api;
-      //
-      // if (input.prompt) {
-      //   api["14"].inputs.tags = input.prompt;
-      // }
-      // api["59"].inputs.filename_prefix = input.id;
-      // api["17"].inputs.seconds = input.duration;
-
-      api = stable_audio_3_api;
-      api["19"].inputs.filename_prefix = input.id;
-      api["52:36"].inputs.value = input.duration;
-      api["52:3"].inputs.seed = Math.floor(Math.random() * 100_000_000_000_000);
-
-      if (input.prompt) {
-        api["52:31"].inputs.value = input.prompt;
-      }
+    if (
+      input.kind === "text-to-song" ||
+      input.kind === "text-to-instrumental"
+    ) {
+      const fallbackModel =
+        input.kind === "text-to-instrumental"
+          ? "stable-audio-3"
+          : "ace-step-1.5";
+      const modelId = normalizeAudioModelId(
+        input.settings?.audio_model ?? job.audio_model,
+        fallbackModel,
+      );
+      api = buildAudioWorkflow({
+        eventId: input.id,
+        modelId,
+        prompt: input.prompt,
+        lyrics: input.lyrics,
+        duration: input.duration,
+        forceInstrumental: input.kind === "text-to-instrumental",
+        settings: input.settings,
+      });
     }
 
     if (input.kind === "image-to-transition") {
@@ -604,13 +554,40 @@ export class ComfyUIClient {
   }
 
   private async prepareInput(input: ModelVariant) {
-    if (input.kind !== "image-to-video") return;
+    const outDir = Bun.env.OUTPUT_DIR ?? OUTPUT_DIR;
+    const inDir = Bun.env.INPUT_DIR ?? INPUT_DIR;
 
-    const src = `${OUTPUT_DIR}/${input.imagePath}`.replace('"', "").trim();
-    const dst = `${INPUT_DIR}/${input.imagePath}`.replace('"', "").trim();
+    if (input.kind === "image-to-video") {
+      Utils.assert(outDir && inDir, "ComfyUI env. variables not configured!");
+      const src = `${outDir}/${input.imagePath}`.replace('"', "").trim();
+      const dst = `${inDir}/${input.imagePath}`.replace('"', "").trim();
 
-    const image = await Bun.file(src).arrayBuffer();
-    await Bun.write(dst, image);
+      const image = await Bun.file(src).arrayBuffer();
+      await Bun.write(dst, image);
+      return;
+    }
+
+    if (
+      input.kind === "text-to-song" ||
+      input.kind === "text-to-instrumental"
+    ) {
+      const refRel = input.settings?.reference_audio_path;
+      const refName = input.settings?.reference_audio_filename;
+      if (
+        typeof refRel === "string" &&
+        refRel.trim() &&
+        typeof refName === "string" &&
+        refName.trim()
+      ) {
+        Utils.assert(outDir && inDir, "ComfyUI env. variables not configured!");
+        await copyReferenceAudioToInputDir({
+          relativePath: refRel.trim(),
+          comfyInputFilename: refName.trim(),
+          outputDir: outDir,
+          inputDir: inDir,
+        });
+      }
+    }
   }
 }
 

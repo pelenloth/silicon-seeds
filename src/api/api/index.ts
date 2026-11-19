@@ -19,6 +19,7 @@ import { regenerate_event } from "./regenerate";
 import { tts_profiles, tts_profiles_options } from "./tts";
 import settingsRoutes from "../settings";
 import stylePresetsRoutes from "../style-presets";
+import soundPresetsRoutes from "../sound-presets";
 import enhanceRoutes from "../enhance";
 import intentRoutes from "../intent";
 import lorasRoutes from "../loras";
@@ -30,7 +31,8 @@ import {
   PostTextToImageSchema,
   PostTextToVideoSchema,
 } from "../schemas";
-import { validationHook } from "../validation";
+import { formatZodIssues, validationHook } from "../validation";
+import { ReferenceAudioValidationError } from "../../audio/reference-audio";
 import { galleryEtag } from "../gallery-etag";
 import { clampGalleryLimit } from "../../media/gallery-page";
 import {
@@ -61,14 +63,35 @@ app.post(
   },
 );
 
-app.post(
-  "/jobs/audio",
-  zValidator("form", PostDistinctAudioSchema, validationHook),
-  async (c) => {
-    const body = c.req.valid("form");
-    return text_to_audio(body);
-  },
-);
+app.post("/jobs/audio", async (c) => {
+  const ct = c.req.header("content-type") ?? "";
+  let raw: unknown;
+  if (ct.includes("application/json")) {
+    raw = await c.req.json().catch(() => null);
+    if (!raw || typeof raw !== "object") {
+      return c.json({ error: "Invalid JSON body", fields: {} }, 400);
+    }
+  } else {
+    raw = await c.req.parseBody();
+  }
+
+  const parsed = PostDistinctAudioSchema.safeParse(raw);
+  if (!parsed.success) {
+    return c.json(formatZodIssues(parsed.error.issues), 400);
+  }
+
+  try {
+    return await text_to_audio(parsed.data);
+  } catch (err) {
+    if (err instanceof ReferenceAudioValidationError) {
+      return c.json(
+        { error: err.message, fields: { reference_audio: err.message } },
+        400,
+      );
+    }
+    throw err;
+  }
+});
 
 app.post("/jobs/scenes", async () => {
   return script_to_scenes();
@@ -342,6 +365,7 @@ app.get("/jobs/:jobId/media", async (c) => {
 
 app.route("/settings", settingsRoutes);
 app.route("/style-presets", stylePresetsRoutes);
+app.route("/sound-presets", soundPresetsRoutes);
 app.route("/enhance", enhanceRoutes);
 app.route("/intent", intentRoutes);
 app.route("/loras", lorasRoutes);

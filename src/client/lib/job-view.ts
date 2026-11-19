@@ -1,4 +1,5 @@
 import type { MediaType } from "./api-client";
+import { AUDIO_MODELS, normalizeAudioModelId } from "../../shared/audio-models";
 import { JOB_CANCELLED_ERROR } from "../../shared/job-cancel";
 
 export { JOB_CANCELLED_ERROR };
@@ -38,6 +39,7 @@ export type JobSummary = {
   image_model?: string | null;
   video_model?: string | null;
   audio_model?: string | null;
+  sound_preset?: string | null;
   style_preset?: string | null;
   style_guide?: string | null;
   loras?: string | null;
@@ -454,7 +456,16 @@ export function jobToPrefill(job: JobSummary): {
   const values: Record<string, string> = {};
 
   if (job.kind === "audio") {
+    if (job.audio_model) {
+      const audioModelId = normalizeAudioModelId(
+        job.audio_model,
+        "ace-step-1.5",
+      );
+      Object.assign(values, AUDIO_MODELS[audioModelId].defaultSettings);
+      values.audio_model = audioModelId;
+    }
     if (prompt) values.instrumental_prompt = prompt;
+    if (job.sound_preset) values.sound_preset = job.sound_preset;
     return { route: "/create/audio", values };
   }
 
@@ -468,6 +479,13 @@ export function jobToPrefill(job: JobSummary): {
   if (job.resolution) values.resolution = job.resolution;
   if (job.image_model) values.image_model = job.image_model;
   if (job.video_model) values.video_model = job.video_model;
+  if (job.audio_model) {
+    values.audio_model = normalizeAudioModelId(
+      job.audio_model,
+      "stable-audio-3",
+    );
+  }
+  if (job.sound_preset) values.sound_preset = job.sound_preset;
   if (job.fps != null) values.fps = String(job.fps);
   if (job.clip_duration != null)
     values.clip_duration = String(job.clip_duration);

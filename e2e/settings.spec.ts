@@ -41,7 +41,10 @@ test.beforeEach(async ({ page }) => {
 
   // Catch-all guard: protect real database from any mutating request
   await page.route(
-    (url) => /\/api\/(settings|loras|style-presets)(\/|$)/.test(url.pathname),
+    (url) =>
+      /\/api\/(settings|loras|style-presets|sound-presets)(\/|$)/.test(
+        url.pathname,
+      ),
     async (route) => {
       const method = route.request().method().toUpperCase();
       if (["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
@@ -136,6 +139,8 @@ test("settings: defaults form controls, dirty tracking, save persistence, and pr
     default_resolution: "720p",
     default_image_model: "z-image-turbo",
     default_video_model: "wan2.2",
+    default_audio_model: "ace-step-1.5",
+    default_compose_audio_model: "stable-audio-3",
     default_fps: "16",
     default_clip_duration: "5",
     default_transition_duration: "2",
@@ -163,6 +168,8 @@ test("settings: defaults form controls, dirty tracking, save persistence, and pr
         "default_resolution",
         "default_image_model",
         "default_video_model",
+        "default_audio_model",
+        "default_compose_audio_model",
         "default_fps",
         "default_clip_duration",
         "default_transition_duration",
@@ -205,6 +212,8 @@ test("settings: defaults form controls, dirty tracking, save persistence, and pr
     "default_resolution",
     "default_image_model",
     "default_video_model",
+    "default_audio_model",
+    "default_compose_audio_model",
   ]) {
     await expect(page.locator(`select[name="${name}"]`)).toBeVisible();
   }
@@ -1269,4 +1278,184 @@ test("settings: loras disables row actions during delayed reorder, reloads from 
     .locator("li")
     .filter({ hasText: "x.safetensors" });
   await expect(discoveredItems).toHaveCount(1);
+});
+
+test("settings: sound presets sub-tab filter, duplicate built-in, create, edit, and delete", async ({
+  page,
+}) => {
+  type SoundPresetItem = {
+    id: string;
+    name: string;
+    description: string;
+    audio_model: string;
+    category: string;
+    instrumental_prompt: string;
+    lyric_prompt: string;
+    settings: Record<string, unknown>;
+    builtin: boolean;
+  };
+
+  let soundPresetsList: SoundPresetItem[] = [
+    {
+      id: "builtin-indie-pop",
+      name: "Indie Pop Anthem",
+      description: "Bright indie guitar pop hook",
+      audio_model: "ace-step-1.5",
+      category: "Song",
+      instrumental_prompt: "indie pop, jangle guitar, upbeat drums",
+      lyric_prompt: "[Verse]\nCity lights",
+      settings: { duration: 60 },
+      builtin: true,
+    },
+    {
+      id: "builtin-ambient-underscore",
+      name: "Ambient Underscore",
+      description: "Warm pad underscore",
+      audio_model: "stable-audio-3",
+      category: "Underscore",
+      instrumental_prompt: "warm ambient synth underscore, atmospheric pad",
+      lyric_prompt: "",
+      settings: { duration: 30 },
+      builtin: true,
+    },
+  ];
+
+  let postPayload: Record<string, unknown> | null = null;
+  let putPayload: Record<string, unknown> | null = null;
+  let deletedId: string | null = null;
+
+  await page.route("**/api/sound-presets", async (route) => {
+    const method = route.request().method();
+    if (method === "GET") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ presets: soundPresetsList }),
+      });
+      return;
+    }
+    if (method === "POST") {
+      postPayload = (route.request().postDataJSON() ??
+        JSON.parse(route.request().postData() ?? "{}")) as Record<
+        string,
+        unknown
+      >;
+      const created: SoundPresetItem = {
+        id: "sound-custom-1",
+        name: String(postPayload.name ?? "Custom"),
+        description: String(postPayload.description ?? ""),
+        audio_model: String(postPayload.audio_model ?? "ace-step-1.5"),
+        category: String(postPayload.category ?? "Song"),
+        instrumental_prompt: String(postPayload.instrumental_prompt ?? ""),
+        lyric_prompt: String(postPayload.lyric_prompt ?? ""),
+        settings:
+          typeof postPayload.settings === "object" &&
+          postPayload.settings !== null
+            ? (postPayload.settings as Record<string, unknown>)
+            : { duration: 60 },
+        builtin: false,
+      };
+      soundPresetsList.push(created);
+      await route.fulfill({
+        status: 201,
+        contentType: "application/json",
+        body: JSON.stringify(created),
+      });
+      return;
+    }
+    await route.fallback();
+  });
+
+  await page.route(/\/api\/sound-presets\/[^/]+$/, async (route) => {
+    const method = route.request().method();
+    const id = route.request().url().split("/").pop() ?? "";
+    if (method === "PUT") {
+      putPayload = (route.request().postDataJSON() ??
+        JSON.parse(route.request().postData() ?? "{}")) as Record<
+        string,
+        unknown
+      >;
+      const found = soundPresetsList.find((p) => p.id === id);
+      if (found) Object.assign(found, putPayload);
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(found ?? { id, ...putPayload }),
+      });
+      return;
+    }
+    if (method === "DELETE") {
+      deletedId = id;
+      soundPresetsList = soundPresetsList.filter((p) => p.id !== id);
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ ok: true }),
+      });
+      return;
+    }
+    await route.fallback();
+  });
+
+  await page.goto("/settings?tab=presets");
+  await expect(page).toHaveURL(/tab=presets/);
+
+  await page.getByRole("radio", { name: "Sound & genre presets" }).click();
+
+  await expect(page.getByText("Indie Pop Anthem")).toBeVisible({
+    timeout: 10000,
+  });
+  await expect(page.getByText("Ambient Underscore")).toBeVisible();
+
+  await page.getByRole("button", { name: "Stable Audio 3" }).click();
+  await expect(page.getByText("Ambient Underscore")).toBeVisible();
+  await expect(page.getByText("Indie Pop Anthem")).toBeHidden();
+
+  await page.getByRole("button", { name: "All", exact: true }).click();
+  await expect(page.getByText("Indie Pop Anthem")).toBeVisible();
+  await expect(page.getByText("Ambient Underscore")).toBeVisible();
+
+  const indieRow = page.locator("li").filter({ hasText: "Indie Pop Anthem" });
+  await indieRow.getByRole("button", { name: "Duplicate" }).click();
+
+  const newDialog = page.getByRole("dialog", { name: "New sound preset" });
+  await expect(newDialog).toBeVisible();
+  const nameField = newDialog.locator('input[name="name"]').first();
+  await expect(nameField).toHaveValue("Indie Pop Anthem (Copy)");
+
+  await nameField.fill("Custom Pop Hook");
+  await newDialog.getByRole("button", { name: /Save|Create/i }).click();
+  await expect(newDialog).toBeHidden();
+
+  expect(postPayload).not.toBeNull();
+  expect(postPayload!.name).toBe("Custom Pop Hook");
+  expect(postPayload!.audio_model).toBe("ace-step-1.5");
+
+  const customRow = page.locator("li").filter({ hasText: "Custom Pop Hook" });
+  await expect(customRow).toBeVisible();
+  await expect(customRow.getByText("Custom", { exact: true })).toBeVisible();
+
+  await customRow.getByRole("button", { name: "Edit" }).click();
+  const editDialog = page.getByRole("dialog", { name: "Edit sound preset" });
+  await expect(editDialog).toBeVisible();
+  await editDialog
+    .locator('input[name="description"], textarea[name="description"]')
+    .first()
+    .fill("Updated hook");
+  await editDialog.getByRole("button", { name: /Save|Update/i }).click();
+  await expect(editDialog).toBeHidden();
+
+  expect(putPayload).not.toBeNull();
+  expect(putPayload!.description).toBe("Updated hook");
+
+  await customRow.getByRole("button", { name: "Delete" }).click();
+  const confirmDialog = page.getByRole("dialog", {
+    name: /Delete.*preset/i,
+  });
+  await expect(confirmDialog).toBeVisible();
+  await confirmDialog.getByRole("button", { name: "Delete" }).click();
+  await expect(confirmDialog).toBeHidden();
+
+  expect(deletedId).toBe("sound-custom-1");
+  await expect(page.getByText("Custom Pop Hook")).toHaveCount(0);
 });

@@ -1,3 +1,13 @@
+import {
+  AUDIO_MODEL_IDS,
+  AUDIO_MODELS,
+  isAudioModelId,
+  normalizeAudioModelId,
+  SOUND_PRESET_CATEGORIES,
+  type AudioModelId,
+  type SoundPresetCategory,
+} from "../../shared/audio-models";
+
 export type GenerationDefaults = {
   style_preset: string;
   fps: number;
@@ -6,6 +16,8 @@ export type GenerationDefaults = {
   resolution: string;
   image_model: string;
   video_model: string;
+  audio_model: AudioModelId;
+  compose_audio_model: AudioModelId;
 };
 
 export const RESOLUTIONS: readonly { value: string; label: string }[] = [
@@ -25,6 +37,14 @@ export const VIDEO_MODELS: readonly { value: string; label: string }[] = [
   { value: "ltx2.3", label: "LTX 2.3" },
 ] as const;
 
+export const AUDIO_MODEL_OPTIONS: readonly {
+  value: AudioModelId;
+  label: string;
+}[] = AUDIO_MODEL_IDS.map((id) => ({
+  value: id,
+  label: AUDIO_MODELS[id].label,
+}));
+
 export const FALLBACK_DEFAULTS: GenerationDefaults = {
   style_preset: "none",
   fps: 16,
@@ -33,6 +53,8 @@ export const FALLBACK_DEFAULTS: GenerationDefaults = {
   resolution: "720p",
   image_model: "z-image-turbo",
   video_model: "wan2.2",
+  audio_model: "ace-step-1.5",
+  compose_audio_model: "stable-audio-3",
 };
 
 const VALID_RESOLUTIONS = new Set(RESOLUTIONS.map((r) => r.value));
@@ -89,6 +111,16 @@ export function toGenerationDefaults(
       ? map.default_video_model
       : FALLBACK_DEFAULTS.video_model;
 
+  const audioModel = normalizeAudioModelId(
+    map.default_audio_model,
+    FALLBACK_DEFAULTS.audio_model,
+  );
+
+  const composeAudioModel = normalizeAudioModelId(
+    map.default_compose_audio_model,
+    FALLBACK_DEFAULTS.compose_audio_model,
+  );
+
   return {
     style_preset: stylePreset,
     fps,
@@ -97,6 +129,8 @@ export function toGenerationDefaults(
     resolution,
     image_model: imageModel,
     video_model: videoModel,
+    audio_model: audioModel,
+    compose_audio_model: composeAudioModel,
   };
 }
 
@@ -192,11 +226,109 @@ export function buildPresetPayload(
   return { payload };
 }
 
+export type SoundPresetFormInput = {
+  name: string;
+  description: string;
+  audio_model: AudioModelId;
+  category: SoundPresetCategory;
+  instrumental_prompt: string;
+  lyric_prompt: string;
+  duration: string;
+};
+
+export type SoundPresetPayload = {
+  name: string;
+  description: string;
+  audio_model: AudioModelId;
+  category: SoundPresetCategory;
+  instrumental_prompt: string;
+  lyric_prompt: string;
+  settings: Record<string, unknown>;
+};
+
+export type SoundPresetFieldErrors = Partial<
+  Record<keyof SoundPresetFormInput, string>
+>;
+
+export function buildSoundPresetPayload(
+  form: SoundPresetFormInput,
+  baseSettings: Record<string, unknown> = {},
+): { payload: SoundPresetPayload } | { errors: SoundPresetFieldErrors } {
+  const errors: SoundPresetFieldErrors = {};
+  const name = form.name.trim();
+  if (!name) {
+    errors.name = "Name is required";
+  } else if (name.length > 80) {
+    errors.name = "Name must be at most 80 characters";
+  }
+
+  const description = form.description.trim();
+  if (description.length > 500) {
+    errors.description = "Description must be at most 500 characters";
+  }
+
+  const modelId: AudioModelId = isAudioModelId(form.audio_model)
+    ? form.audio_model
+    : "ace-step-1.5";
+  const spec = AUDIO_MODELS[modelId];
+
+  const category: SoundPresetCategory = (
+    SOUND_PRESET_CATEGORIES as readonly string[]
+  ).includes(form.category)
+    ? form.category
+    : "Song";
+
+  const inst = form.instrumental_prompt.trim();
+  if (!inst) {
+    errors.instrumental_prompt = "Style / caption prompt is required";
+  } else if (inst.length > 4000) {
+    errors.instrumental_prompt = "Prompt must be at most 4000 characters";
+  }
+
+  const lyric = form.lyric_prompt.trim();
+  if (lyric.length > 8000) {
+    errors.lyric_prompt = "Lyrics must be at most 8000 characters";
+  }
+
+  const nextSettings: Record<string, unknown> = { ...baseSettings };
+  const rawDur = form.duration.trim();
+  if (rawDur) {
+    const durNum = Number(rawDur);
+    if (
+      !Number.isInteger(durNum) ||
+      durNum < spec.minDuration ||
+      durNum > spec.maxDuration
+    ) {
+      errors.duration = `Duration must be between ${spec.minDuration} and ${spec.maxDuration}s`;
+    } else {
+      nextSettings.duration = durNum;
+    }
+  }
+
+  if (Object.keys(errors).length > 0) {
+    return { errors };
+  }
+
+  return {
+    payload: {
+      name,
+      description,
+      audio_model: modelId,
+      category,
+      instrumental_prompt: inst,
+      lyric_prompt: spec.supportsLyrics ? lyric : "",
+      settings: nextSettings,
+    },
+  };
+}
+
 export type DefaultsFormEntries = {
   default_style_preset: string;
   default_resolution: string;
   default_image_model: string;
   default_video_model: string;
+  default_audio_model?: string;
+  default_compose_audio_model?: string;
   default_fps: string;
   default_clip_duration: string;
   default_transition_duration: string;
@@ -230,7 +362,7 @@ function parseCanonicalInt(
 
 export function normalizeDefaults(
   form: DefaultsFormEntries,
-): { values: DefaultsFormEntries } | { errors: DefaultsFieldErrors } {
+): { values: Required<DefaultsFormEntries> } | { errors: DefaultsFieldErrors } {
   const errors: DefaultsFieldErrors = {};
 
   const fpsRes = parseCanonicalInt(form.default_fps, 1, 24, "Default FPS");
@@ -261,6 +393,14 @@ export function normalizeDefaults(
       default_resolution: form.default_resolution,
       default_image_model: form.default_image_model,
       default_video_model: form.default_video_model,
+      default_audio_model: normalizeAudioModelId(
+        form.default_audio_model,
+        FALLBACK_DEFAULTS.audio_model,
+      ),
+      default_compose_audio_model: normalizeAudioModelId(
+        form.default_compose_audio_model,
+        FALLBACK_DEFAULTS.compose_audio_model,
+      ),
       default_fps: "value" in fpsRes ? fpsRes.value : form.default_fps,
       default_clip_duration:
         "value" in clipRes ? clipRes.value : form.default_clip_duration,

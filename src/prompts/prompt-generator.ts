@@ -15,6 +15,9 @@ export namespace PromptGenerator {
   });
 
   export async function job_name(originalPrompt?: string | null) {
+    if (Bun.env.NODE_ENV === "test") {
+      return `Job ${Date.now()}`;
+    }
     const promptContext = originalPrompt?.trim().slice(0, 600);
 
     for (let attempt = 0; attempt < 5; attempt++) {

@@ -22,15 +22,17 @@ export const migrator = new Migrator({
   }),
 });
 
-const { error, results } = await migrator.migrateToLatest();
+if (import.meta.main) {
+  const { error, results } = await migrator.migrateToLatest();
 
-if (error) {
-  console.error("Migration failed:", error);
-  process.exit(1);
-}
-
-results?.forEach((it) => {
-  if (it.status === "Success") {
-    console.log(`✓ Migration "${it.migrationName}" executed`);
+  if (error) {
+    console.error("Migration failed:", error);
+    process.exit(1);
   }
-});
+
+  results?.forEach((it) => {
+    if (it.status === "Success") {
+      console.log(`✓ Migration "${it.migrationName}" executed`);
+    }
+  });
+}

@@ -5,7 +5,9 @@ import {
   FALLBACK_DEFAULTS,
   normalizeDefaults,
   toGenerationDefaults,
+  type SoundPresetFormInput,
 } from "./defaults";
+import * as defaultsModule from "./defaults";
 
 describe("toGenerationDefaults (B1)", () => {
   test("maps the saved settings keys", () => {
@@ -18,6 +20,8 @@ describe("toGenerationDefaults (B1)", () => {
         default_resolution: "1080p",
         default_image_model: "z-image-turbo",
         default_video_model: "ltx2.3",
+        default_audio_model: "yue2",
+        default_compose_audio_model: "minimax-music-3",
       }),
     ).toEqual({
       style_preset: "watercolor",
@@ -27,6 +31,8 @@ describe("toGenerationDefaults (B1)", () => {
       resolution: "1080p",
       image_model: "z-image-turbo",
       video_model: "ltx2.3",
+      audio_model: "yue2",
+      compose_audio_model: "minimax-music-3",
     });
   });
   test("missing, empty and null maps fall back", () => {
@@ -46,7 +52,27 @@ describe("toGenerationDefaults (B1)", () => {
       resolution: "720p",
       image_model: "z-image-turbo",
       video_model: "wan2.2",
+      audio_model: "ace-step-1.5",
+      compose_audio_model: "stable-audio-3",
     });
+  });
+  test("audio model defaults and the sa3 alias normalize per surface", () => {
+    expect(FALLBACK_DEFAULTS.audio_model).toBe("ace-step-1.5");
+    expect(FALLBACK_DEFAULTS.compose_audio_model).toBe("stable-audio-3");
+
+    const aliased = toGenerationDefaults({
+      default_audio_model: "sa3",
+      default_compose_audio_model: "sa3",
+    });
+    expect(aliased.audio_model).toBe("stable-audio-3");
+    expect(aliased.compose_audio_model).toBe("stable-audio-3");
+
+    const unknown = toGenerationDefaults({
+      default_audio_model: "not-a-model",
+      default_compose_audio_model: "not-a-model",
+    });
+    expect(unknown.audio_model).toBe("ace-step-1.5");
+    expect(unknown.compose_audio_model).toBe("stable-audio-3");
   });
   test("numbers clamp to the schema ranges, junk falls back", () => {
     const d = toGenerationDefaults({
@@ -173,12 +199,173 @@ describe("buildPresetPayload", () => {
   });
 });
 
+describe("buildSoundPresetPayload", () => {
+  const baseSoundForm: SoundPresetFormInput = {
+    name: "  Midnight Neo-Soul  ",
+    description: "  Warm studio ballad  ",
+    audio_model: "minimax-music-3",
+    category: "Song",
+    instrumental_prompt: "  Global Metadata: Warm neo-soul at 88 BPM  ",
+    lyric_prompt: "  [Verse]\nLate rain on the glass  ",
+    duration: "120",
+  };
+
+  test("trims fields and merges the duration into the base settings", () => {
+    const res = defaultsModule.buildSoundPresetPayload(baseSoundForm, {
+      bpm: 88,
+      minimax_precision: "int8",
+    });
+    expect("payload" in res).toBe(true);
+    if ("payload" in res) {
+      expect(res.payload).toEqual({
+        name: "Midnight Neo-Soul",
+        description: "Warm studio ballad",
+        audio_model: "minimax-music-3",
+        category: "Song",
+        instrumental_prompt: "Global Metadata: Warm neo-soul at 88 BPM",
+        lyric_prompt: "[Verse]\nLate rain on the glass",
+        settings: { bpm: 88, minimax_precision: "int8", duration: 120 },
+      });
+    }
+  });
+
+  test("omits stale duplicated model settings when baseSettings is reset on model change", () => {
+    const res = defaultsModule.buildSoundPresetPayload(
+      {
+        ...baseSoundForm,
+        audio_model: "yue2",
+        duration: "150",
+      },
+      {},
+    );
+    expect("payload" in res).toBe(true);
+    if ("payload" in res) {
+      expect(res.payload.audio_model).toBe("yue2");
+      expect(res.payload.settings).toEqual({ duration: 150 });
+    }
+  });
+
+  test("requires a name of at most 80 characters", () => {
+    const empty = defaultsModule.buildSoundPresetPayload({
+      ...baseSoundForm,
+      name: "   ",
+    });
+    expect("errors" in empty && Boolean(empty.errors.name)).toBe(true);
+
+    const atLimit = defaultsModule.buildSoundPresetPayload({
+      ...baseSoundForm,
+      name: "a".repeat(80),
+    });
+    expect("payload" in atLimit).toBe(true);
+
+    const tooLong = defaultsModule.buildSoundPresetPayload({
+      ...baseSoundForm,
+      name: "a".repeat(81),
+    });
+    expect("errors" in tooLong && Boolean(tooLong.errors.name)).toBe(true);
+  });
+
+  test("requires an instrumental prompt of at most 4000 characters", () => {
+    const empty = defaultsModule.buildSoundPresetPayload({
+      ...baseSoundForm,
+      instrumental_prompt: "   ",
+    });
+    expect("errors" in empty && Boolean(empty.errors.instrumental_prompt)).toBe(
+      true,
+    );
+
+    const atLimit = defaultsModule.buildSoundPresetPayload({
+      ...baseSoundForm,
+      instrumental_prompt: "x".repeat(4000),
+    });
+    expect("payload" in atLimit).toBe(true);
+
+    const tooLong = defaultsModule.buildSoundPresetPayload({
+      ...baseSoundForm,
+      instrumental_prompt: "x".repeat(4001),
+    });
+    expect(
+      "errors" in tooLong && Boolean(tooLong.errors.instrumental_prompt),
+    ).toBe(true);
+  });
+
+  test("falls back to a valid audio model and category for unknown values", () => {
+    const res = defaultsModule.buildSoundPresetPayload({
+      ...baseSoundForm,
+      audio_model: "bogus-model" as SoundPresetFormInput["audio_model"],
+      category: "Nope" as SoundPresetFormInput["category"],
+    });
+    expect("payload" in res).toBe(true);
+    if ("payload" in res) {
+      expect(res.payload.audio_model).toBe("ace-step-1.5");
+      expect(res.payload.category).toBe("Song");
+    }
+  });
+
+  test("enforces per-model duration bounds", () => {
+    const sa3: SoundPresetFormInput = {
+      ...baseSoundForm,
+      audio_model: "stable-audio-3",
+      lyric_prompt: "",
+      duration: "200",
+    };
+    const tooLong = defaultsModule.buildSoundPresetPayload(sa3);
+    expect("errors" in tooLong && Boolean(tooLong.errors.duration)).toBe(true);
+    if ("errors" in tooLong) {
+      expect(tooLong.errors.duration).toContain("5 and 180");
+    }
+
+    const tooShort = defaultsModule.buildSoundPresetPayload({
+      ...sa3,
+      duration: "2",
+    });
+    expect("errors" in tooShort && Boolean(tooShort.errors.duration)).toBe(
+      true,
+    );
+
+    const ok = defaultsModule.buildSoundPresetPayload({
+      ...sa3,
+      duration: "180",
+    });
+    expect("payload" in ok).toBe(true);
+    if ("payload" in ok) {
+      expect(ok.payload.settings.duration).toBe(180);
+    }
+
+    const yue2TooLong = defaultsModule.buildSoundPresetPayload({
+      ...baseSoundForm,
+      audio_model: "yue2",
+      duration: "400",
+    });
+    expect(
+      "errors" in yue2TooLong && Boolean(yue2TooLong.errors.duration),
+    ).toBe(true);
+  });
+
+  test("drops lyrics for models that do not support them", () => {
+    const res = defaultsModule.buildSoundPresetPayload({
+      ...baseSoundForm,
+      audio_model: "stable-audio-3",
+      instrumental_prompt: "Warm analog synth arpeggio underscore",
+      lyric_prompt: "[Verse]\nIgnored by Stable Audio",
+      duration: "30",
+    });
+    expect("payload" in res).toBe(true);
+    if ("payload" in res) {
+      expect(res.payload.lyric_prompt).toBe("");
+      expect(res.payload.settings.duration).toBe(30);
+    }
+  });
+});
+
 describe("normalizeDefaults", () => {
   const validForm = {
     default_style_preset: "none",
     default_resolution: "720p",
     default_image_model: "z-image-turbo",
     default_video_model: "wan2.2",
+    default_audio_model: "yue2",
+    default_compose_audio_model: "minimax-music-3",
     default_fps: "08",
     default_clip_duration: " 5 ",
     default_transition_duration: "02",
@@ -191,6 +378,15 @@ describe("normalizeDefaults", () => {
       expect(res.values.default_fps).toBe("8");
       expect(res.values.default_clip_duration).toBe("5");
       expect(res.values.default_transition_duration).toBe("2");
+    }
+  });
+
+  test("preserves the audio model defaults", () => {
+    const res = normalizeDefaults(validForm);
+    expect("values" in res).toBe(true);
+    if ("values" in res) {
+      expect(res.values.default_audio_model).toBe("yue2");
+      expect(res.values.default_compose_audio_model).toBe("minimax-music-3");
     }
   });
 
