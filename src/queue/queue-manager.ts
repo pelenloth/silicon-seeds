@@ -1,11 +1,52 @@
 import { AudioGenerator } from "../audio/audio-generator";
+import { findSoundPresetByName } from "../audio/sound-presets";
 import { DB } from "../db/db";
 import { AudioPromptEvent, Event, JobEvent, JobMode } from "../events/events";
 import { ImageGenerator } from "../image/image-generator";
 import { Logger } from "../logger/logger";
 import { Metadata } from "../meta/meta";
+import {
+  clampAudioDuration,
+  formatModelLyrics,
+  getAudioModel,
+  normalizeAudioModelId,
+} from "../shared/audio-models";
 import type { Lora, Presets } from "../styles/presets";
 import { VideoGenerator } from "../video/video-generator";
+
+export async function resolveComposeUnderscoreSpec(opts: {
+  audioModel: string | null | undefined;
+  soundPresetName: string | null | undefined;
+  speechDuration: number;
+}): Promise<{
+  modelId: string;
+  duration: number;
+  prompt: string;
+  lyrics: string;
+  audioSettings: Record<string, unknown>;
+}> {
+  const modelId = normalizeAudioModelId(opts.audioModel, "stable-audio-3");
+  const modelSpec = getAudioModel(modelId);
+  const preset = await findSoundPresetByName(opts.soundPresetName);
+  const matchedPreset =
+    preset && preset.audio_model === modelId ? preset : undefined;
+
+  const prompt =
+    matchedPreset?.instrumental_prompt || modelSpec.composeDefaultPrompt;
+  const lyrics = formatModelLyrics(modelId, null, { forceInstrumental: true });
+  const duration = clampAudioDuration(modelId, opts.speechDuration);
+
+  return {
+    modelId,
+    duration,
+    prompt,
+    lyrics,
+    audioSettings: {
+      ...(matchedPreset?.settings ?? {}),
+      audio_model: modelId,
+    },
+  };
+}
 
 export namespace QueueManager {
   // eslint-disable-next-line prefer-const
@@ -131,10 +172,19 @@ export namespace QueueManager {
         (clipDuration + transitionDuration),
     );
 
+    const underscore = await resolveComposeUnderscoreSpec({
+      audioModel: job.audio_model,
+      soundPresetName: job.sound_preset,
+      speechDuration,
+    });
+
     await AudioGenerator.schedule_audio({
       jobId: event.jobId,
-      duration: speechDuration,
+      duration: underscore.duration,
       mode: JobMode.Instrumental,
+      prompt: underscore.prompt,
+      lyrics: underscore.lyrics,
+      audio_settings: underscore.audioSettings,
     });
 
     await schedule_composition_images(event, clipCount);

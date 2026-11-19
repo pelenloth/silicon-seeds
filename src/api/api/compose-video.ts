@@ -1,6 +1,8 @@
 import { AudioGenerator } from "../../audio/audio-generator";
+import { DB } from "../../db/db";
 import { JobOrchestrator } from "../../jobs/jobs";
 import { Metadata } from "../../meta/meta";
+import { normalizeAudioModelId } from "../../shared/audio-models";
 import { TextGenerator } from "../../text/text-generator";
 import { Utils } from "../../utils/utils";
 import { PostCompose } from "../schemas";
@@ -44,6 +46,16 @@ export async function compose_video(options: PostCompose) {
     sanitizedStyleGuide = undefined;
   }
 
+  const configuredComposeAudioModel = await DB.Settings.get(
+    "default_compose_audio_model",
+  );
+  const resolvedAudioModel = normalizeAudioModelId(
+    options.audio_model ??
+      configuredComposeAudioModel ??
+      Metadata.INSTRUMENTAL_MODEL,
+    "stable-audio-3",
+  );
+
   const { id: jobId } = await JobOrchestrator.create_job({
     original_prompt: finalScript,
     fps,
@@ -52,7 +64,8 @@ export async function compose_video(options: PostCompose) {
     transition_duration,
     image_model,
     video_model,
-    audio_model: Metadata.INSTRUMENTAL_MODEL,
+    audio_model: resolvedAudioModel,
+    sound_preset: options.sound_preset ?? null,
     style_preset,
     style_guide: sanitizedStyleGuide,
     loras: loras && loras.length ? JSON.stringify(loras) : null,

@@ -40,6 +40,7 @@ export namespace Logger {
   type LogLevel = "info" | "warn" | "error" | "debug";
 
   function log_handler(level: LogLevel, message: string, value?: unknown) {
+    if (!logger) return;
     if (value !== undefined) {
       logger[level](`${message}\n\n{value}\n`, { value });
       return;
