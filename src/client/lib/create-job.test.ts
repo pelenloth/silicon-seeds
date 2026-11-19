@@ -104,6 +104,14 @@ describe("quickCreateValues uses the saved defaults (B1)", () => {
         audio_model: "yue2",
       }).sound_preset,
     ).toBe("none");
+    const sa3 = quickCreateValues("audio", "slow ambient", {
+      ...D,
+      audio_model: "stable-audio-3",
+    });
+    expect(sa3.audio_model).toBe("stable-audio-3");
+    expect(sa3.duration).toBe("30");
+    expect(sa3.steps).toBe("8");
+    expect(sa3.cfg_scale).toBe("1");
   });
   test("overrides win", () => {
     expect(

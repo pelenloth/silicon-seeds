@@ -1,3 +1,4 @@
+import { AUDIO_MODELS } from "../../shared/audio-models";
 import { ApiError, apiSend } from "./api-client";
 import { labelOf, RESOLUTIONS, type GenerationDefaults } from "./defaults";
 import type { JobKind } from "./job-view";
@@ -54,6 +55,7 @@ export const AUDIO_DEFAULTS = {
   top_p: "0.9",
   keyscale: "E minor",
   timesignature: "4",
+  steps: "50",
 } as const;
 
 export function quickCreateValues(
@@ -96,6 +98,7 @@ export function quickCreateValues(
         instrumental_prompt: prompt,
         lyric_prompt: "",
         ...AUDIO_DEFAULTS,
+        ...AUDIO_MODELS[d.audio_model].defaultSettings,
         audio_model: d.audio_model,
         ...overrides,
       };
