@@ -99,7 +99,10 @@ app.put(
     if (!existing) return c.json({ error: "Preset not found" }, 404);
 
     const body = c.req.valid("json");
-    if (body.name !== undefined && body.name !== existing.name) {
+    if (
+      body.name !== undefined &&
+      body.name.toLowerCase() !== existing.name.toLowerCase()
+    ) {
       if (collidesWithBuiltinName(body.name)) {
         return c.json({ error: "Preset name already exists" }, 409);
       }
@@ -118,6 +121,10 @@ app.put(
     if (body.lyric_prompt !== undefined) patch.lyric_prompt = body.lyric_prompt;
     if (body.settings !== undefined) {
       patch.settings_json = JSON.stringify(body.settings);
+    }
+
+    if (Object.keys(patch).length === 0) {
+      return c.json(mapDbRowToSoundPreset(existing as any));
     }
 
     const updated = await DB.SoundPresets.update(id, patch as any);

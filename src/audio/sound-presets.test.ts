@@ -157,6 +157,33 @@ describe("Sound Presets service & API", () => {
     expect(updatedItem.description).toBe("Updated desc");
     expect(updatedItem.settings.duration).toBe(10);
 
+    // 200 when sending an empty {} PUT body
+    const emptyPutRes = await app.request(`/sound-presets/${createdItem.id}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    expect(emptyPutRes.status).toBe(200);
+    const emptyPutItem = (await emptyPutRes.json()) as {
+      id: string;
+      description: string;
+    };
+    expect(emptyPutItem.id).toBe(createdItem.id);
+    expect(emptyPutItem.description).toBe("Updated desc");
+
+    // 409 when creating a duplicate custom preset with different casing
+    const dupCustomCaseRes = await app.request("/sound-presets", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: uniqueName.toUpperCase(),
+        audio_model: "ace-step-1.5",
+        category: "Song",
+        instrumental_prompt: "case-insensitive duplicate test",
+      }),
+    });
+    expect(dupCustomCaseRes.status).toBe(409);
+
     const deleteRes = await app.request(`/sound-presets/${createdItem.id}`, {
       method: "DELETE",
     });

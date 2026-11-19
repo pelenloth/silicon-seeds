@@ -1,7 +1,6 @@
-import { Kysely } from "kysely";
+import { Generated, Kysely, sql } from "kysely";
 import { BunSqliteDialect } from "kysely-bun-sqlite";
 import { Database } from "bun:sqlite";
-import { Generated } from "kysely";
 import { Metadata } from "../meta/meta";
 import { mkdirSync, existsSync, copyFileSync } from "node:fs";
 import { dirname } from "node:path";
@@ -1342,7 +1341,7 @@ export namespace DB {
       return await db
         .selectFrom("sound_presets")
         .selectAll()
-        .where("name", "=", name)
+        .where(sql<boolean>`lower(name) = lower(${name.trim()})`)
         .executeTakeFirst();
     }
     export async function create(data: {
@@ -1381,11 +1380,13 @@ export namespace DB {
         settings_json: string;
       }>,
     ) {
-      await db
-        .updateTable("sound_presets")
-        .set(data)
-        .where("id", "=", id)
-        .execute();
+      if (Object.keys(data).length > 0) {
+        await db
+          .updateTable("sound_presets")
+          .set(data)
+          .where("id", "=", id)
+          .execute();
+      }
       return await findById(id);
     }
     export async function remove(id: number) {
