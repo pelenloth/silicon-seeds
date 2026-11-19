@@ -8,6 +8,7 @@ import {
 } from "solid-js";
 import { Icons } from "../components/Icons";
 import LoraSelector from "../components/LoraSelector";
+import SoundPresetSelect from "../components/SoundPresetSelect";
 import StylePresetSelect from "../components/StylePresetSelect";
 import { useCreateForm } from "../components/create/create-form";
 import { PromptField } from "../components/create/PromptField";
@@ -20,6 +21,7 @@ import { SelectField } from "../components/ui/SelectField";
 import { SliderField } from "../components/ui/SliderField";
 import { apiGet } from "../lib/api-client";
 import {
+  AUDIO_MODEL_OPTIONS,
   IMAGE_MODELS,
   labelOf,
   RESOLUTIONS,
@@ -61,6 +63,8 @@ export default function Compose() {
       voice_id: DEFAULT_VOICE_OPTION.value,
       image_model: d.image_model,
       video_model: d.video_model,
+      audio_model: d.compose_audio_model,
+      sound_preset: "none",
       resolution: d.resolution,
       style_preset: d.style_preset,
       clip_duration: String(d.clip_duration),
@@ -95,9 +99,9 @@ export default function Compose() {
     validate: (values) => {
       const hasFile = Boolean(
         fileName() ||
-        (fileInput?.files &&
-          fileInput.files.length > 0 &&
-          (fileInput.files[0]?.size ?? 0) > 0),
+          (fileInput?.files &&
+            fileInput.files.length > 0 &&
+            (fileInput.files[0]?.size ?? 0) > 0),
       );
       if (values.script.trim().length < 3 && !hasFile) {
         return { script: "Write a script or upload a file" };
@@ -112,6 +116,8 @@ export default function Compose() {
       style_preset: "Style preset",
       image_model: "Image model",
       video_model: "Video model",
+      audio_model: "Audio model",
+      sound_preset: "Sound preset",
       resolution: "Resolution",
       clip_duration: "Clip",
       transition_duration: "Transition",
@@ -220,7 +226,7 @@ export default function Compose() {
             label="Video script"
             name="script"
             id="co-script"
-            rows={7}
+            rows={5}
             required
             value={f.values.script}
             onInput={(v) => f.set("script", v)}
@@ -286,7 +292,7 @@ export default function Compose() {
             />
           </CollapsibleSection>
           <Section title="Settings">
-            <div class="grid gap-3 sm:grid-cols-2">
+            <div class="grid grid-cols-2 gap-2.5">
               <SelectField
                 label="Voice"
                 name="voice_id"
@@ -324,7 +330,32 @@ export default function Compose() {
                 options={VIDEO_MODELS}
                 error={f.errors().video_model}
               />
-              <div class="sm:col-span-2">
+              <SelectField
+                label="Audio model"
+                name="audio_model"
+                value={f.values.audio_model}
+                onChange={(v) => {
+                  f.set("audio_model", v);
+                  f.set("sound_preset", "none");
+                }}
+                options={AUDIO_MODEL_OPTIONS}
+                error={f.errors().audio_model}
+              />
+              <Field
+                label="Sound preset"
+                for="co-sound-preset"
+                error={f.errors().sound_preset}
+              >
+                <SoundPresetSelect
+                  id="co-sound-preset"
+                  name="sound_preset"
+                  class="select select-sm w-full"
+                  audioModel={f.values.audio_model}
+                  value={f.values.sound_preset}
+                  onChange={(v) => f.set("sound_preset", v)}
+                />
+              </Field>
+              <div class="col-span-2">
                 <SelectField
                   label="Resolution"
                   name="resolution"

@@ -45,6 +45,8 @@ export const CREATE_KINDS: Record<
 };
 
 export const AUDIO_DEFAULTS = {
+  audio_model: "ace-step-1.5",
+  sound_preset: "none",
   duration: "60",
   bpm: "72",
   cfg_scale: "2",
@@ -94,6 +96,7 @@ export function quickCreateValues(
         instrumental_prompt: prompt,
         lyric_prompt: "",
         ...AUDIO_DEFAULTS,
+        audio_model: d.audio_model,
         ...overrides,
       };
   }

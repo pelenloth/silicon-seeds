@@ -37,14 +37,15 @@ const NUM_KEYS: (keyof DefaultsFormEntries)[] = [
 
 function canonicalFormValue(
   key: keyof DefaultsFormEntries,
-  val: string,
+  val: string | undefined,
 ): string {
+  const safeVal = val ?? "";
   if (
     key === "default_fps" ||
     key === "default_clip_duration" ||
     key === "default_transition_duration"
   ) {
-    const trimmed = val.trim();
+    const trimmed = safeVal.trim();
     if (/^-?\d+$/.test(trimmed)) {
       const n = Number(trimmed);
       if (Number.isSafeInteger(n)) {
@@ -52,7 +53,7 @@ function canonicalFormValue(
       }
     }
   }
-  return val;
+  return safeVal;
 }
 
 function mapToEntries(

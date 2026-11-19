@@ -332,6 +332,15 @@ export function useCreateForm<T extends Record<string, string>>(
     }
 
     const fd = new FormData(form);
+    const emptyFileKeys: string[] = [];
+    fd.forEach((val, key) => {
+      if (val instanceof File && val.size === 0 && val.name === "") {
+        emptyFileKeys.push(key);
+      }
+    });
+    for (const key of emptyFileKeys) {
+      fd.delete(key);
+    }
     if (loras().length > 0) {
       fd.set("loras", JSON.stringify(loras()));
     }

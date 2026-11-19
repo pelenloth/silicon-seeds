@@ -82,12 +82,28 @@ describe("quickCreateValues uses the saved defaults (B1)", () => {
       clip_duration: "7",
     });
   });
-  test("audio is instrumental by default", () => {
+  test("audio is instrumental by default and carries the audio model", () => {
     expect(quickCreateValues("audio", "slow ambient", D)).toEqual({
       instrumental_prompt: "slow ambient",
       lyric_prompt: "",
       ...AUDIO_DEFAULTS,
+      audio_model: "ace-step-1.5",
     });
+    expect(quickCreateValues("audio", "slow ambient", D).sound_preset).toBe(
+      "none",
+    );
+    expect(
+      quickCreateValues("audio", "slow ambient", {
+        ...D,
+        audio_model: "yue2",
+      }).audio_model,
+    ).toBe("yue2");
+    expect(
+      quickCreateValues("audio", "slow ambient", {
+        ...D,
+        audio_model: "yue2",
+      }).sound_preset,
+    ).toBe("none");
   });
   test("overrides win", () => {
     expect(
