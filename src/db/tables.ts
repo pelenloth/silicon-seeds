@@ -24,6 +24,7 @@ export async function createTables(db: Kysely<DbSchema>): Promise<void> {
     .addColumn("image_model", "text", (col) => col.defaultTo(null))
     .addColumn("video_model", "text", (col) => col.defaultTo(null))
     .addColumn("audio_model", "text", (col) => col.defaultTo(null))
+    .addColumn("sound_preset", "text", (col) => col.defaultTo(null))
     .addColumn("style_preset", "text", (col) => col.defaultTo(null))
     .addColumn("style_guide", "text", (col) => col.defaultTo(null))
     .addColumn("loras", "text", (col) => col.defaultTo(null))
@@ -113,6 +114,24 @@ export async function createTables(db: Kysely<DbSchema>): Promise<void> {
     .addColumn("trigger_word", "text")
     .addColumn("is_active", "integer", (col) => col.notNull().defaultTo(1))
     .addColumn("sort_order", "integer", (col) => col.notNull())
+    .addColumn("created_at", "text", (col) =>
+      col.defaultTo(sql`CURRENT_TIMESTAMP`).notNull(),
+    )
+    .execute();
+
+  await db.schema
+    .createTable("sound_presets")
+    .ifNotExists()
+    .addColumn("id", "integer", (col) =>
+      col.primaryKey().autoIncrement().notNull(),
+    )
+    .addColumn("name", "text", (col) => col.notNull().unique())
+    .addColumn("description", "text", (col) => col.notNull().defaultTo(""))
+    .addColumn("audio_model", "text", (col) => col.notNull())
+    .addColumn("category", "text", (col) => col.notNull().defaultTo("Song"))
+    .addColumn("instrumental_prompt", "text", (col) => col.notNull())
+    .addColumn("lyric_prompt", "text", (col) => col.notNull().defaultTo(""))
+    .addColumn("settings_json", "text", (col) => col.notNull().defaultTo("{}"))
     .addColumn("created_at", "text", (col) =>
       col.defaultTo(sql`CURRENT_TIMESTAMP`).notNull(),
     )
