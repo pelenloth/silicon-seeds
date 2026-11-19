@@ -276,6 +276,8 @@ test("compose: submit payload sends exact PostComposeSchema fields without or wi
       "style_preset",
       "image_model",
       "video_model",
+      "audio_model",
+      "sound_preset",
       "resolution",
       "clip_duration",
       "transition_duration",
@@ -288,6 +290,8 @@ test("compose: submit payload sends exact PostComposeSchema fields without or wi
     voice_id: "v1",
     image_model: "z-image-turbo",
     video_model: "ltx2.3",
+    audio_model: "stable-audio-3",
+    sound_preset: "none",
     resolution: "1080p",
     clip_duration: "6",
     transition_duration: "4",
@@ -314,6 +318,8 @@ test("compose: submit payload sends exact PostComposeSchema fields without or wi
       "style_preset",
       "image_model",
       "video_model",
+      "audio_model",
+      "sound_preset",
       "resolution",
       "clip_duration",
       "transition_duration",
@@ -462,4 +468,51 @@ test("compose: the final cut tile shows the composed video, not the first scene 
   const tile = panel.locator("video");
   await expect(tile).toHaveCount(1);
   await expect(tile).toHaveAttribute("src", /composed-final\.mp4/);
+});
+
+test("compose: selecting audio_model filters sound_preset and submits chosen underscore model", async ({
+  page,
+}) => {
+  let capturedFields: Record<string, string> | null = null;
+  await page.route("**/api/jobs/videos/compose", async (route) => {
+    const req = route.request();
+    const buf = req.postDataBuffer();
+    const ct = req.headers()["content-type"] ?? "";
+    if (buf && ct) {
+      const fd = await new Response(new Uint8Array(buf), {
+        headers: { "content-type": ct },
+      }).formData();
+      const map: Record<string, string> = {};
+      fd.forEach((v, k) => {
+        map[k] = v instanceof File ? `File:${v.name}:${v.size}` : String(v);
+      });
+      capturedFields = map;
+    }
+    await route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "blocked by test" }),
+    });
+  });
+
+  await page.goto("/compose");
+  const script = page.locator('textarea[name="script"]');
+  await expect(script).toBeVisible({ timeout: 10000 });
+  await script.fill("Scene 1: Ocean horizon.");
+
+  const audioModelSelect = page.locator('select[name="audio_model"]');
+  await audioModelSelect.selectOption("minimax-music-3");
+
+  const soundPresetSelect = page.locator('select[name="sound_preset"]');
+  await expect(
+    soundPresetSelect.locator('option[value="Documentary Studio Underscore"]'),
+  ).toBeAttached({ timeout: 10000 });
+  await soundPresetSelect.selectOption("Documentary Studio Underscore");
+
+  await page.locator("#submit-btn").click();
+  await expect.poll(() => capturedFields).not.toBeNull();
+  expect(capturedFields).toMatchObject({
+    audio_model: "minimax-music-3",
+    sound_preset: "Documentary Studio Underscore",
+  });
 });

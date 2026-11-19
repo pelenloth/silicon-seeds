@@ -12,6 +12,8 @@ import { Icons } from "../Icons";
 import { EmptyState } from "../ui/EmptyState";
 import { Field } from "../ui/Field";
 import { Modal } from "../ui/Modal";
+import { Segmented } from "../ui/Segmented";
+import SoundPresetsPanel from "./SoundPresetsPanel";
 
 export type StylePresetRow = {
   id: string;
@@ -50,7 +52,15 @@ const FIELD_IDS: Record<keyof PresetFormInput, string> = {
   texture: "preset-texture",
 };
 
+const PRESET_KIND_OPTIONS = [
+  { value: "visual", label: "Visual style presets" },
+  { value: "sound", label: "Sound & genre presets" },
+] as const;
+
 export default function PresetsSection() {
+  const [presetKind, setPresetKind] = createSignal<"visual" | "sound">(
+    "visual",
+  );
   const [presets, setPresets] = createStore<StylePresetRow[]>([]);
   const [loading, setLoading] = createSignal(true);
   const [loadError, setLoadError] = createSignal<string | null>(null);
@@ -77,19 +87,16 @@ export default function PresetsSection() {
         "/api/style-presets",
       );
       if (disposed) return;
-      const list = Array.isArray(data?.presets) ? data.presets : [];
-      applyPresets(list);
+      applyPresets(Array.isArray(data?.presets) ? data.presets : []);
     } catch (err) {
       if (disposed) return;
-      const msg =
+      setLoadError(
         err instanceof Error && err.message
           ? err.message
-          : "Could not load style presets.";
-      setLoadError(msg);
+          : "Could not load style presets.",
+      );
     } finally {
-      if (!disposed) {
-        setLoading(false);
-      }
+      if (!disposed) setLoading(false);
     }
   };
 
@@ -125,8 +132,7 @@ export default function PresetsSection() {
   };
 
   const closeModal = () => {
-    if (saving()) return;
-    setModalOpen(false);
+    if (!saving()) setModalOpen(false);
   };
 
   const clearFieldError = (key: keyof PresetFormInput) => {
@@ -158,7 +164,6 @@ export default function PresetsSection() {
     }
 
     const { payload } = res;
-
     setSaving(true);
     try {
       if (id) {
@@ -167,34 +172,29 @@ export default function PresetsSection() {
           `/api/style-presets/${encodeURIComponent(id)}`,
           payload,
         );
-        if (disposed) return;
-        await fetchPresets();
-        if (disposed) return;
-        setModalOpen(false);
-        toast.success(`Preset "${payload.name}" saved`);
       } else {
         await apiSend<Partial<StylePresetRow>>(
           "POST",
           "/api/style-presets",
           payload,
         );
-        if (disposed) return;
-        await fetchPresets();
-        if (disposed) return;
-        setModalOpen(false);
-        toast.success(`Preset "${payload.name}" created`);
       }
+      if (disposed) return;
+      await fetchPresets();
+      if (disposed) return;
+      setModalOpen(false);
+      toast.success(
+        `Preset "${payload.name}" ${id ? "saved" : "created"}`,
+      );
     } catch (err) {
       if (disposed) return;
-      const msg =
+      setModalError(
         err instanceof Error && err.message
           ? err.message
-          : "Failed to save preset";
-      setModalError(msg);
+          : "Failed to save preset",
+      );
     } finally {
-      if (!disposed) {
-        setSaving(false);
-      }
+      if (!disposed) setSaving(false);
     }
   };
 
@@ -218,11 +218,11 @@ export default function PresetsSection() {
       toast.success("Preset deleted");
     } catch (err) {
       if (disposed) return;
-      const msg =
+      toast.error(
         err instanceof Error && err.message
           ? err.message
-          : "Failed to delete preset";
-      toast.error(msg);
+          : "Failed to delete preset",
+      );
     } finally {
       if (!disposed) {
         setDeletingIds((prev) => {
@@ -236,44 +236,53 @@ export default function PresetsSection() {
 
   return (
     <section class="panel flex flex-col gap-4 p-4">
-      <div class="flex flex-wrap items-center justify-between gap-3">
-        <div class="flex items-center gap-2">
-          <h2 class="text-base font-semibold">Style presets</h2>
-          <span class="badge badge-soft badge-sm tabular-nums">
-            {presets.length}
-          </span>
-        </div>
-        <button
-          type="button"
-          class="btn btn-primary btn-sm shrink-0"
-          onClick={openNewModal}
-        >
-          <Icons.Plus class="size-4" />
-          New preset
-        </button>
-      </div>
+      <Segmented
+        label="Preset category"
+        name="preset_kind"
+        value={presetKind()}
+        onChange={(v) => setPresetKind(v as "visual" | "sound")}
+        options={PRESET_KIND_OPTIONS}
+      />
 
-      <Show when={loadError()}>
-        {(msg) => (
-          <div class="flex items-center justify-between gap-2 rounded-field border border-error/30 bg-error/10 px-3 py-2 text-xs text-error">
-            <span>{msg()}</span>
-            <button
-              type="button"
-              class="btn btn-ghost btn-xs"
-              onClick={() => void fetchPresets()}
-            >
-              Try again
-            </button>
+      <Show when={presetKind() === "visual"} fallback={<SoundPresetsPanel />}>
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div class="flex items-center gap-2">
+            <h2 class="text-base font-semibold">Style presets</h2>
+            <span class="badge badge-soft badge-sm tabular-nums">
+              {presets.length}
+            </span>
           </div>
-        )}
-      </Show>
-
-      <Show when={loading() && presets.length === 0}>
-        <div class="flex flex-col gap-2">
-          <div class="skeleton h-16 w-full" />
-          <div class="skeleton h-16 w-full" />
+          <button
+            type="button"
+            class="btn btn-primary btn-sm shrink-0"
+            onClick={openNewModal}
+          >
+            <Icons.Plus class="size-4" />
+            New preset
+          </button>
         </div>
-      </Show>
+
+        <Show when={loadError()}>
+          {(msg) => (
+            <div class="flex items-center justify-between gap-2 rounded-field border border-error/30 bg-error/10 px-3 py-2 text-xs text-error">
+              <span>{msg()}</span>
+              <button
+                type="button"
+                class="btn btn-ghost btn-xs"
+                onClick={() => void fetchPresets()}
+              >
+                Try again
+              </button>
+            </div>
+          )}
+        </Show>
+
+        <Show when={loading() && presets.length === 0}>
+          <div class="flex flex-col gap-2">
+            <div class="skeleton h-16 w-full" />
+            <div class="skeleton h-16 w-full" />
+          </div>
+        </Show>
 
       <Show when={!loading() && !loadError() && presets.length === 0}>
         <EmptyState
@@ -405,9 +414,7 @@ export default function PresetsSection() {
                 maxLength={50}
                 placeholder="e.g. anime"
                 aria-invalid={fieldErrors().name ? "true" : undefined}
-                aria-describedby={
-                  fieldErrors().name ? "preset-name-error" : undefined
-                }
+                aria-describedby={fieldErrors().name ? "preset-name-error" : undefined}
                 class="input input-sm w-full font-mono"
                 value={form.name}
                 onInput={(e) => {
@@ -417,11 +424,7 @@ export default function PresetsSection() {
               />
             </Field>
 
-            <Field
-              label="Description"
-              for="preset-description"
-              error={fieldErrors().description}
-            >
+            <Field label="Description" for="preset-description" error={fieldErrors().description}>
               <input
                 id="preset-description"
                 name="description"
@@ -429,11 +432,7 @@ export default function PresetsSection() {
                 maxLength={500}
                 placeholder="Short description"
                 aria-invalid={fieldErrors().description ? "true" : undefined}
-                aria-describedby={
-                  fieldErrors().description
-                    ? "preset-description-error"
-                    : undefined
-                }
+                aria-describedby={fieldErrors().description ? "preset-description-error" : undefined}
                 class="input input-sm w-full"
                 value={form.description}
                 onInput={(e) => {
@@ -443,11 +442,7 @@ export default function PresetsSection() {
               />
             </Field>
 
-            <Field
-              label="Primary style"
-              for="preset-primary-style"
-              error={fieldErrors().primary_style}
-            >
+            <Field label="Primary style" for="preset-primary-style" error={fieldErrors().primary_style}>
               <input
                 id="preset-primary-style"
                 name="primary_style"
@@ -455,11 +450,7 @@ export default function PresetsSection() {
                 maxLength={50}
                 placeholder="e.g. watercolor"
                 aria-invalid={fieldErrors().primary_style ? "true" : undefined}
-                aria-describedby={
-                  fieldErrors().primary_style
-                    ? "preset-primary-style-error"
-                    : undefined
-                }
+                aria-describedby={fieldErrors().primary_style ? "preset-primary-style-error" : undefined}
                 class="input input-sm w-full"
                 value={form.primary_style}
                 onInput={(e) => {
@@ -469,25 +460,15 @@ export default function PresetsSection() {
               />
             </Field>
 
-            <Field
-              label="Secondary trigger"
-              for="preset-secondary-trigger"
-              error={fieldErrors().secondary_trigger}
-            >
+            <Field label="Secondary trigger" for="preset-secondary-trigger" error={fieldErrors().secondary_trigger}>
               <input
                 id="preset-secondary-trigger"
                 name="secondary_trigger"
                 type="text"
                 maxLength={100}
                 placeholder="Optional trigger word"
-                aria-invalid={
-                  fieldErrors().secondary_trigger ? "true" : undefined
-                }
-                aria-describedby={
-                  fieldErrors().secondary_trigger
-                    ? "preset-secondary-trigger-error"
-                    : undefined
-                }
+                aria-invalid={fieldErrors().secondary_trigger ? "true" : undefined}
+                aria-describedby={fieldErrors().secondary_trigger ? "preset-secondary-trigger-error" : undefined}
                 class="input input-sm w-full"
                 value={form.secondary_trigger}
                 onInput={(e) => {
@@ -509,9 +490,7 @@ export default function PresetsSection() {
               rows={3}
               placeholder="soft lighting&#10;cel shading"
               aria-invalid={fieldErrors().styles ? "true" : undefined}
-              aria-describedby={
-                fieldErrors().styles ? "preset-styles-error" : undefined
-              }
+              aria-describedby={fieldErrors().styles ? "preset-styles-error" : undefined}
               class="textarea textarea-sm w-full"
               value={form.styles}
               onInput={(e) => {
@@ -521,11 +500,7 @@ export default function PresetsSection() {
             />
           </Field>
 
-          <Field
-            label="Texture"
-            for="preset-texture"
-            error={fieldErrors().texture}
-          >
+          <Field label="Texture" for="preset-texture" error={fieldErrors().texture}>
             <input
               id="preset-texture"
               name="texture"
@@ -533,9 +508,7 @@ export default function PresetsSection() {
               maxLength={500}
               placeholder="Optional texture prompt suffix"
               aria-invalid={fieldErrors().texture ? "true" : undefined}
-              aria-describedby={
-                fieldErrors().texture ? "preset-texture-error" : undefined
-              }
+              aria-describedby={fieldErrors().texture ? "preset-texture-error" : undefined}
               class="input input-sm w-full"
               value={form.texture}
               onInput={(e) => {
@@ -546,6 +519,7 @@ export default function PresetsSection() {
           </Field>
         </form>
       </Modal>
+      </Show>
     </section>
   );
 }

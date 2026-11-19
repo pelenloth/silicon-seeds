@@ -2,6 +2,7 @@ import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { createStore } from "solid-js/store";
 import { apiGet, apiSend } from "../../lib/api-client";
 import {
+  AUDIO_MODEL_OPTIONS,
   FALLBACK_DEFAULTS,
   IMAGE_MODELS,
   normalizeDefaults,
@@ -22,6 +23,8 @@ const INITIAL_ENTRIES: DefaultsFormEntries = {
   default_resolution: FALLBACK_DEFAULTS.resolution,
   default_image_model: FALLBACK_DEFAULTS.image_model,
   default_video_model: FALLBACK_DEFAULTS.video_model,
+  default_audio_model: FALLBACK_DEFAULTS.audio_model,
+  default_compose_audio_model: FALLBACK_DEFAULTS.compose_audio_model,
   default_fps: String(FALLBACK_DEFAULTS.fps),
   default_clip_duration: String(FALLBACK_DEFAULTS.clip_duration),
   default_transition_duration: String(FALLBACK_DEFAULTS.transition_duration),
@@ -65,6 +68,8 @@ function mapToEntries(
     default_resolution: defs.resolution,
     default_image_model: defs.image_model,
     default_video_model: defs.video_model,
+    default_audio_model: defs.audio_model,
+    default_compose_audio_model: defs.compose_audio_model,
     default_fps: String(defs.fps),
     default_clip_duration: String(defs.clip_duration),
     default_transition_duration: String(defs.transition_duration),
@@ -266,6 +271,27 @@ export default function DefaultsSection() {
               value={form.default_video_model}
               onChange={(v) => setForm("default_video_model", v)}
               options={VIDEO_MODELS}
+            />
+
+            <SelectField
+              label="Default audio model"
+              id="default_audio_model"
+              name="default_audio_model"
+              value={form.default_audio_model ?? FALLBACK_DEFAULTS.audio_model}
+              onChange={(v) => setForm("default_audio_model", v)}
+              options={AUDIO_MODEL_OPTIONS}
+            />
+
+            <SelectField
+              label="Default compose underscore model"
+              id="default_compose_audio_model"
+              name="default_compose_audio_model"
+              value={
+                form.default_compose_audio_model ??
+                FALLBACK_DEFAULTS.compose_audio_model
+              }
+              onChange={(v) => setForm("default_compose_audio_model", v)}
+              options={AUDIO_MODEL_OPTIONS}
             />
 
             <Field

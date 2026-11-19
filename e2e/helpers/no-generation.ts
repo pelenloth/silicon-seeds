@@ -72,6 +72,7 @@ export async function blockGeneration(
   await target.route("**/api/settings**", rejectMutating);
   await target.route("**/api/loras**", rejectMutating);
   await target.route("**/api/style-presets**", rejectMutating);
+  await target.route("**/api/sound-presets**", rejectMutating);
 
   const guardedReq = guardRequestContext(target.request);
   Object.defineProperty(target, "request", {
