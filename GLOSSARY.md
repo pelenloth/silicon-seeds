@@ -1,0 +1,39 @@
+# Silicon Seeds
+
+Local-first generative media studio for orchestrating image, video, speech, and multi-model music/audio workflows through ComfyUI and TTS engines.
+
+## Language
+
+**ABC Score**:
+Symbolic text notation of musical meter, key, chords, and notes used as an intermediate structural plan before audio synthesis.
+_Avoid_: MIDI Roll, Sheet Music
+
+**Audio Model**:
+A generative audio backbone with distinct capabilities, duration bounds, and conditioning inputs (`ace-step-1.5`, `yue2`, `minimax-music-3`, `stable-audio-3`).
+_Avoid_: Audio Engine, Synth Backend, `sa3`
+
+**Melody Cover**:
+Generation of a new musical arrangement and vocal or instrumental performance whose melody follows an uploaded Reference Audio file.
+_Avoid_: Audio-to-Audio, Stem Remix, Voice Clone
+_Considered_: Music Cover
+
+**Reference Audio**:
+A user-uploaded audio recording supplied to guide melody extraction in a Melody Cover.
+_Avoid_: Prompt Audio, Seed Track, Guide Stem
+
+**Reprompting**:
+Optional expansion of a short text prompt into a detailed sonic description by an auxiliary language model inside the audio workflow before diffusion sampling.
+_Avoid_: Prompt Enhancement
+
+**Sound Preset**:
+A named, reusable bundle of genre/timbre prompt text, optional lyric scaffold, and recommended model parameters for audio generation, either built-in or user-defined.
+_Avoid_: Audio Style Preset, Genre Tag, Vibe Preset
+_Considered_: Audio Preset
+
+**Style Preset**:
+A named visual aesthetic direction (`cyberpunk`, `noir`, or user-defined) applied to image and video generation prompts.
+_Avoid_: Visual Preset, Theme
+
+**Underscore**:
+Instrumental background music generated for a Compose video job to accompany narrated speech without competing vocals.
+_Avoid_: Backing Track, BGM, Instrumental Stem
