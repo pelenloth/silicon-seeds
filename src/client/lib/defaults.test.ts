@@ -205,7 +205,7 @@ describe("buildSoundPresetPayload", () => {
     description: "  Warm studio ballad  ",
     audio_model: "minimax-music-3",
     category: "Song",
-    instrumental_prompt: "  Overview: Warm neo-soul at 88 BPM  ",
+    instrumental_prompt: "  Global Metadata: Warm neo-soul at 88 BPM  ",
     lyric_prompt: "  [Verse]\nLate rain on the glass  ",
     duration: "120",
   };
@@ -222,10 +222,26 @@ describe("buildSoundPresetPayload", () => {
         description: "Warm studio ballad",
         audio_model: "minimax-music-3",
         category: "Song",
-        instrumental_prompt: "Overview: Warm neo-soul at 88 BPM",
+        instrumental_prompt: "Global Metadata: Warm neo-soul at 88 BPM",
         lyric_prompt: "[Verse]\nLate rain on the glass",
         settings: { bpm: 88, minimax_precision: "int8", duration: 120 },
       });
+    }
+  });
+
+  test("omits stale duplicated model settings when baseSettings is reset on model change", () => {
+    const res = defaultsModule.buildSoundPresetPayload(
+      {
+        ...baseSoundForm,
+        audio_model: "yue2",
+        duration: "150",
+      },
+      {},
+    );
+    expect("payload" in res).toBe(true);
+    if ("payload" in res) {
+      expect(res.payload.audio_model).toBe("yue2");
+      expect(res.payload.settings).toEqual({ duration: 150 });
     }
   });
 
@@ -291,12 +307,12 @@ describe("buildSoundPresetPayload", () => {
       ...baseSoundForm,
       audio_model: "stable-audio-3",
       lyric_prompt: "",
-      duration: "90",
+      duration: "200",
     };
     const tooLong = defaultsModule.buildSoundPresetPayload(sa3);
     expect("errors" in tooLong && Boolean(tooLong.errors.duration)).toBe(true);
     if ("errors" in tooLong) {
-      expect(tooLong.errors.duration).toContain("47");
+      expect(tooLong.errors.duration).toContain("5 and 180");
     }
 
     const tooShort = defaultsModule.buildSoundPresetPayload({
@@ -309,11 +325,11 @@ describe("buildSoundPresetPayload", () => {
 
     const ok = defaultsModule.buildSoundPresetPayload({
       ...sa3,
-      duration: "47",
+      duration: "180",
     });
     expect("payload" in ok).toBe(true);
     if ("payload" in ok) {
-      expect(ok.payload.settings.duration).toBe(47);
+      expect(ok.payload.settings.duration).toBe(180);
     }
 
     const yue2TooLong = defaultsModule.buildSoundPresetPayload({

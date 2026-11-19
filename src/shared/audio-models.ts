@@ -30,9 +30,9 @@ export const SECTION_TAG_PILLS = [
 ] as const;
 
 export const MINIMAX_CAPTION_SCAFFOLD =
-  "Overview: Genre, mood, tempo (~96 BPM), vocal timbre, and harmonic feel.\n\n" +
-  "Instrumentation: Core rhythm section, lead instruments, pads, and mix space.\n\n" +
-  "Structure: Intro -> Verse -> Chorus -> Bridge -> Outro dynamic arc.";
+  "Global Metadata: Genre, mood, tempo (~96 BPM), and harmonic feel.\n\n" +
+  "Vocal Details: Lead vocal timbre, delivery, phrasing, and backing harmonies.\n\n" +
+  "Arrangement: Core rhythm section, lead instruments, pads, and Intro -> Verse -> Chorus -> Bridge -> Outro dynamic arc.";
 
 export type AudioModelSpec = {
   id: AudioModelId;
@@ -157,19 +157,20 @@ export const AUDIO_MODELS: Record<AudioModelId, AudioModelSpec> = {
     instrumentalMarker: "[Instrumental]",
     promptLabel: "Production caption",
     promptPlaceholder:
-      "Overview: Modern neo-soul ballad at 88 BPM with warm studio intimacy.\n\nInstrumentation: Rhodes electric piano, deep fingerstyle bass, crisp rimshot drums.\n\nStructure: Sparse intro building into a lush layered chorus.",
-    promptHint: "3-part studio caption: Overview, Instrumentation, Structure",
+      "Global Metadata: Modern neo-soul ballad at 88 BPM with warm studio intimacy.\n\nVocal Details: Smooth close-miked alto lead with soft stacked chorus harmonies.\n\nArrangement: Rhodes electric piano, deep fingerstyle bass, crisp rimshot drums building from a sparse intro into a lush layered chorus.",
+    promptHint:
+      "3-part studio caption: Global Metadata, Vocal Details, Arrangement",
     lyricsPlaceholder:
       "[Intro]\n\n[Verse 1]\nLate rain on the studio glass\n\n[Chorus]\nHold the frequency steady tonight",
     lyricsHint:
       "Section-tagged lyrics ([Verse], [Chorus], [Bridge]) or leave blank for [Instrumental]",
     tips: [
-      "Click 'Insert 3-part scaffold' to structure Overview, Instrumentation, and Structure paragraphs.",
+      "Click 'Insert 3-part scaffold' to structure Global Metadata, Vocal Details, and Arrangement paragraphs.",
       "Keep Tiled VAE decode enabled in Advanced to prevent VRAM spikes on full-length tracks.",
       "Leave Lyrics empty for pure [Instrumental] studio backing tracks.",
     ],
     composeDefaultPrompt:
-      "Overview: Subtle documentary underscore at 84 BPM, warm and unobtrusive.\n\nInstrumentation: Muted felt piano, airy analog pad, soft sub pulse, zero vocals.\n\nStructure: Smooth continuous bed with gentle harmonic movement.",
+      "Global Metadata: Subtle documentary underscore at 84 BPM, warm and unobtrusive.\n\nVocal Details: Instrumental only, zero vocals.\n\nArrangement: Muted felt piano, airy analog pad, soft sub pulse in a smooth continuous bed with gentle harmonic movement.",
     defaultSettings: {
       duration: "120",
       minimax_precision: "int8",
@@ -184,28 +185,28 @@ export const AUDIO_MODELS: Record<AudioModelId, AudioModelSpec> = {
     label: "Stable Audio 3",
     badge: "Instrumental, Loops & SFX Specialist",
     recommendation:
-      "Fast 8-step instrumental stems, underscore beds, foley SFX, and one-shots up to 47s.",
+      "Fast 8-step instrumental stems, underscore beds, foley SFX, and one-shots up to 180s.",
     vramHint: "~8 GB VRAM (+4 GB with Reprompting)",
     supportsLyrics: false,
     supportsMelodyCover: false,
     supportsReprompt: true,
     supportsMusicalFraming: false,
     minDuration: 5,
-    maxDuration: 47,
+    maxDuration: 180,
     defaultDuration: 30,
     instrumentalMarker: "",
     promptLabel: "Sound / Instrumental description",
     promptPlaceholder:
       "Warm analog synth arpeggio underscore at 100 BPM, clean stereo tape saturation, no vocals",
     promptHint:
-      "Instrumental bed, stem loop, foley SFX, or one-shot (5–47s, non-vocal)",
+      "Instrumental bed, stem loop, foley SFX, or one-shot (5–180s, non-vocal)",
     lyricsPlaceholder: "",
     lyricsHint:
       "Stable Audio 3 generates instrumental audio and sound effects only",
     tips: [
       "Medium (distilled, 8 steps, CFG 1.0) is fast and crisp; switch to Medium Base (50 steps, CFG 7.0) for heavier prompt adherence.",
       "Pick Audio category (Music, Instrument, SFX, One-shot) and enable Qwen3.5 Reprompting when starting from short prompts.",
-      "Duration is capped at the model's native 47-second window.",
+      "Duration is capped at the model's native 180-second window.",
     ],
     composeDefaultPrompt:
       "Warm cinematic ambient underscore, soft felt piano and gentle analog strings, clean mix, unobtrusive background bed",

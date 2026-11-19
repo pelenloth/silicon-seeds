@@ -125,12 +125,12 @@ describe("PostDistinctAudioSchema per-model duration bounds", () => {
       }),
   } as unknown as Parameters<typeof validationHook>[1];
 
-  test("rejects duration 60 for stable-audio-3 with a duration field error (model ceiling 47s)", async () => {
+  test("rejects duration 200 for stable-audio-3 with a duration field error (model ceiling 180s)", async () => {
     const { PostDistinctAudioSchema } = await import("./schemas");
     const result = PostDistinctAudioSchema.safeParse({
       audio_model: "stable-audio-3",
       instrumental_prompt: "Crisp rain foley",
-      duration: "60",
+      duration: "200",
     });
     expect(result.success).toBe(false);
     if (!result.success) {
@@ -144,7 +144,7 @@ describe("PostDistinctAudioSchema per-model duration bounds", () => {
         error: string;
         fields: Record<string, string>;
       };
-      expect(body.fields.duration).toBeDefined();
+      expect(body.fields.duration).toContain("5 and 180");
     }
   });
 });

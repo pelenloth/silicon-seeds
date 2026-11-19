@@ -1,5 +1,8 @@
 import { AudioGenerator } from "../audio/audio-generator";
-import { findSoundPresetByName } from "../audio/sound-presets";
+import {
+  findSoundPresetByName,
+  sanitizeSoundPresetSettings,
+} from "../audio/sound-presets";
 import { DB } from "../db/db";
 import { AudioPromptEvent, Event, JobEvent, JobMode } from "../events/events";
 import { ImageGenerator } from "../image/image-generator";
@@ -42,7 +45,7 @@ export async function resolveComposeUnderscoreSpec(opts: {
     prompt,
     lyrics,
     audioSettings: {
-      ...(matchedPreset?.settings ?? {}),
+      ...sanitizeSoundPresetSettings(matchedPreset?.settings),
       audio_model: modelId,
     },
   };

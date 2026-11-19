@@ -124,7 +124,7 @@ test("create audio: submit payload sends exact PostDistinctAudioSchema fields (b
   });
 });
 
-test("create audio: model switching (YuE2 Melody Cover upload, MiniMax scaffold, Stable Audio 3 non-vocal 47s cap) and Sound Preset autofill", async ({
+test("create audio: model switching (YuE2 Melody Cover upload, MiniMax scaffold, Stable Audio 3 non-vocal 180s cap) and Sound Preset autofill", async ({
   page,
 }) => {
   let capturedFields: Record<string, string> | null = null;
@@ -166,7 +166,7 @@ test("create audio: model switching (YuE2 Melody Cover upload, MiniMax scaffold,
   await expect(page.locator('textarea[name="lyric_prompt"]')).toHaveCount(0);
   await expect(
     page.locator('input[name="duration"][type="range"]'),
-  ).toHaveAttribute("max", "47");
+  ).toHaveAttribute("max", "180");
   await expect(page.locator('select[name="sa3_variant"]')).toBeVisible();
   await expect(page.locator('select[name="sa3_audio_type"]')).toBeVisible();
   await expect(page.locator('select[name="use_reprompt"]')).toBeVisible();
@@ -174,9 +174,9 @@ test("create audio: model switching (YuE2 Melody Cover upload, MiniMax scaffold,
   await modelSelect.selectOption("minimax-music-3");
   await style.fill("");
   await page.getByRole("button", { name: "Insert 3-part scaffold" }).click();
-  await expect(style).toHaveValue(/Overview:/);
-  await expect(style).toHaveValue(/Instrumentation:/);
-  await expect(style).toHaveValue(/Structure:/);
+  await expect(style).toHaveValue(/Global Metadata:/);
+  await expect(style).toHaveValue(/Vocal Details:/);
+  await expect(style).toHaveValue(/Arrangement:/);
 
   await modelSelect.selectOption("yue2");
   const refInput = page.locator('input[name="reference_audio"][type="file"]');

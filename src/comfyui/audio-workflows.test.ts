@@ -72,6 +72,7 @@ describe("buildAudioWorkflow", () => {
     expect((wf["25"] as any).class_type).toBe("YuE2GenerateMusic");
     expect((wf["25"] as any).inputs.abc).toEqual(["24", 0]);
     expect((wf["25"] as any).inputs.max_duration).toBe(150);
+    expect((wf["25"] as any).inputs.cfg_scale).toBe(1);
     expect((wf["8"] as any).inputs.cfg).toBe(1);
     expect((wf["10"] as any).class_type).toBe("SaveAudioMP3");
     expect((wf["10"] as any).inputs.filename_prefix).toBe("evt-yue-abc");
@@ -97,7 +98,8 @@ describe("buildAudioWorkflow", () => {
     expect(wf["24"]).toBeUndefined();
     expect(wf["41"]).toBeUndefined();
     expect((wf["25"] as any).inputs.abc).toBe("");
-    expect((wf["8"] as any).inputs.cfg).toBe(1.01);
+    expect((wf["25"] as any).inputs.cfg_scale).toBe(1.01);
+    expect((wf["8"] as any).inputs.cfg).toBe(1);
   });
 
   test("yue2 Melody Cover wires LoadAudio + SheetSage2AudioToABC and prunes YuE2GenerateABC", () => {
@@ -124,6 +126,8 @@ describe("buildAudioWorkflow", () => {
     expect((wf["41"] as any).class_type).toBe("SheetSage2AudioToABC");
     expect((wf["25"] as any).inputs.abc).toEqual(["41", 0]);
     expect((wf["25"] as any).inputs.mode).toBe("melody");
+    expect((wf["25"] as any).inputs.cfg_scale).toBe(1);
+    expect((wf["8"] as any).inputs.cfg).toBe(1);
   });
 
   test("minimax-music-3 prunes untiled/tiled VAE nodes and selects int8 vs fp16 checkpoint", () => {

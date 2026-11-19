@@ -53,7 +53,7 @@ export const TIMESIGNATURE_OPTIONS = TIME_SIGNATURES;
 
 export const YUE2_MODES: readonly { value: string; label: string }[] = [
   { value: "full", label: "Full Song" },
-  { value: "melody", label: "Melody Cover" },
+  { value: "melody", label: "Melody only" },
 ] as const;
 
 export const YUE2_MODE_OPTIONS = YUE2_MODES;
@@ -450,6 +450,7 @@ export function AudioAdvancedSection(props: {
   temperature: number;
   topP: number;
   abcTemperature: number;
+  abcTopP: number;
   topK: number;
   errors: Record<string, string | undefined>;
   set: (
@@ -459,6 +460,7 @@ export function AudioAdvancedSection(props: {
       | "temperature"
       | "top_p"
       | "abc_temperature"
+      | "abc_top_p"
       | "top_k",
     value: string,
   ) => void;
@@ -472,7 +474,8 @@ export function AudioAdvancedSection(props: {
         props.errors.top_p ||
         props.errors.top_k ||
         props.errors.steps ||
-        props.errors.abc_temperature,
+        props.errors.abc_temperature ||
+        props.errors.abc_top_p,
       )}
     >
       <div class="flex flex-col gap-3">
@@ -480,7 +483,7 @@ export function AudioAdvancedSection(props: {
           label="CFG scale"
           name="cfg_scale"
           min={0}
-          max={10}
+          max={15}
           step={0.1}
           value={props.cfgScale}
           onInput={(v) => props.set("cfg_scale", String(v))}
@@ -534,13 +537,24 @@ export function AudioAdvancedSection(props: {
             format={(v) => v.toFixed(2)}
             error={props.errors.abc_temperature}
           />
+          <SliderField
+            label="ABC top P"
+            name="abc_top_p"
+            min={0}
+            max={1}
+            step={0.01}
+            value={props.abcTopP}
+            onInput={(v) => props.set("abc_top_p", String(v))}
+            format={(v) => v.toFixed(2)}
+            error={props.errors.abc_top_p}
+          />
         </Show>
         <Show when={props.modelId === "minimax-music-3"}>
           <SliderField
             label="Top K"
             name="top_k"
             min={1}
-            max={250}
+            max={500}
             step={1}
             value={props.topK}
             onInput={(v) => props.set("top_k", String(v))}

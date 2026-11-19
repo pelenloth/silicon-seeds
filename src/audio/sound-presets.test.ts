@@ -175,4 +175,86 @@ describe("Sound Presets service & API", () => {
     expect(deleteRes.status).toBe(200);
     createdCustomIds.pop();
   });
+
+  test("built-in MiniMax Music 3 presets use Global Metadata / Vocal Details / Arrangement caption sections", () => {
+    const minimaxPresets = BUILTIN_SOUND_PRESETS.filter(
+      (p) => p.audio_model === "minimax-music-3",
+    );
+    expect(minimaxPresets.length).toBeGreaterThanOrEqual(4);
+    for (const preset of minimaxPresets) {
+      expect(preset.instrumental_prompt).toContain("Global Metadata:");
+      expect(preset.instrumental_prompt).toContain("Vocal Details:");
+      expect(preset.instrumental_prompt).toContain("Arrangement:");
+    }
+  });
+
+  test("strips reference_audio_path, reference_audio_filename, and unknown keys on save, update, and DB read", async () => {
+    const name = `Sanitized Preset ${Date.now()}`;
+    const createRes = await app.request("/sound-presets", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name,
+        description: "Test sanitization",
+        audio_model: "yue2",
+        category: "Melody Cover",
+        instrumental_prompt: "Genre: Indie Pop.",
+        lyric_prompt: "[Verse]\nHello",
+        settings: {
+          duration: 90,
+          yue2_mode: "melody",
+          abc_planning: true,
+          reference_audio_path: "/etc/passwd",
+          reference_audio_filename: "../../secret.flac",
+          arbitrary_injected_key: "malicious",
+        },
+      }),
+    });
+    expect(createRes.status).toBe(201);
+    const createdItem = (await createRes.json()) as {
+      id: string;
+      settings: Record<string, unknown>;
+    };
+    createdCustomIds.push(Number(createdItem.id));
+
+    expect(createdItem.settings).toEqual({
+      duration: 90,
+      yue2_mode: "melody",
+      abc_planning: true,
+    });
+    expect(createdItem.settings.reference_audio_path).toBeUndefined();
+    expect(createdItem.settings.reference_audio_filename).toBeUndefined();
+    expect(createdItem.settings.arbitrary_injected_key).toBeUndefined();
+
+    // Update also strips disallowed keys
+    const updateRes = await app.request(`/sound-presets/${createdItem.id}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        settings: {
+          duration: 100,
+          reference_audio_path: "/tmp/pwn.flac",
+          reference_audio_filename: "pwn.flac",
+          unknown_flag: 123,
+        },
+      }),
+    });
+    expect(updateRes.status).toBe(200);
+    const updatedItem = (await updateRes.json()) as {
+      settings: Record<string, unknown>;
+    };
+    expect(updatedItem.settings).toEqual({ duration: 100 });
+
+    // Even if raw DB row had unsanitized JSON, findSoundPresetByName strips it on parse
+    await DB.SoundPresets.update(Number(createdItem.id), {
+      settings_json: JSON.stringify({
+        duration: 110,
+        reference_audio_path: "/bad/path",
+        reference_audio_filename: "bad.flac",
+        extra: true,
+      }),
+    });
+    const loaded = await findSoundPresetByName(name);
+    expect(loaded?.settings).toEqual({ duration: 110 });
+  });
 });

@@ -28,7 +28,7 @@ export const BUILTIN_SOUND_PRESETS: readonly SoundPresetItem[] = [
     audio_model: "minimax-music-3",
     category: "Song",
     instrumental_prompt:
-      "Overview: Intimate neo-soul ballad at 86 BPM with warm analog studio depth and expressive lead vocals.\n\nInstrumentation: Vintage Suitcase Rhodes, round flatwound bass, brushed snare with crisp rimshots, subtle string swells.\n\nStructure: Sparse Rhodes intro -> intimate verse -> lush stacked-harmony chorus -> warm outro.",
+      "Global Metadata: Intimate neo-soul ballad at 86 BPM with warm analog studio depth.\n\nVocal Details: Expressive close-miked lead vocals with lush stacked chorus harmonies.\n\nArrangement: Vintage Suitcase Rhodes, round flatwound bass, brushed snare with crisp rimshots, and subtle string swells building from a sparse Rhodes intro through an intimate verse to a warm outro.",
     lyric_prompt:
       "[Intro]\n\n[Verse]\nAmber streetlights paint the rain\nQuiet static on the windowpane\n\n[Chorus]\nStay in the warm low light tonight\nLet the city fade outside",
     settings: {
@@ -48,7 +48,7 @@ export const BUILTIN_SOUND_PRESETS: readonly SoundPresetItem[] = [
     audio_model: "minimax-music-3",
     category: "Song",
     instrumental_prompt:
-      "Overview: High-energy modern synthpop anthem at 118 BPM with wide stereo polish and bright lead vocals.\n\nInstrumentation: Juno-106 chorus pads, punchy sidechained synth bass, gated LinnDrum snare, shimmering arpeggiator.\n\nStructure: Arpeggiated intro -> driving verse -> explosive pre-chorus lift -> wide stadium chorus.",
+      "Global Metadata: High-energy modern synthpop anthem at 118 BPM with wide stereo polish.\n\nVocal Details: Bright, soaring lead vocals with doubled pre-chorus lift and stadium chorus hooks.\n\nArrangement: Juno-106 chorus pads, punchy sidechained synth bass, gated LinnDrum snare, and shimmering arpeggiator moving from an arpeggiated intro into a driving verse and wide stadium chorus.",
     lyric_prompt:
       "[Intro]\n\n[Verse]\nNeon mirrors down the boulevard\nEvery heartbeat running fast and hard\n\n[Chorus]\nTurn the skyline into silver fire\nTake the midnight signal higher",
     settings: {
@@ -68,7 +68,7 @@ export const BUILTIN_SOUND_PRESETS: readonly SoundPresetItem[] = [
     audio_model: "minimax-music-3",
     category: "Song",
     instrumental_prompt:
-      "Overview: Organic indie folk song at 98 BPM with close-miked room warmth and gentle storytelling vocals.\n\nInstrumentation: Fingerpicked dreadnought acoustic guitar, woody upright bass, soft felt kick, distant pedal steel swells.\n\nStructure: Acoustic intro -> gentle verse -> warm harmonized chorus -> quiet instrumental bridge -> outro.",
+      "Global Metadata: Organic indie folk song at 98 BPM with close-miked room warmth.\n\nVocal Details: Gentle storytelling lead vocals with warm two-part chorus harmonies.\n\nArrangement: Fingerpicked dreadnought acoustic guitar, woody upright bass, soft felt kick, and distant pedal steel swells across an acoustic intro, gentle verse, harmonized chorus, quiet instrumental bridge, and outro.",
     lyric_prompt:
       "[Verse]\nPine needles on the gravel road\nMorning mist across the valley floor\n\n[Chorus]\nCarry only what your hands can hold\nLeave the heavy winter at the door",
     settings: {
@@ -88,7 +88,7 @@ export const BUILTIN_SOUND_PRESETS: readonly SoundPresetItem[] = [
     audio_model: "minimax-music-3",
     category: "Underscore",
     instrumental_prompt:
-      "Overview: Subtle documentary underscore at 82 BPM, contemplative, warm, and voiceover-friendly with zero vocals.\n\nInstrumentation: Muted felt piano ostinato, soft analog string pad, gentle sub bass pulse, delicate marimba harmonics.\n\nStructure: Gradual atmospheric opening -> steady narrative bed -> gentle hopeful resolution.",
+      "Global Metadata: Subtle documentary underscore at 82 BPM, contemplative, warm, and voiceover-friendly.\n\nVocal Details: Instrumental only, zero vocals.\n\nArrangement: Muted felt piano ostinato, soft analog string pad, gentle sub bass pulse, and delicate marimba harmonics moving from a gradual atmospheric opening into a steady narrative bed and gentle hopeful resolution.",
     lyric_prompt: "",
     settings: {
       duration: 90,
@@ -362,6 +362,42 @@ export const BUILTIN_SOUND_PRESETS: readonly SoundPresetItem[] = [
   },
 ];
 
+export const ALLOWED_SOUND_PRESET_SETTING_KEYS = new Set([
+  "duration",
+  "bpm",
+  "keyscale",
+  "timesignature",
+  "cfg_scale",
+  "temperature",
+  "top_p",
+  "top_k",
+  "steps",
+  "yue2_mode",
+  "abc_planning",
+  "abc_temperature",
+  "abc_top_p",
+  "minimax_precision",
+  "tiled_decode",
+  "sa3_variant",
+  "sa3_audio_type",
+  "use_reprompt",
+]);
+
+export function sanitizeSoundPresetSettings(
+  settings: Record<string, unknown> | null | undefined,
+): Record<string, unknown> {
+  if (!settings || typeof settings !== "object" || Array.isArray(settings)) {
+    return {};
+  }
+  const clean: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(settings)) {
+    if (ALLOWED_SOUND_PRESET_SETTING_KEYS.has(key) && value !== undefined) {
+      clean[key] = value;
+    }
+  }
+  return clean;
+}
+
 export function isBuiltinSoundPresetId(id: string): boolean {
   return id.startsWith("builtin:");
 }
@@ -370,12 +406,64 @@ function parseSettingsJson(raw: string): Record<string, unknown> {
   try {
     const parsed: unknown = JSON.parse(raw);
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      return parsed as Record<string, unknown>;
+      return sanitizeSoundPresetSettings(parsed as Record<string, unknown>);
     }
   } catch {
     // ignore malformed json
   }
   return {};
+}
+
+export async function createCustomSoundPreset(data: {
+  name: string;
+  description?: string;
+  audio_model: string;
+  category?: string;
+  instrumental_prompt: string;
+  lyric_prompt?: string;
+  settings?: Record<string, unknown>;
+}): Promise<SoundPresetItem | undefined> {
+  const sanitized = sanitizeSoundPresetSettings(data.settings);
+  const created = await DB.SoundPresets.create({
+    name: data.name,
+    description: data.description,
+    audio_model: data.audio_model,
+    category: data.category,
+    instrumental_prompt: data.instrumental_prompt,
+    lyric_prompt: data.lyric_prompt,
+    settings_json: JSON.stringify(sanitized),
+  });
+  return created ? mapDbRowToSoundPreset(created as any) : undefined;
+}
+
+export async function updateCustomSoundPreset(
+  id: number,
+  data: Partial<{
+    name: string;
+    description: string;
+    audio_model: string;
+    category: string;
+    instrumental_prompt: string;
+    lyric_prompt: string;
+    settings: Record<string, unknown>;
+  }>,
+): Promise<SoundPresetItem | undefined> {
+  const patch: Record<string, unknown> = {};
+  if (data.name !== undefined) patch.name = data.name;
+  if (data.description !== undefined) patch.description = data.description;
+  if (data.audio_model !== undefined) patch.audio_model = data.audio_model;
+  if (data.category !== undefined) patch.category = data.category;
+  if (data.instrumental_prompt !== undefined) {
+    patch.instrumental_prompt = data.instrumental_prompt;
+  }
+  if (data.lyric_prompt !== undefined) patch.lyric_prompt = data.lyric_prompt;
+  if (data.settings !== undefined) {
+    patch.settings_json = JSON.stringify(
+      sanitizeSoundPresetSettings(data.settings),
+    );
+  }
+  const updated = await DB.SoundPresets.update(id, patch as any);
+  return updated ? mapDbRowToSoundPreset(updated as any) : undefined;
 }
 
 export function mapDbRowToSoundPreset(row: {

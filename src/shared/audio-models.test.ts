@@ -7,6 +7,7 @@ import {
   getAudioModel,
   isAudioModelId,
   listAudioModels,
+  MINIMAX_CAPTION_SCAFFOLD,
   normalizeAudioModelId,
 } from "./audio-models";
 
@@ -42,8 +43,10 @@ describe("shared audio-models registry", () => {
     expect(getAudioModel("stable-audio-3").supportsLyrics).toBe(false);
     expect(getAudioModel("stable-audio-3").supportsReprompt).toBe(true);
 
+    expect(getAudioModel("stable-audio-3").maxDuration).toBe(180);
     expect(clampAudioDuration("stable-audio-3", 2)).toBe(5);
-    expect(clampAudioDuration("stable-audio-3", 99)).toBe(47);
+    expect(clampAudioDuration("stable-audio-3", 99)).toBe(99);
+    expect(clampAudioDuration("stable-audio-3", 240)).toBe(180);
     expect(clampAudioDuration("minimax-music-3", 500)).toBe(300);
     expect(clampAudioDuration("yue2", 500)).toBe(360);
     expect(clampAudioDuration("ace-step-1.5", 600)).toBe(600);
@@ -73,5 +76,15 @@ describe("shared audio-models registry", () => {
     expect(
       AUDIO_MODELS["stable-audio-3"].composeDefaultPrompt.length,
     ).toBeGreaterThan(10);
+
+    expect(MINIMAX_CAPTION_SCAFFOLD).toContain("Global Metadata:");
+    expect(MINIMAX_CAPTION_SCAFFOLD).toContain("Vocal Details:");
+    expect(MINIMAX_CAPTION_SCAFFOLD).toContain("Arrangement:");
+    expect(AUDIO_MODELS["minimax-music-3"].promptPlaceholder).toContain(
+      "Global Metadata:",
+    );
+    expect(AUDIO_MODELS["minimax-music-3"].composeDefaultPrompt).toContain(
+      "Global Metadata:",
+    );
   });
 });

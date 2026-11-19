@@ -3,7 +3,10 @@ import {
   stageReferenceAudioUpload,
   validateReferenceAudioFile,
 } from "../../audio/reference-audio";
-import { findSoundPresetByName } from "../../audio/sound-presets";
+import {
+  findSoundPresetByName,
+  sanitizeSoundPresetSettings,
+} from "../../audio/sound-presets";
 import { JobMode } from "../../events/events";
 import { JobOrchestrator } from "../../jobs/jobs";
 import {
@@ -21,7 +24,10 @@ export async function text_to_audio(
 ): Promise<Response> {
   const modelId = normalizeAudioModelId(options.audio_model, "ace-step-1.5");
   const modelSpec = getAudioModel(modelId);
-  const preset = await findSoundPresetByName(options.sound_preset);
+  const rawPreset = await findSoundPresetByName(options.sound_preset);
+  const preset =
+    rawPreset && rawPreset.audio_model === modelId ? rawPreset : null;
+  const presetSettings = sanitizeSoundPresetSettings(preset?.settings);
 
   const instrumentalPrompt = Utils.sanitizeInputText(
     options.instrumental_prompt || preset?.instrumental_prompt || "",
@@ -39,19 +45,19 @@ export async function text_to_audio(
   const duration = clampAudioDuration(
     modelId,
     options.duration ??
-      (typeof preset?.settings.duration === "number"
-        ? preset.settings.duration
+      (typeof presetSettings.duration === "number"
+        ? presetSettings.duration
         : modelSpec.defaultDuration),
   );
 
   const { id: jobId } = await JobOrchestrator.create_job({
     original_prompt: instrumentalPrompt,
     audio_model: modelId,
-    sound_preset: preset?.name ?? options.sound_preset ?? null,
+    sound_preset: preset?.name ?? null,
   });
 
   const audioSettings: Record<string, unknown> = {
-    ...(preset?.settings ?? {}),
+    ...presetSettings,
     audio_model: modelId,
   };
 

@@ -122,21 +122,28 @@ type InsertJob = CreateJob & {
 };
 
 export namespace DB {
+  const isTestEnv =
+    Bun.env.NODE_ENV === "test" ||
+    Bun.main.endsWith(".test.ts") ||
+    process.argv.some((a) => a.includes(".test.ts") || a === "test");
   const dbPath = (
-    Bun.env.DB_PATH?.trim() || "data/silicon-seeds.sqlite"
+    Bun.env.DB_PATH?.trim() ||
+    (isTestEnv ? ":memory:" : "data/silicon-seeds.sqlite")
   ).trim();
-  try {
-    mkdirSync(dirname(dbPath), { recursive: true });
-  } catch (e) {
-    // let Database throw with clearer context if parent dir uncreatable
-    console.error(`[DB] mkdir failed for ${dirname(dbPath)}:`, e);
-  }
-  try {
-    if (!existsSync(dbPath) && existsSync("silicon-seeds.sqlite")) {
-      copyFileSync("silicon-seeds.sqlite", dbPath);
+  if (dbPath !== ":memory:") {
+    try {
+      mkdirSync(dirname(dbPath), { recursive: true });
+    } catch (e) {
+      // let Database throw with clearer context if parent dir uncreatable
+      console.error(`[DB] mkdir failed for ${dirname(dbPath)}:`, e);
     }
-  } catch (e) {
-    console.error(`[DB] legacy migration failed:`, e);
+    try {
+      if (!existsSync(dbPath) && existsSync("silicon-seeds.sqlite")) {
+        copyFileSync("silicon-seeds.sqlite", dbPath);
+      }
+    } catch (e) {
+      console.error(`[DB] legacy migration failed:`, e);
+    }
   }
 
   export const db = new Kysely<DbSchema>({

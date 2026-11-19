@@ -347,12 +347,31 @@ describe("reuse settings", () => {
       route: "/create/audio",
       values: { instrumental_prompt: "slow ambient pop" },
     });
+    expect(
+      jobToPrefill(
+        job({
+          kind: "audio",
+          original_prompt: "synthwave drive",
+          audio_model: "yue2",
+          sound_preset: "Outrun Analog Synthwave",
+        }),
+      ),
+    ).toEqual({
+      route: "/create/audio",
+      values: {
+        instrumental_prompt: "synthwave drive",
+        audio_model: "yue2",
+        sound_preset: "Outrun Analog Synthwave",
+      },
+    });
     const c = jobToPrefill(
       job({
         kind: "compose",
         original_prompt: "Once upon a time",
         transition_duration: 2,
         fps: 16,
+        audio_model: "minimax-music-3",
+        sound_preset: "Cinematic Underscore",
       }),
     );
     expect(c.route).toBe("/compose");
@@ -360,6 +379,8 @@ describe("reuse settings", () => {
       script: "Once upon a time",
       fps: "16",
       transition_duration: "2",
+      audio_model: "minimax-music-3",
+      sound_preset: "Cinematic Underscore",
     });
   });
   test("a style guide alone keeps a video job on text-to-video", () => {

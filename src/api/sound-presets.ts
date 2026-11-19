@@ -3,9 +3,10 @@ import { zValidator } from "@hono/zod-validator";
 import z from "zod";
 import {
   BUILTIN_SOUND_PRESETS,
+  createCustomSoundPreset,
   isBuiltinSoundPresetId,
   listMergedSoundPresets,
-  mapDbRowToSoundPreset,
+  updateCustomSoundPreset,
 } from "../audio/sound-presets";
 import { DB } from "../db/db";
 import {
@@ -65,17 +66,17 @@ app.post(
       return c.json({ error: "Preset name already exists" }, 409);
     }
 
-    const created = await DB.SoundPresets.create({
+    const created = await createCustomSoundPreset({
       name: body.name,
       description: body.description,
       audio_model: body.audio_model,
       category: body.category,
       instrumental_prompt: body.instrumental_prompt,
       lyric_prompt: body.lyric_prompt,
-      settings_json: JSON.stringify(body.settings ?? {}),
+      settings: body.settings,
     });
     if (!created) return c.json({ error: "Create failed" }, 500);
-    return c.json(mapDbRowToSoundPreset(created as any), 201);
+    return c.json(created, 201);
   },
 );
 
@@ -113,26 +114,9 @@ app.put(
       if (dup) return c.json({ error: "Preset name already exists" }, 409);
     }
 
-    const patch: Record<string, unknown> = {};
-    if (body.name !== undefined) patch.name = body.name;
-    if (body.description !== undefined) patch.description = body.description;
-    if (body.audio_model !== undefined) patch.audio_model = body.audio_model;
-    if (body.category !== undefined) patch.category = body.category;
-    if (body.instrumental_prompt !== undefined) {
-      patch.instrumental_prompt = body.instrumental_prompt;
-    }
-    if (body.lyric_prompt !== undefined) patch.lyric_prompt = body.lyric_prompt;
-    if (body.settings !== undefined) {
-      patch.settings_json = JSON.stringify(body.settings);
-    }
-
-    if (Object.keys(patch).length === 0) {
-      return c.json(mapDbRowToSoundPreset(existing as any));
-    }
-
-    const updated = await DB.SoundPresets.update(id, patch as any);
+    const updated = await updateCustomSoundPreset(id, body);
     if (!updated) return c.json({ error: "Preset not found" }, 404);
-    return c.json(mapDbRowToSoundPreset(updated as any));
+    return c.json(updated);
   },
 );
 

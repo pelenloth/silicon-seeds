@@ -69,6 +69,7 @@ export default function CreateAudio() {
       { field: "top_k", min: 1, max: 500, integer: true, label: "Top K" },
       { field: "steps", min: 1, max: 100, integer: true, label: "Steps" },
       { field: "abc_temperature", min: 0, max: 2, label: "ABC temperature" },
+      { field: "abc_top_p", min: 0, max: 1, label: "ABC top P" },
     ],
     validate: (values) => {
       const spec = getAudioModel(values.audio_model);
@@ -98,6 +99,7 @@ export default function CreateAudio() {
       yue2_mode: "Generation mode",
       abc_planning: "ABC Score planning",
       abc_temperature: "ABC temperature",
+      abc_top_p: "ABC top P",
       minimax_precision: "Precision",
       tiled_decode: "Tiled VAE decode",
       sa3_variant: "Checkpoint variant",
@@ -214,6 +216,8 @@ export default function CreateAudio() {
       Number(f.values.duration) || modelSpec().defaultDuration,
     );
   const bpm = () => Number(f.values.bpm) || 72;
+  const hasReferenceAudio = () =>
+    Boolean(refFileName()) || Boolean(f.values.reference_audio_sample.trim());
 
   const summary = () => {
     const id = modelId();
@@ -221,8 +225,11 @@ export default function CreateAudio() {
       return `${duration()}s · ${bpm()} BPM · ${f.values.keyscale}`;
     }
     if (id === "yue2") {
-      const modeLabel =
-        f.values.yue2_mode === "melody" ? "Melody Cover" : "Full Song";
+      const modeLabel = hasReferenceAudio()
+        ? "Melody Cover"
+        : f.values.yue2_mode === "melody"
+          ? "Melody only"
+          : "Full song";
       return `${modelSpec().label} · ${duration()}s · ${modeLabel}`;
     }
     if (id === "minimax-music-3") {
@@ -397,6 +404,7 @@ export default function CreateAudio() {
               "abc_temperature",
               0.7,
             )}
+            abcTopP={Number(f.values.abc_top_p) || 0.9}
             topK={numOrDefault(f.values.top_k, "top_k", 50)}
             errors={f.errors()}
             set={f.set}

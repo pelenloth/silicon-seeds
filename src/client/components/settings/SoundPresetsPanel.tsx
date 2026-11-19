@@ -555,6 +555,7 @@ export default function SoundPresetsPanel() {
               onChange={(v) => {
                 const nextModel = v as AudioModelId;
                 setForm("audio_model", nextModel);
+                setBaseSettings({});
                 clearFieldError("audio_model");
               }}
               options={AUDIO_MODEL_OPTIONS}

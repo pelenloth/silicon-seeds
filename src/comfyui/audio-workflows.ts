@@ -169,12 +169,11 @@ function buildYue2Workflow(opts: {
 
   let abcInput: unknown = "";
   let musicMode: "full" | "melody" = rawMode;
-  let defaultCfg = 1.0;
+  const musicCfg = refFile || abcPlanning ? 1.0 : 1.01;
 
   if (refFile) {
     // Melody Cover branch: LoadAudio -> SheetSage2AudioToABC (YuE2GenerateABC pruned)
     musicMode = "melody";
-    defaultCfg = 1.0;
     api["45"] = {
       inputs: {
         audio: refFile,
@@ -201,7 +200,6 @@ function buildYue2Workflow(opts: {
     abcInput = ["41", 0];
   } else if (abcPlanning) {
     // Symbolic ABC planning branch (SheetSage2 pruned)
-    defaultCfg = 1.0;
     api["24"] = {
       inputs: {
         style: opts.prompt,
@@ -222,7 +220,6 @@ function buildYue2Workflow(opts: {
     abcInput = ["24", 0];
   } else {
     // Direct text-to-music branch (both ABC planner and SheetSage2 pruned)
-    defaultCfg = 1.01;
     abcInput = "";
   }
 
@@ -234,6 +231,7 @@ function buildYue2Workflow(opts: {
       seed: opts.seed,
       mode: musicMode,
       max_duration: opts.duration,
+      cfg_scale: musicCfg,
       temperature: toNum(s.temperature, 1.0),
       top_p: toNum(s.top_p, 0.95),
       top_k: Math.round(toNum(s.music_top_k, 100)),
@@ -265,7 +263,7 @@ function buildYue2Workflow(opts: {
     inputs: {
       seed: opts.seed,
       steps: Math.round(toNum(s.steps, 32)),
-      cfg: toNum(s.cfg_scale, defaultCfg),
+      cfg: toNum(s.cfg_scale, 1.0),
       sampler_name: "dpm_2",
       scheduler: "sgm_uniform",
       denoise: 1,
