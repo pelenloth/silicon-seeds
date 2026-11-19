@@ -359,9 +359,39 @@ describe("reuse settings", () => {
     ).toEqual({
       route: "/create/audio",
       values: {
+        duration: "120",
+        yue2_mode: "full",
+        abc_planning: "true",
+        abc_temperature: "0.7",
+        abc_top_p: "0.9",
+        temperature: "1",
+        top_p: "0.95",
+        cfg_scale: "1",
+        steps: "32",
         instrumental_prompt: "synthwave drive",
         audio_model: "yue2",
         sound_preset: "Outrun Analog Synthwave",
+      },
+    });
+    expect(
+      jobToPrefill(
+        job({
+          kind: "audio",
+          original_prompt: "warm analog synth arpeggio",
+          audio_model: "stable-audio-3",
+        }),
+      ),
+    ).toEqual({
+      route: "/create/audio",
+      values: {
+        duration: "30",
+        sa3_variant: "medium",
+        sa3_audio_type: "Music",
+        use_reprompt: "false",
+        cfg_scale: "1",
+        steps: "8",
+        audio_model: "stable-audio-3",
+        instrumental_prompt: "warm analog synth arpeggio",
       },
     });
     const c = jobToPrefill(
@@ -382,6 +412,15 @@ describe("reuse settings", () => {
       audio_model: "minimax-music-3",
       sound_preset: "Cinematic Underscore",
     });
+    const legacyCompose = jobToPrefill(
+      job({
+        kind: "compose",
+        original_prompt: "Legacy story",
+        audio_model: "sa3",
+      }),
+    );
+    expect(legacyCompose.route).toBe("/compose");
+    expect(legacyCompose.values.audio_model).toBe("stable-audio-3");
   });
   test("a style guide alone keeps a video job on text-to-video", () => {
     const out = jobToPrefill(

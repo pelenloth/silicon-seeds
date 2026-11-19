@@ -433,7 +433,7 @@ export async function createCustomSoundPreset(data: {
     lyric_prompt: data.lyric_prompt,
     settings_json: JSON.stringify(sanitized),
   });
-  return created ? mapDbRowToSoundPreset(created as any) : undefined;
+  return created ? mapDbRowToSoundPreset(created) : undefined;
 }
 
 export async function updateCustomSoundPreset(
@@ -448,7 +448,7 @@ export async function updateCustomSoundPreset(
     settings: Record<string, unknown>;
   }>,
 ): Promise<SoundPresetItem | undefined> {
-  const patch: Record<string, unknown> = {};
+  const patch: Parameters<typeof DB.SoundPresets.update>[1] = {};
   if (data.name !== undefined) patch.name = data.name;
   if (data.description !== undefined) patch.description = data.description;
   if (data.audio_model !== undefined) patch.audio_model = data.audio_model;
@@ -462,8 +462,8 @@ export async function updateCustomSoundPreset(
       sanitizeSoundPresetSettings(data.settings),
     );
   }
-  const updated = await DB.SoundPresets.update(id, patch as any);
-  return updated ? mapDbRowToSoundPreset(updated as any) : undefined;
+  const updated = await DB.SoundPresets.update(id, patch);
+  return updated ? mapDbRowToSoundPreset(updated) : undefined;
 }
 
 export function mapDbRowToSoundPreset(row: {

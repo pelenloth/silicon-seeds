@@ -122,13 +122,12 @@ type InsertJob = CreateJob & {
 };
 
 export namespace DB {
-  const isTestEnv =
-    Bun.env.NODE_ENV === "test" ||
+  const isBunTestRunner =
     Bun.main.endsWith(".test.ts") ||
-    process.argv.some((a) => a.includes(".test.ts") || a === "test");
+    process.argv.some((a) => a.endsWith(".test.ts"));
   const dbPath = (
     Bun.env.DB_PATH?.trim() ||
-    (isTestEnv ? ":memory:" : "data/silicon-seeds.sqlite")
+    (isBunTestRunner ? ":memory:" : "data/silicon-seeds.sqlite")
   ).trim();
   if (dbPath !== ":memory:") {
     try {
