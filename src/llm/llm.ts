@@ -3,22 +3,46 @@ import { Logger } from "../logger/logger";
 import z from "zod/v3";
 import { Utils } from "../utils/utils";
 
-const llmClient = new LMStudioClient();
-const LLM_MODEL = Bun.env.LLM_MODEL;
-Utils.assert(LLM_MODEL, "LLM_MODEL variable missing");
+let _llmClient: LMStudioClient | null = null;
+let _llmModelPromise: Promise<
+  Awaited<ReturnType<LMStudioClient["llm"]["model"]>>
+> | null = null;
+let _embeddingModelPromise: Promise<
+  Awaited<ReturnType<LMStudioClient["embedding"]["model"]>>
+> | null = null;
 
-const llmModel = await llmClient.llm.model(LLM_MODEL);
+function getClient(): LMStudioClient {
+  if (!_llmClient) {
+    _llmClient = new LMStudioClient();
+  }
+  return _llmClient;
+}
 
-const EMBEDDING_MODEL = Bun.env.EMBEDDING_MODEL;
-Utils.assert(EMBEDDING_MODEL, "EMBEDDING_MODEL variable missing");
-const embeddingModel = await llmClient.embedding.model(EMBEDDING_MODEL);
+function getLlmModel() {
+  if (!_llmModelPromise) {
+    const modelName = Bun.env.LLM_MODEL;
+    Utils.assert(modelName, "LLM_MODEL variable missing");
+    _llmModelPromise = getClient().llm.model(modelName);
+  }
+  return _llmModelPromise;
+}
+
+function getEmbeddingModel() {
+  if (!_embeddingModelPromise) {
+    const modelName = Bun.env.EMBEDDING_MODEL;
+    Utils.assert(modelName, "EMBEDDING_MODEL variable missing");
+    _embeddingModelPromise = getClient().embedding.model(modelName);
+  }
+  return _embeddingModelPromise;
+}
 
 export namespace LLM {
-  export const client = llmClient;
+  export declare const client: LMStudioClient;
   const MAX_TOKENS = 10_000;
 
   export async function message(msg: string, images?: FileHandle[]) {
     try {
+      const llmModel = await getLlmModel();
       if (images) {
         return await llmModel.respond(
           { role: "user", content: msg, images },
@@ -43,6 +67,7 @@ export namespace LLM {
     }
 
     try {
+      const llmModel = await getLlmModel();
       // Why TypeScript :(
       const typedSchema = z.object(mapSchema);
 
@@ -62,6 +87,7 @@ export namespace LLM {
     opts?: { signal?: AbortSignal },
   ) {
     try {
+      const llmModel = await getLlmModel();
       return (await llmModel.respond(msg, {
         structured: schema,
         maxTokens: MAX_TOKENS,
@@ -77,7 +103,13 @@ export namespace LLM {
   }
 
   export async function generateEmbedding(text: string): Promise<number[]> {
+    const embeddingModel = await getEmbeddingModel();
     const result = await embeddingModel.embed(text);
     return result.embedding;
   }
 }
+
+Object.defineProperty(LLM, "client", {
+  get: getClient,
+  enumerable: true,
+});

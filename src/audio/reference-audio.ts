@@ -1,6 +1,5 @@
 import { mkdirSync } from "node:fs";
 import { basename, extname, join, resolve, sep } from "node:path";
-import { Metadata } from "../meta/meta";
 
 export const ALLOWED_REFERENCE_AUDIO_EXTENSIONS = new Set([
   ".flac",
@@ -56,7 +55,7 @@ export async function stageReferenceAudioUpload(opts: {
   mkdirSync(uploadsDir, { recursive: true });
 
   const safeJob = opts.jobId.replace(/[^a-zA-Z0-9_-]/g, "");
-  const comfyInputFilename = `ref_${safeJob}_${Metadata.randomId()}${ext}`;
+  const comfyInputFilename = `ref_${safeJob}_${Bun.randomUUIDv7()}${ext}`;
   const relativePath = `uploads/${comfyInputFilename}`;
   const fullPath = join(rootOutput, relativePath);
 

@@ -89,16 +89,12 @@ const COMFYUI_BASE_URL = Bun.env.COMFYUI_BASE_URL;
 const WAN_NATIVE_FPS = 24;
 const LTX_NATIVE_FPS = 25;
 
-Utils.assert(
-  OUTPUT_DIR && INPUT_DIR && COMFYUI_BASE_URL,
-  "ComfyUI env. variables not configured!",
-);
-
 export class ComfyUIClient {
   private baseUrl: string;
 
-  constructor(config: { baseUrl: string }) {
-    this.baseUrl = config.baseUrl;
+  constructor(config: { baseUrl?: string } = {}) {
+    this.baseUrl =
+      config.baseUrl || Bun.env.COMFYUI_BASE_URL || "http://127.0.0.1:8188";
   }
 
   async generate(input: ModelVariant, job: JobsSchema) {
@@ -562,6 +558,7 @@ export class ComfyUIClient {
     const inDir = Bun.env.INPUT_DIR ?? INPUT_DIR;
 
     if (input.kind === "image-to-video") {
+      Utils.assert(outDir && inDir, "ComfyUI env. variables not configured!");
       const src = `${outDir}/${input.imagePath}`.replace('"', "").trim();
       const dst = `${inDir}/${input.imagePath}`.replace('"', "").trim();
 
@@ -582,6 +579,7 @@ export class ComfyUIClient {
         typeof refName === "string" &&
         refName.trim()
       ) {
+        Utils.assert(outDir && inDir, "ComfyUI env. variables not configured!");
         await copyReferenceAudioToInputDir({
           relativePath: refRel.trim(),
           comfyInputFilename: refName.trim(),
