@@ -8,8 +8,14 @@ describe("ComfyUIClient audio workflow dispatch", () => {
   let outputDir = "";
   let inputDir = "";
   const originalFetch = globalThis.fetch;
+  let prevOutputDir: string | undefined;
+  let prevInputDir: string | undefined;
+  let prevComfyBaseUrl: string | undefined;
 
   beforeEach(() => {
+    prevOutputDir = Bun.env.OUTPUT_DIR;
+    prevInputDir = Bun.env.INPUT_DIR;
+    prevComfyBaseUrl = Bun.env.COMFYUI_BASE_URL;
     tempRoot = mkdtempSync(join(tmpdir(), "ss-comfy-audio-"));
     outputDir = join(tempRoot, "output");
     inputDir = join(tempRoot, "input");
@@ -22,6 +28,12 @@ describe("ComfyUIClient audio workflow dispatch", () => {
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
+    if (prevOutputDir === undefined) delete Bun.env.OUTPUT_DIR;
+    else Bun.env.OUTPUT_DIR = prevOutputDir;
+    if (prevInputDir === undefined) delete Bun.env.INPUT_DIR;
+    else Bun.env.INPUT_DIR = prevInputDir;
+    if (prevComfyBaseUrl === undefined) delete Bun.env.COMFYUI_BASE_URL;
+    else Bun.env.COMFYUI_BASE_URL = prevComfyBaseUrl;
     if (tempRoot) rmSync(tempRoot, { recursive: true, force: true });
   });
 

@@ -1,5 +1,5 @@
 import { mkdirSync } from "node:fs";
-import { extname, join } from "node:path";
+import { basename, extname, join, resolve, sep } from "node:path";
 import { Metadata } from "../meta/meta";
 
 export const ALLOWED_REFERENCE_AUDIO_EXTENSIONS = new Set([
@@ -84,9 +84,43 @@ export async function copyReferenceAudioToInputDir(opts: {
     throw new Error("OUTPUT_DIR and INPUT_DIR must be configured");
   }
 
-  mkdirSync(rootInput, { recursive: true });
-  const src = join(rootOutput, opts.relativePath.replace(/^\/+/, ""));
-  const dst = join(rootInput, opts.comfyInputFilename);
+  if (
+    !opts.comfyInputFilename ||
+    opts.comfyInputFilename === "." ||
+    opts.comfyInputFilename === ".." ||
+    opts.comfyInputFilename.includes("..") ||
+    opts.comfyInputFilename.includes("/") ||
+    opts.comfyInputFilename.includes("\\") ||
+    basename(opts.comfyInputFilename) !== opts.comfyInputFilename
+  ) {
+    throw new ReferenceAudioValidationError(
+      "Invalid comfyInputFilename: must be a pure basename",
+    );
+  }
+
+  const resolvedRootOutput = resolve(rootOutput);
+  const src = resolve(
+    resolvedRootOutput,
+    opts.relativePath.replace(/^\/+/, ""),
+  );
+  if (
+    src !== resolvedRootOutput &&
+    !src.startsWith(`${resolvedRootOutput}${sep}`)
+  ) {
+    throw new ReferenceAudioValidationError(
+      "Invalid relativePath: path traversal outside OUTPUT_DIR is not allowed",
+    );
+  }
+
+  const resolvedRootInput = resolve(rootInput);
+  const dst = resolve(resolvedRootInput, opts.comfyInputFilename);
+  if (!dst.startsWith(`${resolvedRootInput}${sep}`)) {
+    throw new ReferenceAudioValidationError(
+      "Invalid comfyInputFilename: path traversal outside INPUT_DIR is not allowed",
+    );
+  }
+
+  mkdirSync(resolvedRootInput, { recursive: true });
   const buf = await Bun.file(src).arrayBuffer();
   await Bun.write(dst, buf);
 }

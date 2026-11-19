@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
   copyReferenceAudioToInputDir,
   MAX_REFERENCE_AUDIO_BYTES,
+  ReferenceAudioValidationError,
   stageReferenceAudioUpload,
   validateReferenceAudioFile,
 } from "./reference-audio";
@@ -75,5 +76,43 @@ describe("reference-audio staging & validation", () => {
       await Bun.file(join(inputDir, staged.comfyInputFilename)).arrayBuffer(),
     );
     expect(copiedBytes).toEqual(payload);
+  });
+
+  test("rejects path traversal in copyReferenceAudioToInputDir", async () => {
+    await expect(
+      copyReferenceAudioToInputDir({
+        relativePath: "../secret.flac",
+        comfyInputFilename: "ref_safe.flac",
+        outputDir,
+        inputDir,
+      }),
+    ).rejects.toThrow(ReferenceAudioValidationError);
+
+    await expect(
+      copyReferenceAudioToInputDir({
+        relativePath: "uploads/../../secret.flac",
+        comfyInputFilename: "ref_safe.flac",
+        outputDir,
+        inputDir,
+      }),
+    ).rejects.toThrow(ReferenceAudioValidationError);
+
+    await expect(
+      copyReferenceAudioToInputDir({
+        relativePath: "uploads/ref_safe.flac",
+        comfyInputFilename: "../escape.flac",
+        outputDir,
+        inputDir,
+      }),
+    ).rejects.toThrow(ReferenceAudioValidationError);
+
+    await expect(
+      copyReferenceAudioToInputDir({
+        relativePath: "uploads/ref_safe.flac",
+        comfyInputFilename: "nested/escape.flac",
+        outputDir,
+        inputDir,
+      }),
+    ).rejects.toThrow(ReferenceAudioValidationError);
   });
 });
