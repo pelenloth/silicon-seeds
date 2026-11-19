@@ -1,7 +1,4 @@
-import {
-  formatModelLyrics,
-  type AudioModelId,
-} from "../shared/audio-models";
+import { formatModelLyrics, type AudioModelId } from "../shared/audio-models";
 
 export const INSTRUMENTAL_TAG = "[instrumental]";
 

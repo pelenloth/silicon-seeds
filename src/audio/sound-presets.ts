@@ -128,7 +128,8 @@ export const BUILTIN_SOUND_PRESETS: readonly SoundPresetItem[] = [
   {
     id: "builtin:yue2-jazz-melody-cover",
     name: "Velvet Jazz Melody Cover",
-    description: "SheetSage2 Melody Cover preset using built-in reference audio",
+    description:
+      "SheetSage2 Melody Cover preset using built-in reference audio",
     audio_model: "yue2",
     category: "Melody Cover",
     instrumental_prompt:
@@ -296,7 +297,8 @@ export const BUILTIN_SOUND_PRESETS: readonly SoundPresetItem[] = [
   {
     id: "builtin:ace-french-house",
     name: "Filtered French House Groove",
-    description: "122 BPM disco-filtered house track with four-on-the-floor kick",
+    description:
+      "122 BPM disco-filtered house track with four-on-the-floor kick",
     audio_model: "ace-step-1.5",
     category: "Song",
     instrumental_prompt:

@@ -170,7 +170,10 @@ export const PostDistinctAudioSchema = z
   .superRefine((data, ctx) => {
     const spec = getAudioModel(normalizeAudioModelId(data.audio_model));
     if (data.duration !== undefined) {
-      if (data.duration < spec.minDuration || data.duration > spec.maxDuration) {
+      if (
+        data.duration < spec.minDuration ||
+        data.duration > spec.maxDuration
+      ) {
         ctx.addIssue({
           code: "custom",
           path: ["duration"],

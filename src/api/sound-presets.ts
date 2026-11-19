@@ -88,7 +88,10 @@ app.put(
       isBuiltinSoundPresetId(rawId) ||
       BUILTIN_SOUND_PRESETS.some((p) => p.id === rawId)
     ) {
-      return c.json({ error: "Built-in sound presets cannot be modified" }, 403);
+      return c.json(
+        { error: "Built-in sound presets cannot be modified" },
+        403,
+      );
     }
     const id = Number(rawId);
     if (!Number.isInteger(id) || id <= 0) {

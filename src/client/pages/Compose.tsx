@@ -99,9 +99,9 @@ export default function Compose() {
     validate: (values) => {
       const hasFile = Boolean(
         fileName() ||
-          (fileInput?.files &&
-            fileInput.files.length > 0 &&
-            (fileInput.files[0]?.size ?? 0) > 0),
+        (fileInput?.files &&
+          fileInput.files.length > 0 &&
+          (fileInput.files[0]?.size ?? 0) > 0),
       );
       if (values.script.trim().length < 3 && !hasFile) {
         return { script: "Write a script or upload a file" };

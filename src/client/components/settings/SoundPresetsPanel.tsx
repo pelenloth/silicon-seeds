@@ -1,4 +1,11 @@
-import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import {
+  createMemo,
+  createSignal,
+  For,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import {
   AUDIO_MODELS,
@@ -69,10 +76,10 @@ const CATEGORY_OPTIONS = SOUND_PRESET_CATEGORIES.map((c) => ({
   label: c,
 }));
 
-const FILTER_OPTIONS: readonly { value: "all" | AudioModelId; label: string }[] = [
-  { value: "all", label: "All" },
-  ...AUDIO_MODEL_OPTIONS,
-];
+const FILTER_OPTIONS: readonly {
+  value: "all" | AudioModelId;
+  label: string;
+}[] = [{ value: "all", label: "All" }, ...AUDIO_MODEL_OPTIONS];
 
 function rowDuration(p: SoundPresetRow): number {
   const fromSettings = p.settings?.duration;
@@ -87,19 +94,27 @@ function rowDuration(p: SoundPresetRow): number {
 
 export default function SoundPresetsPanel() {
   const [presets, setPresets] = createStore<SoundPresetRow[]>([]);
-  const [modelFilter, setModelFilter] = createSignal<"all" | AudioModelId>("all");
+  const [modelFilter, setModelFilter] = createSignal<"all" | AudioModelId>(
+    "all",
+  );
   const [loading, setLoading] = createSignal(true);
   const [loadError, setLoadError] = createSignal<string | null>(null);
   const [modalOpen, setModalOpen] = createSignal(false);
   const [editingId, setEditingId] = createSignal<string | null>(null);
-  const [baseSettings, setBaseSettings] = createSignal<Record<string, unknown>>({});
+  const [baseSettings, setBaseSettings] = createSignal<Record<string, unknown>>(
+    {},
+  );
   const [form, setForm] = createStore<SoundPresetFormInput>({
     ...EMPTY_SOUND_FORM,
   });
-  const [fieldErrors, setFieldErrors] = createSignal<SoundPresetFieldErrors>({});
+  const [fieldErrors, setFieldErrors] = createSignal<SoundPresetFieldErrors>(
+    {},
+  );
   const [modalError, setModalError] = createSignal<string | null>(null);
   const [saving, setSaving] = createSignal(false);
-  const [deletingIds, setDeletingIds] = createSignal<Record<string, boolean>>({});
+  const [deletingIds, setDeletingIds] = createSignal<Record<string, boolean>>(
+    {},
+  );
   let disposed = false;
 
   const filteredPresets = createMemo(() => {
@@ -315,7 +330,11 @@ export default function SoundPresetsPanel() {
         </button>
       </div>
 
-      <div class="flex flex-wrap gap-1.5" role="group" aria-label="Filter by audio model">
+      <div
+        class="flex flex-wrap gap-1.5"
+        role="group"
+        aria-label="Filter by audio model"
+      >
         <For each={FILTER_OPTIONS}>
           {(opt) => (
             <button
@@ -367,7 +386,9 @@ export default function SoundPresetsPanel() {
               <li class="min-w-0 rounded-field border border-base-300 p-3">
                 <div class="flex items-start justify-between gap-3">
                   <div class="min-w-0 flex-1">
-                    <p class="truncate font-mono text-sm font-medium">{p.name}</p>
+                    <p class="truncate font-mono text-sm font-medium">
+                      {p.name}
+                    </p>
                     <Show when={p.description}>
                       <p class="truncate text-xs text-base-content/60">
                         {p.description}

@@ -1459,4 +1459,3 @@ test("settings: sound presets sub-tab filter, duplicate built-in, create, edit, 
   expect(deletedId).toBe("sound-custom-1");
   await expect(page.getByText("Custom Pop Hook")).toHaveCount(0);
 });
-

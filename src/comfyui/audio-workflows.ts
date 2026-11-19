@@ -330,7 +330,8 @@ function buildMiniMaxMusic3Workflow(opts: {
     },
     "3": {
       inputs: {
-        clip_name: "minimax_music3_text_encoder_pruned_int8_convrot.safetensors",
+        clip_name:
+          "minimax_music3_text_encoder_pruned_int8_convrot.safetensors",
         type: "minimax",
         device: "default",
       },

@@ -200,7 +200,8 @@ export const AUDIO_MODELS: Record<AudioModelId, AudioModelSpec> = {
     promptHint:
       "Instrumental bed, stem loop, foley SFX, or one-shot (5–47s, non-vocal)",
     lyricsPlaceholder: "",
-    lyricsHint: "Stable Audio 3 generates instrumental audio and sound effects only",
+    lyricsHint:
+      "Stable Audio 3 generates instrumental audio and sound effects only",
     tips: [
       "Medium (distilled, 8 steps, CFG 1.0) is fast and crisp; switch to Medium Base (50 steps, CFG 7.0) for heavier prompt adherence.",
       "Pick Audio category (Music, Instrument, SFX, One-shot) and enable Qwen3.5 Reprompting when starting from short prompts.",
