@@ -13,7 +13,7 @@ export namespace Metadata {
   export const CLIP_DURATION = 5;
   export const TRANSITION_DURATION = 3;
 
-  export const INSTRUMENTAL_MODEL = "sa3";
+  export const INSTRUMENTAL_MODEL = "stable-audio-3";
   export const TIMEOUT = 60;
   export const clientId = Bun.randomUUIDv7();
 
