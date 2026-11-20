@@ -43,6 +43,7 @@ export type JobSummary = {
   style_preset?: string | null;
   style_guide?: string | null;
   loras?: string | null;
+  video_settings?: string | null;
 };
 export type JobEvent = {
   id: string;
@@ -445,6 +446,38 @@ function hasNonEmptyLoras(loras: string | null | undefined): boolean {
   }
 }
 
+const H3_PREFILL_KEYS = [
+  "h3_mode",
+  "h3_variant",
+  "ref_image_size",
+  "soundscape",
+  "music",
+  "style_embedding",
+  "sequence_mode",
+] as const;
+
+function videoSettingsPrefill(
+  raw: string | null | undefined,
+): Record<string, string> {
+  if (!raw) return {};
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return {};
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return {};
+  }
+  const rec = parsed as Record<string, unknown>;
+  const out: Record<string, string> = {};
+  for (const key of H3_PREFILL_KEYS) {
+    const v = rec[key];
+    if (typeof v === "string" && v.length > 0) out[key] = v;
+  }
+  return out;
+}
+
 export function jobToPrefill(job: JobSummary): {
   route: string;
   values: Record<string, string>;
@@ -498,6 +531,7 @@ export function jobToPrefill(job: JobSummary): {
   if (hasLoras && job.loras) {
     values.loras = job.loras;
   }
+  Object.assign(values, videoSettingsPrefill(job.video_settings));
 
   if (job.kind === "image") {
     return { route: "/create/image", values };

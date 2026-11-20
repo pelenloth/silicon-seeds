@@ -7,6 +7,13 @@ import {
   type AudioModelId,
   type SoundPresetCategory,
 } from "../../shared/audio-models";
+import {
+  getVideoModelSpec,
+  VIDEO_MODEL_IDS,
+  VIDEO_MODELS as SHARED_VIDEO_MODELS,
+  VIDEO_RESOLUTIONS,
+  type VideoResolutionId,
+} from "../../shared/video-models";
 
 export type GenerationDefaults = {
   style_preset: string;
@@ -20,22 +27,33 @@ export type GenerationDefaults = {
   compose_audio_model: AudioModelId;
 };
 
-export const RESOLUTIONS: readonly { value: string; label: string }[] = [
-  { value: "480p", label: "480p" },
-  { value: "720p", label: "720p" },
-  { value: "1080p", label: "1080p" },
-  { value: "9_16_SD", label: "9:16 (SD)" },
-  { value: "9_16_HD", label: "9:16 (HD)" },
-] as const;
+// Compact labels for selects and summaries; ids come from the shared catalog.
+const RESOLUTION_LABELS: Record<VideoResolutionId, string> = {
+  "480p": "480p",
+  "720p": "720p",
+  "768p": "768p (H3 native)",
+  "1080p": "1080p",
+  "9_16_SD": "9:16 (SD)",
+  "9_16_HD": "9:16 (HD)",
+  "1_1_768": "1:1 (768)",
+  "4_3_768": "4:3 (768)",
+};
+
+export const RESOLUTIONS: readonly { value: string; label: string }[] =
+  VIDEO_RESOLUTIONS.map((r) => ({
+    value: r.value,
+    label: RESOLUTION_LABELS[r.value],
+  }));
 
 export const IMAGE_MODELS: readonly { value: string; label: string }[] = [
   { value: "z-image-turbo", label: "Z-Image-Turbo" },
 ] as const;
 
-export const VIDEO_MODELS: readonly { value: string; label: string }[] = [
-  { value: "wan2.2", label: "Wan 2.2" },
-  { value: "ltx2.3", label: "LTX 2.3" },
-] as const;
+export const VIDEO_MODELS: readonly { value: string; label: string }[] =
+  VIDEO_MODEL_IDS.map((id) => ({
+    value: id,
+    label: SHARED_VIDEO_MODELS[id].label,
+  }));
 
 export const AUDIO_MODEL_OPTIONS: readonly {
   value: AudioModelId;
@@ -83,12 +101,6 @@ export function toGenerationDefaults(
     : FALLBACK_DEFAULTS.style_preset;
 
   const fps = clampInt(map.default_fps, 1, 24, FALLBACK_DEFAULTS.fps);
-  const clipDuration = clampInt(
-    map.default_clip_duration,
-    1,
-    10,
-    FALLBACK_DEFAULTS.clip_duration,
-  );
   const transitionDuration = clampInt(
     map.default_transition_duration,
     1,
@@ -110,6 +122,14 @@ export function toGenerationDefaults(
     map.default_video_model && VALID_VIDEO_MODELS.has(map.default_video_model)
       ? map.default_video_model
       : FALLBACK_DEFAULTS.video_model;
+
+  const maxClipDuration = getVideoModelSpec(videoModel).maxDuration;
+  const clipDuration = clampInt(
+    map.default_clip_duration,
+    1,
+    maxClipDuration,
+    FALLBACK_DEFAULTS.clip_duration,
+  );
 
   const audioModel = normalizeAudioModelId(
     map.default_audio_model,
@@ -366,10 +386,13 @@ export function normalizeDefaults(
   const errors: DefaultsFieldErrors = {};
 
   const fpsRes = parseCanonicalInt(form.default_fps, 1, 24, "Default FPS");
+  const maxClipDuration = getVideoModelSpec(
+    form.default_video_model,
+  ).maxDuration;
   const clipRes = parseCanonicalInt(
     form.default_clip_duration,
     1,
-    10,
+    maxClipDuration,
     "Default clip duration",
   );
   const transRes = parseCanonicalInt(

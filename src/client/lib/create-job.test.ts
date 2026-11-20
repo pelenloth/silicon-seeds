@@ -493,3 +493,55 @@ describe("plans", () => {
     expect(isPlan({ ...base, prompt: "x".repeat(4001) })).toBe(false);
   });
 });
+
+describe("MiniMax H3 create-job validation", () => {
+  test("clamps quickCreateValues clip_duration to model maxDuration", () => {
+    const vals = quickCreateValues("video", "cinematic rocket launch", {
+      style_preset: "none",
+      fps: 24,
+      clip_duration: 14,
+      transition_duration: 2,
+      resolution: "768p",
+      image_model: "z-image-turbo",
+      video_model: "minimax-h3",
+      audio_model: "ace-step-1.5",
+      compose_audio_model: "stable-audio-3",
+    });
+    expect(vals.video_model).toBe("minimax-h3");
+    expect(vals.clip_duration).toBe("14");
+    expect(vals.resolution).toBe("768p");
+  });
+
+  test("clamps clip_duration per video model maxDuration", () => {
+    const base = {
+      style_preset: "none",
+      fps: 24,
+      transition_duration: 2,
+      resolution: "720p",
+      image_model: "z-image-turbo",
+      audio_model: "ace-step-1.5" as const,
+      compose_audio_model: "stable-audio-3" as const,
+    };
+    expect(
+      quickCreateValues("video", "p", {
+        ...base,
+        clip_duration: 14,
+        video_model: "wan2.2",
+      }).clip_duration,
+    ).toBe("10");
+    expect(
+      quickCreateValues("text-to-video", "p", {
+        ...base,
+        clip_duration: 14,
+        video_model: "minimax-h3",
+      }).clip_duration,
+    ).toBe("14");
+    expect(
+      quickCreateValues("video", "p", {
+        ...base,
+        clip_duration: 20,
+        video_model: "minimax-h3",
+      }).clip_duration,
+    ).toBe("15");
+  });
+});

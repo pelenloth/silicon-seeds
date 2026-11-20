@@ -4,7 +4,9 @@ import {
   dedupeLoras,
   FALLBACK_DEFAULTS,
   normalizeDefaults,
+  RESOLUTIONS,
   toGenerationDefaults,
+  VIDEO_MODELS,
   type SoundPresetFormInput,
 } from "./defaults";
 import * as defaultsModule from "./defaults";
@@ -421,5 +423,42 @@ describe("dedupeLoras", () => {
     expect(
       dedupeLoras(["a.safetensors", "a.safetensors", "b.safetensors"]),
     ).toEqual(["a.safetensors", "b.safetensors"]);
+  });
+});
+
+describe("MiniMax H3 video defaults & duration bounds", () => {
+  test("VIDEO_MODELS includes minimax-h3 and RESOLUTIONS includes 768p/1:1/4:3", () => {
+    expect(VIDEO_MODELS.map((m) => m.value)).toEqual([
+      "wan2.2",
+      "ltx2.3",
+      "minimax-h3",
+    ]);
+    expect(RESOLUTIONS.map((r) => r.value)).toContain("768p");
+    expect(RESOLUTIONS.map((r) => r.value)).toContain("1_1_768");
+    expect(RESOLUTIONS.map((r) => r.value)).toContain("4_3_768");
+  });
+
+  test("normalizeDefaults allows 11..15s clip_duration for minimax-h3 while keeping max 10s for wan2.2", () => {
+    const okH3 = normalizeDefaults({
+      default_style_preset: "none",
+      default_resolution: "768p",
+      default_image_model: "z-image-turbo",
+      default_video_model: "minimax-h3",
+      default_fps: "24",
+      default_clip_duration: "15",
+      default_transition_duration: "2",
+    });
+    expect("values" in okH3).toBe(true);
+
+    const badWan = normalizeDefaults({
+      default_style_preset: "none",
+      default_resolution: "720p",
+      default_image_model: "z-image-turbo",
+      default_video_model: "wan2.2",
+      default_fps: "24",
+      default_clip_duration: "11",
+      default_transition_duration: "2",
+    });
+    expect("errors" in badWan).toBe(true);
   });
 });

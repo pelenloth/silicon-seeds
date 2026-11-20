@@ -1,5 +1,6 @@
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { createStore } from "solid-js/store";
+import { getVideoModelSpec } from "../../../shared/video-models";
 import { apiGet, apiSend } from "../../lib/api-client";
 import {
   AUDIO_MODEL_OPTIONS,
@@ -92,6 +93,8 @@ export function resetDefaultsDraftOnUnmount(): void {
 }
 
 export default function DefaultsSection() {
+  const maxClipDuration = () =>
+    getVideoModelSpec(form.default_video_model).maxDuration;
   const [loading, setLoading] = createSignal(!hasLoaded());
   const [loadError, setLoadError] = createSignal<string | null>(null);
   const [saving, setSaving] = createSignal(false);
@@ -321,7 +324,7 @@ export default function DefaultsSection() {
             </Field>
 
             <Field
-              label="Default clip duration (1–10s)"
+              label={`Default clip duration (1–${maxClipDuration()}s)`}
               for="default_clip_duration"
               error={fieldErrors().default_clip_duration}
             >
@@ -331,7 +334,7 @@ export default function DefaultsSection() {
                 type="number"
                 required
                 min="1"
-                max="10"
+                max={String(maxClipDuration())}
                 step="1"
                 aria-invalid={
                   fieldErrors().default_clip_duration ? "true" : undefined

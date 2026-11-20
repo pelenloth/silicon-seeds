@@ -1,4 +1,5 @@
 import { AUDIO_MODELS } from "../../shared/audio-models";
+import { clampVideoDuration } from "../../shared/video-models";
 import { ApiError, apiSend } from "./api-client";
 import { labelOf, RESOLUTIONS, type GenerationDefaults } from "./defaults";
 import type { JobKind } from "./job-view";
@@ -80,7 +81,9 @@ export function quickCreateValues(
         resolution: d.resolution,
         video_model: d.video_model,
         fps: String(d.fps),
-        clip_duration: String(d.clip_duration),
+        clip_duration: String(
+          clampVideoDuration(d.video_model, d.clip_duration),
+        ),
         style_preset: d.style_preset,
         ...overrides,
       };
@@ -90,7 +93,9 @@ export function quickCreateValues(
         resolution: d.resolution,
         video_model: d.video_model,
         fps: String(d.fps),
-        clip_duration: String(d.clip_duration),
+        clip_duration: String(
+          clampVideoDuration(d.video_model, d.clip_duration),
+        ),
         ...overrides,
       };
     case "audio":
