@@ -173,12 +173,12 @@ Useful commands:
 
 ```bash
 bun run test           # tsc (server + client) + eslint (no services needed)
-bun run test:unit      # bun test src (no services needed)
+bun run test:unit      # bun test src scripts (no services needed)
 bun run lint
 bun run format:check   # prettier --check .
 bun run db:rollback    # last migration
 bun run db:chroma      # start local Chroma (path from CONTENT_LIBRARY_DIR, port from CHROMADB_PORT)
-bun run setup:minimax-h3            # provision MiniMax H3 weights, LoRAs, style embeddings, sample images & templates
+bun run setup:minimax-h3            # provision MiniMax H3 weights, LoRAs, style embeddings, sample images & templates into COMFYUI_DIR (or parent of INPUT_DIR)
 bun run setup:minimax-h3 --dry-run  # dry-run verification of MiniMax H3 ComfyUI assets (no downloads or writes)
 ```
 
@@ -188,7 +188,7 @@ bun run setup:minimax-h3 --dry-run  # dry-run verification of MiniMax H3 ComfyUI
 
 ```bash
 bun run test       # typecheck (server + client tsc) + lint (eslint .) - no services needed
-bun run test:unit  # bun test src (unit + convention/guard tests) - no services needed
+bun run test:unit  # bun test src scripts (unit + convention/guard tests) - no services needed
 bun run test:e2e   # Playwright specs in e2e/ (shell, kit, home, jobs, settings, gallery, create-image/video/audio, text-to-video, compose, live-updates)
 ```
 
@@ -280,6 +280,8 @@ Copy `.env.example` to `.env` and edit paths. All vars are read via `Bun.env`.
 | `COMFYUI_BASE_WS` | yes | `ws://127.0.0.1:8188` | ComfyUI WebSocket for queue events |
 | `OUTPUT_DIR` | yes | - | ComfyUI `output` dir (where Comfy writes images/videos) |
 | `INPUT_DIR` | yes | - | ComfyUI `input` dir (where app stages uploads) |
+| `COMFYUI_DIR` | no | parent of `INPUT_DIR` | ComfyUI root directory for `setup:minimax-h3` weight/template installation and asset status checks |
+| `HF_TOKEN` | no | - | Optional Hugging Face token used by `setup:minimax-h3` when downloading weights from `huggingface.co` |
 | `CONTENT_LIBRARY_DIR` | yes | - | Persistent gallery dir (e.g. `~/content_library`) |
 | `SCRIPTS_DIR` | no | `<CONTENT_LIBRARY_DIR>/scripts` | Where text-to-script saves generated `.md` files |
 | `HOST` | no | `127.0.0.1` | Server bind host (set `0.0.0.0` only on trusted networks, app has no auth) |
