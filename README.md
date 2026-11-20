@@ -16,7 +16,7 @@
   <img src="https://img.shields.io/badge/SolidJS-1.x-2C4F7C?style=flat-square&logo=solid&logoColor=white" alt="SolidJS" />
   <img src="https://img.shields.io/badge/DaisyUI-5.x-1AD1A5?style=flat-square" alt="DaisyUI" />
   <img src="https://img.shields.io/badge/Kysely%20%2B%20SQLite-003B57?style=flat-square&logo=sqlite&logoColor=white" alt="Kysely + SQLite" />
-  <img src="https://img.shields.io/badge/ComfyUI-Z--Image--Turbo%20%7C%20Wan%202.2%20%7C%20LTX%202.3-111111?style=flat-square" alt="ComfyUI" />
+  <img src="https://img.shields.io/badge/ComfyUI-Z--Image--Turbo%20%7C%20Wan%202.2%20%7C%20LTX%202.3%20%7C%20ACE%20Step%20%7C%20YuE2%20%7C%20MiniMax%20%7C%20SA3-111111?style=flat-square" alt="ComfyUI" />
   <img src="https://img.shields.io/badge/LM%20Studio-Qwen%203-6A5ACD?style=flat-square" alt="LM Studio" />
   <img src="https://img.shields.io/badge/version-1.0.0-blue?style=flat-square" alt="version 1.0.0" />
 </p>
@@ -35,7 +35,7 @@
 
 > **License:** GPL-3.0-or-later - see [LICENSE](LICENSE). Any derivative or service that includes this code must remain open under the same license.
 
-Local generative media studio. Orchestrates **LM Studio** (text), **ComfyUI** (image / video / audio), **SQLite + Kysely** (jobs), and a **SolidJS + DaisyUI** frontend to turn prompts and scripts into images, videos, audio tracks, and composed films. Queue is DB-backed, UI is SSE-driven, everything runs on your hardware.
+Local generative media studio. Orchestrates **LM Studio** (text), **ComfyUI** (image / video / multi-model audio), **SQLite + Kysely** (jobs & presets), and a **SolidJS + DaisyUI** frontend to turn prompts, scripts, and reference audio into images, videos, songs, melody covers, sound effects, and composed films. Queue is DB-backed, UI is SSE-driven, everything runs on your hardware.
 
 ---
 
@@ -56,18 +56,38 @@ One prompt box. Auto mode picks the format and settings from your description; r
 <tr>
 <td width="50%">
 
-**Compose - script to film**
+**Audio Studio - 4 models, sound presets, melody cover**
 
-Script + style guide + voice + LoRAs -> speech -> scenes -> images -> videos -> transitions -> concat. Shared studio layout with local drafts and an inline result panel.
+Switch between ACE Step 1.5 XL, YuE2 3B (ABC Score planning + SheetSage2 Melody Cover from Reference Audio), MiniMax Music 3 (3-part studio captions), and Stable Audio 3 (instrumentals, loops, SFX + Qwen Reprompting).
 
-<img src="readme/compose.webp" alt="Compose view - script, style guide, models, LoRAs, voice" width="100%" />
+<img src="readme/create-audio.webp" alt="Create Audio view - multi-model audio studio, YuE2 ABC planning, Melody Cover upload, sound presets" width="100%" />
+
+</td>
+<td width="50%">
+
+**Compose - script to film with selectable underscore**
+
+Script + style guide + voice + LoRAs + configurable Audio Model & Sound Preset -> speech -> scenes -> images -> videos -> transitions -> instrumental underscore -> concat.
+
+<img src="readme/compose.webp" alt="Compose view - script, style guide, image/video/audio models, sound presets, LoRAs, voice" width="100%" />
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+**Sound & Style Presets - curated built-ins and custom CRUD**
+
+16 built-in sound & genre presets across all 4 audio models (duplicable into custom presets) alongside visual style presets in `/settings?tab=presets`.
+
+<img src="readme/sound-presets.webp" alt="Settings Sound Presets view - 16 built-in sound and genre presets with model filters and custom CRUD" width="100%" />
 
 </td>
 <td width="50%">
 
 **Settings - appearance, defaults, LoRAs, presets**
 
-Tabs for Appearance (themes), Defaults (prefill new jobs), LoRAs (synced from ComfyUI, reorder, toggle active), and Style presets.
+Tabs for Appearance (themes), Defaults (prefill new jobs including default studio and compose audio models), LoRAs (synced from ComfyUI, reorder, toggle active), and Style & Sound presets.
 
 <img src="readme/settings.webp" alt="Settings view - appearance themes, defaults, LoRAs, style presets" width="100%" />
 
@@ -85,9 +105,9 @@ Job list and detail view at `/jobs/<id>` with status filters, search, Status / M
 </td>
 <td width="50%">
 
-**Create - shared studio and Home Auto mode**
+**Create Studio - shared layout and AI prompt enhance**
 
-Home quick create with Auto mode plus dedicated Image, Video, Text-to-Video, Audio, and Compose pages with local drafts and live result panels.
+Shared studio layout across Image, Video, Text-to-Video, Audio, and Compose with AI prompt Enhance (and Undo chain), style presets, LoRA stacking, local drafts, and live result panels.
 
 <img src="readme/create-image.webp" alt="Create Image view - prompt, style, LoRAs" width="100%" />
 
@@ -117,7 +137,7 @@ git clone https://github.com/DennisLoska/silicon-seeds.git
 cd silicon-seeds
 bun install
 cp .env.example .env   # edit paths above
-bun run db:migrate      # creates silicon-seeds.sqlite + style presets/loras tables
+bun run db:migrate      # creates data/silicon-seeds.sqlite + style_presets, sound_presets, loras tables
 ```
 
 Validate setup:
@@ -155,6 +175,7 @@ Useful commands:
 bun run test           # tsc (server + client) + eslint (no services needed)
 bun run test:unit      # bun test src (no services needed)
 bun run lint
+bun run format:check   # prettier --check .
 bun run db:rollback    # last migration
 bun run db:chroma      # start local Chroma (path from CONTENT_LIBRARY_DIR, port from CHROMADB_PORT)
 ```
@@ -180,12 +201,15 @@ Variants: `bun run test:e2e:headed`, `bun run test:e2e:ui`.
 | Area | What you get |
 |------|--------------|
 | **Home & Auto mode** | Quick create bar with Auto, Image, Video, Text-to-Video, and Audio modes, active job cards, and recent creations. In Auto mode (`POST /api/intent`), the planner picks the format and rewrites the prompt while deterministic rules decide kind, counts, sizes, and durations. |
+| **Multi-Model Audio Studio** | Four ComfyUI audio backbones in `/create/audio` with dynamic model controls and graph-pruning workflow builders: **ACE Step 1.5 XL** (fast vocal/instrumental tracks with BPM, Key/Scale, Time Signature), **YuE2 3B** (symbolic ABC Score chord planning + **SheetSage2 Melody Cover** from uploaded Reference Audio or built-in sample), **MiniMax Music 3** (studio vocal flagship with 3-part `Global Metadata` / `Vocal Details` / `Arrangement` scaffold, `int8`/`fp16`, tiled VAE decode), and **Stable Audio 3** (8-step `medium` & 50-step `medium_base` instrumentals, loops, SFX, one-shots up to 180s with optional Qwen3.5-2B **Reprompting**). |
+| **Sound & Style Presets** | 16 curated built-in **Sound Presets** tailored to each audio model's prompt and lyric format, plus custom Sound Preset CRUD (`/api/sound-presets`) alongside **Style Presets** (`/api/style-presets`) in `/settings?tab=presets`. |
+| **Compose & Underscore** | End-to-end narrated film pipeline (`/compose`): script or `.txt`/`.md` + style guide + Voicebox TTS + Z-Image-Turbo + Wan 2.2 / LTX 2.3 + configurable **Underscore** audio model and sound preset. |
+| **Create Studio & AI Enhance** | Shared `StudioLayout` across Image (`/create/image`), Video (`/create/video`), Text-to-Video (`/create/text-to-video`), Audio (`/create/audio`), and Compose (`/compose`) with local per-route drafts, preset-aware AI prompt Enhance (with Undo chain) and Inspire, LoRA stacking, and a live `ResultPanel`. |
 | **Activity & Toasts** | Topbar Activity panel listing running, queued, and recent jobs with pause/resume/cancel actions, plus completion and failure toasts with direct links to `/jobs/<id>`. |
 | **Command Palette** | `Ctrl K` (or `Cmd K`) opens a keyboard-navigable palette for routes, settings sections, recent jobs, themes, and quick create for typed prompts. |
-| **Create Studio** | Shared `StudioLayout` across Image (`/create/image`), Video (`/create/video`), Text-to-Video (`/create/text-to-video`), Audio (`/create/audio`), and Compose (`/compose`) with local per-route drafts, prompt Enhance (with Undo chain) and Inspire, style presets, LoRA stacking, and a live `ResultPanel`. |
-| **Jobs** | Master-detail view (`/jobs` and `/jobs/:id?tab=status\|media\|events`) with status filter chips, search, step timeline, media grid with lightbox, "Reuse settings" prefill, per-event regenerate, and job pause, resume, retry, cancel, and delete actions. |
+| **Jobs** | Master-detail view (`/jobs` and `/jobs/:id?tab=status\|media\|events`) with status filter chips, search, step timeline, media grid with lightbox, "Reuse settings" prefill (preserving per-model audio defaults), per-event regenerate, and job pause, resume, retry, cancel, and delete actions. |
 | **Gallery** | Content library backed by `CONTENT_LIBRARY_DIR` with type filters (`all`, `image`, `video`, `audio`), cursor pagination, server-rendered thumbnails (`/thumbs/*`), and a lightbox with job links. |
-| **Settings** | Tabbed interface (`/settings?tab=appearance\|defaults\|loras\|presets`) covering Appearance (Daylight, Tokyo Night, Dracula, and OpenCode themes), Defaults (resolution, models, FPS, durations, preset), LoRAs (sync from ComfyUI, toggle active, reorder, delete), and Style presets. |
+| **Settings** | Tabbed interface (`/settings?tab=appearance\|defaults\|loras\|presets`) covering Appearance (System, Daylight, Tokyo Night, OpenCode, and Dracula themes), Defaults (resolution, image/video/audio/compose models, FPS, durations, presets), LoRAs (sync from ComfyUI, toggle active, reorder, delete), and Visual Style + Sound & Genre presets. |
 | **Shell & Favicon** | Collapsible sidebar, responsive mobile drawer, `New` create menu, and SVG favicon (`src/client/favicon.svg`). |
 | **Local-first** | No cloud or external API keys. Bring your own ComfyUI and LM Studio; optional Voicebox and ChromaDB degrade gracefully. |
 
@@ -196,10 +220,10 @@ Variants: `bun run test:e2e:headed`, `bun run test:e2e:ui`.
 ```mermaid
 flowchart LR
   UI[SolidJS + DaisyUI<br/>Home / Create / Jobs / Gallery / Settings] -- SSE / REST --> API[Hono API<br/>:3000]
-  API -- Kysely --> DB[(SQLite<br/>jobs + events + style_presets)]
+  API -- Kysely --> DB[(SQLite<br/>jobs + events + style_presets + sound_presets)]
   API -- queue --> Q[QueueManager<br/>prio 300/200/100<br/>single-slot]
-  Q --> LLM[LM Studio<br/>scene expansion + intent]
-  Q --> COMFY[ComfyUI<br/>Z-Image-Turbo<br/>Wan 2.2 / LTX 2.3<br/>Stable Audio]
+  Q --> LLM[LM Studio<br/>scene expansion + intent + enhance]
+  Q --> COMFY[ComfyUI<br/>Z-Image-Turbo<br/>Wan 2.2 / LTX 2.3<br/>ACE Step 1.5 / YuE2 / MiniMax Music 3 / Stable Audio 3]
   Q --> TTS[Voicebox<br/>TTS / cloning]
   COMFY --> OUT[(OUTPUT_DIR)]
   TTS --> OUT
@@ -208,6 +232,8 @@ flowchart LR
 ```
 
 **Request flow:** `Create -> POST /api/jobs/*` -> DB `jobs` + `events` rows -> `QueueManager.pump()` picks next event by priority -> driver (LLM / ComfyUI / TTS) executes -> writes artifact to `OUTPUT_DIR` -> copies to `CONTENT_LIBRARY_DIR` -> SSE pushes update -> UI re-renders. ComfyUI progress arrives via WebSocket (`COMFYUI_BASE_WS`).
+
+**Multi-model audio & graph pruning:** `src/shared/audio-models.ts` defines the isomorphic registry for `ace-step-1.5`, `yue2`, `minimax-music-3`, and `stable-audio-3` (capabilities, duration bounds, lyric formatting, and default settings). `src/comfyui/audio-workflows.ts` constructs fresh, pruned ComfyUI API graphs per job so inactive auxiliary subgraphs (such as `SheetSage2AudioToABC`, `YuE2GenerateABC`, or `Qwen3.5-2B` reprompting) are omitted rather than loaded into VRAM. Uploaded Reference Audio for YuE2 Melody Covers is validated and staged into ComfyUI's `INPUT_DIR` via `src/audio/reference-audio.ts`.
 
 **Client data layer:** A single SSE connection (`/jobs/stream/all`) with server heartbeats feeds the client job store (`src/client/stores/jobs.ts`). The store holds the job list, tracks per-job signatures and stream epochs, runs a staleness watchdog with exponential-backoff reconnect and a 10-second polling fallback while jobs are active, and drives the Activity panel and completion/failure toasts. Per-job views (`JobDetail`, `ResultPanel`) subscribe to the store via `onJobUpdate` and refetch only when their job's signature or the stream epoch changes.
 
@@ -230,8 +256,8 @@ flowchart LR
 
 | Service | Default URL | Required | What it does |
 |---------|-------------|----------|--------------|
-| [ComfyUI](https://github.com/comfyanonymous/ComfyUI) | `http://127.0.0.1:8188` | yes | Image (Z-Image-Turbo), video (Wan 2.2 / LTX 2.3), audio generation |
-| [LM Studio](https://lmstudio.ai/) | `http://127.0.0.1:1234` | yes | LLM text, scene prompts, style expansion, intent planning, job naming |
+| [ComfyUI](https://github.com/comfyanonymous/ComfyUI) | `http://127.0.0.1:8188` | yes | Image (Z-Image-Turbo), video (Wan 2.2 / LTX 2.3), audio (ACE Step 1.5 XL, YuE2 3B + SheetSage2, MiniMax Music 3, Stable Audio 3) |
+| [LM Studio](https://lmstudio.ai/) | `http://127.0.0.1:1234` | yes | LLM text, scene prompts, style expansion, prompt enhancement, intent planning, job naming |
 | [Voicebox](https://github.com/JarodMica/voicebox) | `http://127.0.0.1:17493` | for Compose | TTS for script -> speech |
 | ChromaDB | `http://127.0.0.1:8000` | no | Vector search for gallery |
 
@@ -286,9 +312,9 @@ LOG_LEVEL=info
 ## First run
 
 1. Open `http://localhost:3000` -> `Home` (or press `Ctrl K` to open the command palette).
-2. Go to `Settings` -> `Appearance` to pick a theme, `LoRAs` -> `Sync from ComfyUI` to import LoRAs, and `Defaults` / `Style presets` to configure defaults.
+2. Go to `Settings` -> `Appearance` to pick a theme, `LoRAs` -> `Sync from ComfyUI` to import LoRAs, and `Defaults` / `Style presets` (Visual style presets & Sound & genre presets) to configure defaults.
 3. **Quick create:** Type a prompt on `Home` in `Auto` mode (or pick `Image`, `Video`, `Text to Video`, `Audio`) and click `Generate`.
-4. **Create pages & Compose:** Open `/create/image`, `/create/video`, `/create/text-to-video`, `/create/audio`, or `/compose` for full controls, local drafts, and the inline result panel.
+4. **Create pages & Compose:** Open `/create/image`, `/create/video`, `/create/text-to-video`, `/create/audio` (select between ACE Step 1.5 XL, YuE2 3B with ABC Score & Melody Cover, MiniMax Music 3, or Stable Audio 3), or `/compose` for full controls, local drafts, and the inline result panel.
 5. **Jobs & Gallery:** Track active work in the topbar Activity panel or `/jobs/<id>`, and browse outputs in `/gallery`.
 
 API quick test:
@@ -313,8 +339,8 @@ curl -X POST http://localhost:3000/api/jobs/images \
 | DB | **SQLite** + **Kysely** | Single file, zero ops, type-safe queries, migrations in `migrations/` |
 | Image | **ComfyUI + Z-Image-Turbo** | 9-step turbo, CLIP `qwen_3_4b`, LoRA stacking |
 | Video | **Wan 2.2 14B** / **LTX 2.3** | i2v, t2v, and transition models, selectable per job |
-| Audio | **Stable Audio 3** + **ACE Step 1.5** | Instrumental / song, Voicebox for TTS |
-| LLM | **LM Studio** (Qwen 3) | Local OpenAI-compatible API, scene expansion and intent planning |
+| Audio | **ACE Step 1.5 XL** / **YuE2 3B** / **MiniMax Music 3** / **Stable Audio 3** | Full songs, ABC score planning, SheetSage2 melody cover, instrumentals & SFX; Voicebox for TTS |
+| LLM | **LM Studio** (Qwen 3) | Local OpenAI-compatible API, scene expansion, prompt enhancement, and intent planning |
 | Search | **ChromaDB** | Embeddings (`text-embedding-qwen3-embedding-8b`) for gallery RAG |
 
 ---
