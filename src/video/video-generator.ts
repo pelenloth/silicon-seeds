@@ -16,6 +16,10 @@ import { LLM } from "../llm/llm";
 import { Logger } from "../logger/logger";
 import { Utils } from "../utils/utils";
 import { DB } from "../db/db";
+import {
+  resolveVideoDimensions,
+  type VideoJobSettings,
+} from "../shared/video-models";
 
 const OUTPUT_DIR = Bun.env.OUTPUT_DIR;
 
@@ -63,19 +67,119 @@ function orderedOutputEvents(events: JobEvent[]): OrderedMediaEvent[] {
   return outputEvents;
 }
 
-function resolutionForJob(job: { resolution?: string }) {
-  switch (job.resolution) {
-    case "720p":
-      return { width: 1280, height: 720 };
-    case "1080p":
-      return { width: 1920, height: 1080 };
-    case "9_16_SD":
-      return { width: 720, height: 1280 };
-    case "9_16_HD":
-      return { width: 1080, height: 1920 };
-    case "480p":
-    default:
-      return { width: 640, height: 480 };
+function parseVideoSettings(
+  raw: string | null | undefined,
+): VideoJobSettings | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return parsed && typeof parsed === "object"
+      ? (parsed as VideoJobSettings)
+      : null;
+  } catch {
+    Logger.warn("Ignoring malformed job video_settings JSON");
+    return null;
+  }
+}
+
+/**
+ * ffmpeg args that normalize one concat segment to a common video format and
+ * a stereo 48 kHz AAC track. Clips without audio get a silent track so the
+ * concat demuxer sees identical stream layouts and native H3 audio survives.
+ */
+export function buildSegmentNormalizeFfmpegArgs(opts: {
+  sourceFile: string;
+  normalizedFile: string;
+  width: number;
+  height: number;
+  fps: number;
+  hasAudioStream: boolean;
+}): string[] {
+  const vf = `scale=${opts.width}:${opts.height}:force_original_aspect_ratio=decrease,pad=${opts.width}:${opts.height}:(ow-iw)/2:(oh-ih)/2:black,fps=${opts.fps},format=yuv420p`;
+  if (opts.hasAudioStream) {
+    return [
+      "ffmpeg",
+      "-y",
+      "-i",
+      opts.sourceFile,
+      "-vf",
+      vf,
+      "-c:v",
+      "libx264",
+      "-preset",
+      "veryfast",
+      "-crf",
+      "18",
+      "-c:a",
+      "aac",
+      "-ar",
+      "48000",
+      "-ac",
+      "2",
+      "-movflags",
+      "+faststart",
+      opts.normalizedFile,
+    ];
+  }
+  return [
+    "ffmpeg",
+    "-y",
+    "-i",
+    opts.sourceFile,
+    "-f",
+    "lavfi",
+    "-i",
+    "anullsrc=channel_layout=stereo:sample_rate=48000",
+    "-map",
+    "0:v:0",
+    "-map",
+    "1:a:0",
+    "-vf",
+    vf,
+    "-c:v",
+    "libx264",
+    "-preset",
+    "veryfast",
+    "-crf",
+    "18",
+    "-c:a",
+    "aac",
+    "-ar",
+    "48000",
+    "-ac",
+    "2",
+    "-shortest",
+    "-movflags",
+    "+faststart",
+    opts.normalizedFile,
+  ];
+}
+
+export async function probeHasAudioStream(filePath: string): Promise<boolean> {
+  try {
+    const proc = spawn({
+      cmd: [
+        "ffprobe",
+        "-v",
+        "quiet",
+        "-select_streams",
+        "a",
+        "-show_entries",
+        "stream=index",
+        "-of",
+        "json",
+        filePath,
+      ],
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    const output = await new Response(proc.stdout).text();
+    const status = await proc.exited;
+    if (status !== 0) return false;
+    const json = JSON.parse(output) as { streams?: unknown[] };
+    return Array.isArray(json.streams) && json.streams.length > 0;
+  } catch (error) {
+    Logger.warn(`ffprobe audio check failed for ${filePath}`, error);
+    return false;
   }
 }
 
@@ -126,6 +230,7 @@ export namespace VideoGenerator {
     prompt: string;
     filename: string;
     index?: number;
+    video_settings?: Record<string, unknown>;
   }) {
     const task = await JobOrchestrator.schedule_task({
       ...event,
@@ -141,12 +246,14 @@ export namespace VideoGenerator {
     jobId: string;
     prompt: string;
     index?: number;
+    video_settings?: Record<string, unknown>;
   }) {
     const task = await JobOrchestrator.schedule_task({
       jobId: event.jobId,
       prompt: event.prompt,
       filename: null as any,
       index: event.index,
+      video_settings: event.video_settings,
       type: Event.NewVideoPrompt,
       mode: JobMode.Video,
     });
@@ -161,6 +268,7 @@ export namespace VideoGenerator {
     startImg: string;
     endImg: string;
     index?: number;
+    video_settings?: Record<string, unknown>;
   }) {
     const task = await JobOrchestrator.schedule_task({
       ...event,
@@ -184,6 +292,7 @@ export namespace VideoGenerator {
     );
 
     const { id, prompt } = item;
+    const settings = item.video_settings as VideoJobSettings | undefined;
 
     if (item.type === Event.NewTransitionPrompt) {
       const modelVariant: ModelVariant = {
@@ -192,6 +301,7 @@ export namespace VideoGenerator {
         prompt,
         startImage: item.startImg,
         endImage: item.endImg,
+        settings,
       };
 
       await comfyClient.generate(modelVariant, job);
@@ -204,6 +314,7 @@ export namespace VideoGenerator {
           kind: "image-to-video",
           prompt,
           imagePath: item.filename,
+          settings,
         };
         await comfyClient.generate(modelVariant, job);
       } else {
@@ -211,13 +322,84 @@ export namespace VideoGenerator {
           id,
           kind: "text-to-video",
           prompt,
+          settings,
         };
         await comfyClient.generate(modelVariant, job);
       }
     }
   }
 
+  /**
+   * Continuation sequences: once clip N finishes, extract its last frame and
+   * schedule clip N+1 as i2v from that frame. Returns true when the event
+   * belongs to a continuation chain that this call handled (scheduled the
+   * next clip, or failed the job), false when the caller should fall through
+   * to transition handling.
+   */
+  export async function advance_continuation(
+    event: JobEvent,
+  ): Promise<boolean> {
+    const job = await DB.Jobs.findById(event.jobId);
+    const videoSettings = parseVideoSettings(job.video_settings);
+    if (videoSettings?.sequence_mode !== "continuation") return false;
+
+    const prompts = videoSettings.sequence_prompts ?? [];
+    const currentIndex = (event as VideoPromptEvent).index ?? 0;
+    if (currentIndex + 1 >= prompts.length) return false;
+
+    const nextFrame = `${event.id}_cont_last.png`;
+    try {
+      const inputDir = Bun.env.INPUT_DIR;
+      Utils.assert(inputDir, "INPUT_DIR environment variable is not set");
+      await runProcess(
+        [
+          "ffmpeg",
+          "-y",
+          "-nostdin",
+          "-sseof",
+          "-0.1",
+          "-i",
+          `/tmp/${event.jobId}_${event.id}.mp4`,
+          "-frames:v",
+          "1",
+          "-update",
+          "1",
+          `${inputDir}/${nextFrame}`,
+        ],
+        `Continuation frame extraction for ${event.id}`,
+      );
+
+      await schedule_video({
+        jobId: event.jobId,
+        prompt: prompts[currentIndex + 1],
+        filename: nextFrame,
+        index: currentIndex + 1,
+        video_settings: {
+          ...videoSettings,
+          h3_mode: "i2v",
+          first_frame: nextFrame,
+          last_frame: undefined,
+        },
+      });
+    } catch (error) {
+      Logger.error(
+        `Continuation clip ${currentIndex + 1} failed for job ${event.jobId}`,
+        error,
+      );
+      await DB.Jobs.failJob(event.jobId);
+    }
+    return true;
+  }
+
   export async function prepare_transitions(event: JobEvent) {
+    const job = await DB.Jobs.findById(event.jobId);
+    if (job.workflow === "video") {
+      // Direct video jobs only get transitions when explicitly requested;
+      // single clips and continuation chains are stitched without them.
+      const videoSettings = parseVideoSettings(job.video_settings);
+      if (videoSettings?.sequence_mode !== "transition") return null;
+    }
+
     const events = await DB.Events.findByJobId(event.jobId);
     const incompleteClips = events.filter(
       (e) =>
@@ -406,71 +588,45 @@ Your response should only include the newly generated prompt!
     }
 
     const fps = job.fps || Metadata.FPS;
-    const { width, height } = resolutionForJob(job);
-
-    Logger.info(
-      `Final combined event order:`,
-      outputEvents.map((e) => ({
-        type: e.type,
-        index: e.index,
-      })),
-    );
-
-    const files: string[] = [];
-    for (let i = 0; i < outputEvents.length; i++) {
-      const e = outputEvents[i];
-      const sourceFile = `/tmp/${jobId}_${e.id}.mp4`;
-      const normalizedFile = `/tmp/${jobId}_${String(i).padStart(3, "0")}_normalized.mp4`;
-
-      Logger.info(
-        `Normalizing file for concat: ${sourceFile} -> ${normalizedFile} (index: ${e.index})`,
-      );
-
-      await runProcess(
-        [
-          "ffmpeg",
-          "-y",
-          "-i",
-          sourceFile,
-          "-vf",
-          `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:black,fps=${fps},format=yuv420p`,
-          "-c:v",
-          "libx264",
-          "-preset",
-          "veryfast",
-          "-crf",
-          "18",
-          "-c:a",
-          "aac",
-          "-ar",
-          "48000",
-          "-ac",
-          "2",
-          "-movflags",
-          "+faststart",
-          normalizedFile,
-        ],
-        `Segment normalization for ${sourceFile}`,
-      );
-
-      Logger.info(
-        `Adding file to combine: ${normalizedFile} (index: ${e.index})`,
-      );
-
-      files.push(normalizedFile);
-    }
-
-    const fileList = files.map((f) => `file '${f}'`).join("\n") + "\n";
-    const listFile = `/tmp/${jobId}_concat.txt`;
-    await Bun.write(listFile, fileList);
+    const { width, height } = resolveVideoDimensions(job.resolution);
 
     try {
+      const files: string[] = [];
+      for (let i = 0; i < outputEvents.length; i++) {
+        const e = outputEvents[i];
+        const sourceFile = `/tmp/${jobId}_${e.id}.mp4`;
+        const normalizedFile = `/tmp/${jobId}_${String(i).padStart(3, "0")}_normalized.mp4`;
+        const hasAudioStream = await probeHasAudioStream(sourceFile);
+
+        Logger.info(
+          `Normalizing file for concat: ${sourceFile} -> ${normalizedFile} (index: ${e.index}, audio: ${hasAudioStream})`,
+        );
+
+        await runProcess(
+          buildSegmentNormalizeFfmpegArgs({
+            sourceFile,
+            normalizedFile,
+            width,
+            height,
+            fps,
+            hasAudioStream,
+          }),
+          `Segment normalization for ${sourceFile}`,
+        );
+
+        files.push(normalizedFile);
+      }
+
+      const fileList = files.map((f) => `file '${f}'`).join("\n") + "\n";
+      const listFile = `/tmp/${jobId}_concat.txt`;
+      await Bun.write(listFile, fileList);
+
       const name = `composition_${jobId}.mp4`;
       const out = `${OUTPUT_DIR}/${name}`;
       Logger.info(`Executing ffmpeg to create ${out}`);
 
-      const ffmpegProcess = spawn({
-        cmd: [
+      await runProcess(
+        [
           "ffmpeg",
           "-y",
           "-f",
@@ -481,30 +637,25 @@ Your response should only include the newly generated prompt!
           listFile,
           "-c",
           "copy",
-          `${out}`,
+          out,
         ],
-        stdio: ["ignore", "pipe", "pipe"],
-      });
-
-      for await (const chunk of ffmpegProcess.stderr!) {
-        if (typeof chunk === "string") {
-          Logger.info("ffmpeg:", chunk);
-        } else {
-          Logger.info("ffmpeg:", new TextDecoder().decode(chunk));
-        }
-      }
-
-      const status = await ffmpegProcess.exited;
-      if (status !== 0) {
-        throw new Error(`FFmpeg failed with exit code ${status}`);
-      }
+        `Video concat for job ${jobId}`,
+      );
 
       await create_video_composition_event(jobId, name);
       Logger.info(`Video combination completed successfully!`);
-    } catch (error: any) {
-      Logger.error("Video combination failed:", error.message);
-    } finally {
-      // await Bun.file(listFile).delete();
+    } catch (error) {
+      Logger.error(
+        "Video combination failed:",
+        error instanceof Error ? error.message : String(error),
+      );
+      // Direct video jobs wait on the composition to finish; without one
+      // they would stay active forever, so fail them explicitly.
+      if (job.workflow === "video") {
+        await DB.Jobs.failJob(jobId);
+      }
     }
+
+    await DB.Jobs.finalizeCompletedJobs();
   }
 }

@@ -4,6 +4,16 @@ import {
   getAudioModel,
   normalizeAudioModelId,
 } from "../shared/audio-models";
+import {
+  getVideoModelSpec,
+  MINIMAX_H3_MODES,
+  MINIMAX_H3_REF_IMAGE_SIZES,
+  MINIMAX_H3_SEQUENCE_MODES,
+  MINIMAX_H3_STYLE_EMBEDDING_IDS,
+  MINIMAX_H3_VARIANTS,
+  VIDEO_MODEL_IDS,
+  VIDEO_RESOLUTION_IDS,
+} from "../shared/video-models";
 
 const OptionalBoolPreprocess = z.preprocess((v) => {
   if (v === undefined || v === null || v === "") return undefined;
@@ -63,22 +73,153 @@ export const PostTextToImageSchema = z.object({
 
 export type PostTextToImage = z.infer<typeof PostTextToImageSchema>;
 
-export const PostTextToVideoSchema = z.object({
-  prompt: z.string().trim().min(1, "Prompt is required"),
-  resolution: z.enum(["480p", "720p", "1080p", "9_16_SD", "9_16_HD"]),
-  video_model: z.enum(["wan2.2", "ltx2.3"]),
-  image_model: z.string().max(50).optional(),
-  fps: z.coerce.number().int().min(1).max(24),
-  clip_duration: z.coerce.number().int().min(1).max(10),
-  style_preset: z.string().min(1).max(50).optional(),
-  style_guide: z
+function isEmptyFormValue(v: unknown) {
+  return (
+    v === undefined ||
+    v === null ||
+    v === "" ||
+    (v instanceof File && v.size === 0 && v.name === "")
+  );
+}
+
+function parseJsonField(v: unknown) {
+  if (typeof v !== "string") return v;
+  try {
+    return JSON.parse(v);
+  } catch {
+    return v;
+  }
+}
+
+const OptionalImageFilePreprocess = z.preprocess(
+  (v) => (isEmptyFormValue(v) ? undefined : v),
+  z.instanceof(File).optional(),
+);
+
+const ReferenceImagesPreprocess = z.preprocess(
+  (v) => {
+    if (isEmptyFormValue(v)) return undefined;
+    const list = (Array.isArray(v) ? v : [v]).filter(
+      (item) => !isEmptyFormValue(item),
+    );
+    return list.length > 0 ? list : undefined;
+  },
+  z
+    .array(z.instanceof(File))
+    .max(9, "At most 9 reference images are allowed")
+    .optional(),
+);
+
+const KeyframeGuidesPreprocess = z.preprocess(
+  (v) => (isEmptyFormValue(v) ? undefined : parseJsonField(v)),
+  z
+    .array(
+      z.object({
+        refIndex: z.coerce.number().int().min(0).max(8),
+        frameIdx: z.coerce.number().int().min(0),
+      }),
+    )
+    .max(9)
+    .optional(),
+);
+
+const SequencePromptsPreprocess = z.preprocess(
+  (v) => (isEmptyFormValue(v) ? undefined : parseJsonField(v)),
+  z
+    .array(z.string().trim().min(1, "Sequence prompts must not be empty"))
+    .min(2, "Provide at least 2 sequence prompts")
+    .max(8, "At most 8 sequence prompts are allowed")
+    .optional(),
+);
+
+const OptionalTextField = (max: number) =>
+  z
     .string()
     .trim()
-    .max(2000)
+    .max(max)
     .optional()
-    .transform((v) => (v && v.length > 0 ? v : undefined)),
-  loras: LorasPreprocess,
-});
+    .transform((v) => (v && v.length > 0 ? v : undefined));
+
+const OptionalEnumField = <T extends readonly [string, ...string[]]>(
+  values: T,
+) =>
+  z.preprocess(
+    (v) => (isEmptyFormValue(v) || v === "none" ? undefined : v),
+    z.enum(values).optional(),
+  );
+
+export const PostTextToVideoSchema = z
+  .object({
+    prompt: z.string().trim().min(1, "Prompt is required"),
+    resolution: z.enum(VIDEO_RESOLUTION_IDS),
+    video_model: z.enum(VIDEO_MODEL_IDS),
+    image_model: z.string().max(50).optional(),
+    fps: z.coerce.number().int().min(1).max(24),
+    clip_duration: z.coerce.number().int().min(1).max(15),
+    style_preset: z.string().min(1).max(50).optional(),
+    style_guide: OptionalTextField(2000),
+    loras: LorasPreprocess,
+    // MiniMax H3
+    h3_mode: OptionalEnumField(MINIMAX_H3_MODES),
+    h3_variant: OptionalEnumField(MINIMAX_H3_VARIANTS),
+    ref_image_size: OptionalEnumField(MINIMAX_H3_REF_IMAGE_SIZES),
+    soundscape: OptionalTextField(1000),
+    music: OptionalTextField(1000),
+    style_embedding: OptionalEnumField(MINIMAX_H3_STYLE_EMBEDDING_IDS),
+    first_frame: OptionalImageFilePreprocess,
+    last_frame: OptionalImageFilePreprocess,
+    reference_images: ReferenceImagesPreprocess,
+    keyframe_guides: KeyframeGuidesPreprocess,
+    sequence_mode: OptionalEnumField(MINIMAX_H3_SEQUENCE_MODES),
+    sequence_prompts: SequencePromptsPreprocess,
+  })
+  .superRefine((data, ctx) => {
+    const spec = getVideoModelSpec(data.video_model);
+    if (data.clip_duration > spec.maxDuration) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["clip_duration"],
+        message: `Clip duration must be at most ${spec.maxDuration} seconds for ${spec.label}`,
+      });
+    }
+    if (
+      data.h3_mode === "multiframe" &&
+      (data.reference_images?.length ?? 0) < 1
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["reference_images"],
+        message: "Multi-frame mode needs at least 1 reference image",
+      });
+    }
+    if (data.h3_mode === "fl2v") {
+      if (!data.first_frame) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["first_frame"],
+          message: "First-last-frame mode needs a first frame",
+        });
+      }
+      if (!data.last_frame) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["last_frame"],
+          message: "First-last-frame mode needs a last frame",
+        });
+      }
+    }
+    if (
+      (data.sequence_mode === "continuation" ||
+        data.sequence_mode === "transition") &&
+      (data.sequence_prompts?.length ?? 0) < 2
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["sequence_prompts"],
+        message: "Sequences need at least 2 prompts",
+      });
+    }
+  });
 
 export type PostTextToVideo = z.infer<typeof PostTextToVideoSchema>;
 
@@ -90,7 +231,7 @@ export const PostComposeSchema = z
       return v;
     }, z.instanceof(File).optional()),
     image_model: z.string().max(50),
-    video_model: z.string().max(50),
+    video_model: z.enum(VIDEO_MODEL_IDS).optional(),
     audio_model: z.enum(AUDIO_MODEL_IDS).optional(),
     sound_preset: z
       .string()
@@ -98,9 +239,9 @@ export const PostComposeSchema = z
       .max(80)
       .optional()
       .transform((v) => (v && v !== "none" ? v : undefined)),
-    resolution: z.string().max(7),
+    resolution: z.string().max(12),
     fps: z.coerce.number().min(1).max(24),
-    clip_duration: z.coerce.number().min(1).max(10),
+    clip_duration: z.coerce.number().min(1).max(15),
     transition_duration: z.coerce.number().min(1).max(10),
     style_preset: z.string().min(1).max(50),
     voice_id: z.string().optional(),
@@ -121,7 +262,17 @@ export const PostComposeSchema = z
     {
       message: "Either script or script_file must be provided",
     },
-  );
+  )
+  .superRefine((data, ctx) => {
+    const spec = getVideoModelSpec(data.video_model);
+    if (data.clip_duration > spec.maxDuration) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["clip_duration"],
+        message: `Clip duration must be at most ${spec.maxDuration} seconds for ${spec.label}`,
+      });
+    }
+  });
 
 export type PostCompose = z.infer<typeof PostComposeSchema>;
 

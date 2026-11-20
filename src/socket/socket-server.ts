@@ -195,19 +195,22 @@ export namespace SocketServer {
         }
       }
 
-      // [STATE: prepare_transitions] — generate transition prompts, schedule transitions
+      // [STATE: prepare_transitions] — chain continuation clips, or generate
+      // transition prompts and schedule transitions
       if (event.type === Event.NewVideoPrompt && event.mode === JobMode.Video) {
-        const transitions = await VideoGenerator.prepare_transitions(event);
-
-        if (transitions) {
-          for (const transition of transitions) {
-            await VideoGenerator.schedule_transition({
-              jobId: event.jobId,
-              prompt: transition.prompt,
-              startImg: transition.first,
-              endImg: transition.last,
-              index: transition.index,
-            });
+        const continued = await VideoGenerator.advance_continuation(event);
+        if (!continued) {
+          const transitions = await VideoGenerator.prepare_transitions(event);
+          if (transitions) {
+            for (const transition of transitions) {
+              await VideoGenerator.schedule_transition({
+                jobId: event.jobId,
+                prompt: transition.prompt,
+                startImg: transition.first,
+                endImg: transition.last,
+                index: transition.index,
+              });
+            }
           }
         }
       }
@@ -235,9 +238,21 @@ export namespace SocketServer {
         allComplete,
       });
 
-      if (allComplete) {
+      const completedClips = events.filter(
+        (e) =>
+          (e.type === Event.NewVideoPrompt ||
+            e.type === Event.NewTransitionPrompt) &&
+          e.status === JobStatus.Complete,
+      ).length;
+      const hasComposition = events.some(
+        (e) =>
+          e.type === Event.NewVideoComposition &&
+          e.status === JobStatus.Complete,
+      );
+
+      if (allComplete && completedClips >= 2 && !hasComposition) {
         Logger.info(`Triggering video combiner for job ${event.jobId}`);
-        void VideoGenerator.combine_outputs(event.jobId);
+        await VideoGenerator.combine_outputs(event.jobId);
       }
 
       await DB.Jobs.finalizeCompletedJobs();

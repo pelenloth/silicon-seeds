@@ -33,6 +33,7 @@ import {
 } from "../schemas";
 import { formatZodIssues, validationHook } from "../validation";
 import { ReferenceAudioValidationError } from "../../audio/reference-audio";
+import { ReferenceImageValidationError } from "../../video/reference-images";
 import { galleryEtag } from "../gallery-etag";
 import { clampGalleryLimit } from "../../media/gallery-page";
 import {
@@ -97,14 +98,33 @@ app.post("/jobs/scenes", async () => {
   return script_to_scenes();
 });
 
-app.post(
-  "/jobs/videos",
-  zValidator("form", PostTextToVideoSchema, validationHook),
-  async (c) => {
-    const body = c.req.valid("form");
-    return text_to_image_to_video(body);
-  },
-);
+app.post("/jobs/videos", async (c) => {
+  const ct = c.req.header("content-type") ?? "";
+  let raw: unknown;
+  if (ct.includes("application/json")) {
+    raw = await c.req.json().catch(() => null);
+    if (!raw || typeof raw !== "object") {
+      return c.json({ error: "Invalid JSON body", fields: {} }, 400);
+    }
+  } else {
+    // `all: true` keeps repeated `reference_images` uploads as an array.
+    raw = await c.req.parseBody({ all: true });
+  }
+
+  const parsed = PostTextToVideoSchema.safeParse(raw);
+  if (!parsed.success) {
+    return c.json(formatZodIssues(parsed.error.issues), 400);
+  }
+
+  try {
+    return await text_to_image_to_video(parsed.data);
+  } catch (err) {
+    if (err instanceof ReferenceImageValidationError) {
+      return c.json({ error: err.message }, 400);
+    }
+    throw err;
+  }
+});
 
 app.post(
   "/jobs/videos/compose",

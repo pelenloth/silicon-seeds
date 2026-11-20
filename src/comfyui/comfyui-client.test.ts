@@ -104,3 +104,59 @@ describe("ComfyUIClient audio workflow dispatch", () => {
     ).toBe(true);
   });
 });
+
+describe("ComfyUIClient MiniMax H3 dispatch", () => {
+  test("dispatches minimax-h3 T2V, I2V, transition, and multiframe workflows with UI extra_pnginfo", async () => {
+    const { ComfyUIClient } = await import("./comfyui-client");
+    let postedBody: Record<string, any> | null = null;
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
+      postedBody = JSON.parse(String(init?.body));
+      return new Response(JSON.stringify({ prompt_id: "h3_evt_1" }), {
+        status: 200,
+      });
+    }) as unknown as typeof fetch;
+
+    try {
+      const client = new ComfyUIClient({ baseUrl: "http://127.0.0.1:8188" });
+      await client.generate(
+        {
+          id: "h3_evt_1",
+          kind: "text-to-video",
+          prompt: "Neon Tokyo street at midnight",
+          settings: {
+            h3_mode: "t2v",
+            h3_variant: "turbo_8",
+            soundscape: "Rain and footsteps",
+          },
+        } as any,
+        {
+          id: "job_h3",
+          created_at: new Date().toISOString(),
+          status: "active" as any,
+          name: "H3 Test",
+          video_model: "minimax-h3",
+          resolution: "768p",
+          clip_duration: 6,
+          fps: 24,
+        },
+      );
+
+      expect(postedBody).not.toBeNull();
+      expect(postedBody!.prompt["4"].inputs.unet_name).toBe(
+        "minimax_h3_fl2va_pruned_int8_convrot.safetensors",
+      );
+      expect(postedBody!.prompt["10"].inputs.width).toBe(1376);
+      expect(postedBody!.prompt["10"].inputs.height).toBe(768);
+      expect(postedBody!.prompt["10"].inputs.length).toBe(145);
+      expect(postedBody!.prompt["10"].inputs.prompt).toContain(
+        "soundscape: Rain and footsteps",
+      );
+      expect(
+        postedBody!.extra_data?.extra_pnginfo?.nodes?.length,
+      ).toBeGreaterThan(5);
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
+});
