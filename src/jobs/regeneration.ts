@@ -40,6 +40,60 @@ function unique<T>(items: T[]) {
   return [...new Set(items)];
 }
 
+function isContinuationSequence(raw: string | null | undefined): boolean {
+  if (!raw) return false;
+  try {
+    const parsed = JSON.parse(raw) as { sequence_mode?: unknown } | null;
+    return parsed?.sequence_mode === "continuation";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Event ids invalidated by regenerating one video clip: the composition, the
+ * adjacent transitions and, in a continuation chain, every later clip (each
+ * one starts from its predecessor's last frame).
+ */
+export function videoDerivativeIds(
+  events: readonly { id: string; type: string; index?: number | null }[],
+  videoEventId: string,
+  videoSettings: string | null | undefined,
+): string[] {
+  const videoEvent = events.find((evt) => evt.id === videoEventId);
+  const index =
+    videoEvent?.type === Event.NewVideoPrompt ? (videoEvent.index ?? -1) : -1;
+  const dropDownstreamClips = isContinuationSequence(videoSettings);
+
+  return unique(
+    events
+      .filter((evt) => {
+        if (evt.id === videoEventId) return false;
+        if (evt.type === Event.NewVideoComposition) return true;
+        if (
+          evt.type === Event.NewTransitionPrompt &&
+          evt.index !== undefined &&
+          evt.index !== null &&
+          (evt.index === index || evt.index === index - 1)
+        ) {
+          return true;
+        }
+        if (
+          dropDownstreamClips &&
+          evt.type === Event.NewVideoPrompt &&
+          evt.index !== undefined &&
+          evt.index !== null &&
+          // the first clip may be stored without an index (treated as 0)
+          evt.index > Math.max(index, 0)
+        ) {
+          return true;
+        }
+        return false;
+      })
+      .map((evt) => evt.id),
+  );
+}
+
 export namespace RegenerationService {
   export async function regenerate(jobId: string, eventId: string) {
     const job = await DB.Jobs.findById(jobId);
@@ -74,7 +128,7 @@ export namespace RegenerationService {
     }
 
     if (event.type === Event.NewVideoPrompt) {
-      await invalidateVideoDerivatives(events, eventId);
+      await invalidateVideoDerivatives(events, eventId, job.video_settings);
     }
 
     if (event.type === Event.NewTransitionPrompt) {
@@ -119,25 +173,12 @@ export namespace RegenerationService {
   async function invalidateVideoDerivatives(
     events: Awaited<ReturnType<typeof DB.Events.findByJobId>>,
     videoEventId: string,
+    videoSettings: string | null | undefined,
   ) {
-    const videoEvent = events.find((evt) => evt.id === videoEventId);
-    const index =
-      videoEvent?.type === Event.NewVideoPrompt ? (videoEvent.index ?? -1) : -1;
-
-    const dependentIds = unique(
-      events
-        .filter((evt) => {
-          if (evt.type === Event.NewVideoComposition) return true;
-          if (
-            evt.type === Event.NewTransitionPrompt &&
-            evt.index !== undefined &&
-            (evt.index === index || evt.index === index - 1)
-          ) {
-            return true;
-          }
-          return false;
-        })
-        .map((evt) => evt.id),
+    const dependentIds = videoDerivativeIds(
+      events,
+      videoEventId,
+      videoSettings,
     );
 
     await deleteAssetFiles(dependentIds);

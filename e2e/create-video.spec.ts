@@ -120,3 +120,75 @@ test("create video: submit payload sends exact PostTextToVideoSchema fields (blo
   });
   expect(capturedFields!.style_preset?.length).toBeGreaterThan(0);
 });
+
+test("create video: MiniMax H3 controls and submit payload (blocked with 503)", async ({
+  page,
+}) => {
+  let capturedFields: Record<string, string> | null = null;
+  await page.route("**/api/jobs/videos", async (route) => {
+    const req = route.request();
+    const buf = req.postDataBuffer();
+    const ct = req.headers()["content-type"] ?? "";
+    if (buf && ct) {
+      const fd = await new Response(new Uint8Array(buf), {
+        headers: { "content-type": ct },
+      }).formData();
+      const map: Record<string, string> = {};
+      fd.forEach((v, k) => {
+        map[k] = typeof v === "string" ? v : String(v);
+      });
+      capturedFields = map;
+    }
+    await route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "blocked by test" }),
+    });
+  });
+
+  await page.goto("/create/video");
+  const prompt = page.locator('textarea[name="prompt"]');
+  await expect(prompt).toBeVisible({ timeout: 10000 });
+  const duration = page.locator('input[name="clip_duration"][type="range"]');
+
+  await page.locator('select[name="video_model"]').selectOption("wan2.2");
+  await expect(duration).toHaveAttribute("max", "10");
+  await expect(page.getByText("LoRAs", { exact: true })).toBeVisible();
+  await expect(page.getByText("MiniMax H3 Mode & Speed")).toHaveCount(0);
+
+  await page.locator('select[name="video_model"]').selectOption("minimax-h3");
+  await expect(page.getByText("MiniMax H3 Mode & Speed")).toBeVisible();
+  await expect(duration).toHaveAttribute("max", "15");
+  await expect(page.getByText("LoRAs", { exact: true })).toHaveCount(0);
+
+  const mode = page.locator('select[name="h3_mode"]');
+  await mode.selectOption("multiframe");
+  await expect(page.locator('select[name="ref_image_size"]')).toBeVisible();
+  await expect(page.locator("#h3-ref-images")).toBeVisible();
+  await mode.selectOption("t2v");
+  await expect(page.locator("#h3-ref-images")).toHaveCount(0);
+
+  await page.getByText("Native Stereo Audio", { exact: true }).click();
+  await page.locator('input[name="soundscape"]').fill("distant thunder");
+
+  await prompt.fill("a lighthouse in a storm");
+  await page.locator('select[name="resolution"]').selectOption("768p");
+  await duration.fill("12");
+
+  await page.locator("#submit-btn").click();
+  await expect.poll(() => capturedFields).not.toBeNull();
+  expect(capturedFields).toMatchObject({
+    prompt: "a lighthouse in a storm",
+    video_model: "minimax-h3",
+    resolution: "768p",
+    clip_duration: "12",
+    h3_mode: "t2v",
+    h3_variant: "turbo_8",
+    soundscape: "distant thunder",
+  });
+  expect(capturedFields!).not.toHaveProperty("loras");
+  expect(capturedFields!).not.toHaveProperty("sequence_prompts");
+
+  await page.locator('select[name="video_model"]').selectOption("wan2.2");
+  await expect(duration).toHaveValue("10");
+});

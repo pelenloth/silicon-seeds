@@ -1,7 +1,13 @@
-import { Show } from "solid-js";
+import { createEffect, createSignal, on, Show } from "solid-js";
+import {
+  computeVideoFrameLength,
+  getVideoModelSpec,
+  type KeyframeGuideSpec,
+} from "../../shared/video-models";
 import LoraSelector from "../components/LoraSelector";
 import StylePresetSelect from "../components/StylePresetSelect";
 import { useCreateForm } from "../components/create/create-form";
+import { MiniMaxH3Panels } from "../components/create/MiniMaxH3Panels";
 import { PromptField } from "../components/create/PromptField";
 import { ResultPanel } from "../components/create/ResultPanel";
 import { CollapsibleSection, Section } from "../components/create/Section";
@@ -12,11 +18,36 @@ import { SelectField } from "../components/ui/SelectField";
 import { SliderField } from "../components/ui/SliderField";
 import { labelOf, RESOLUTIONS, VIDEO_MODELS } from "../lib/defaults";
 
+// FormData keys that only the MiniMax H3 backend understands. Stripped for
+// other video models so their payloads stay byte-identical.
+const H3_ONLY_KEYS = [
+  "h3_mode",
+  "h3_variant",
+  "ref_image_size",
+  "soundscape",
+  "music",
+  "style_embedding",
+  "sequence_mode",
+  "sequence_prompts",
+  "keyframe_guides",
+  "first_frame",
+  "last_frame",
+  "reference_images",
+] as const;
+
 export default function CreateVideoPage(props: {
   variant: "video" | "text-to-video";
 }) {
   const isVideo = () => props.variant === "video";
   const idPrefix = () => (isVideo() ? "cv" : "ctv");
+
+  const [firstFrameFile, setFirstFrameFile] = createSignal<File | null>(null);
+  const [lastFrameFile, setLastFrameFile] = createSignal<File | null>(null);
+  const [referenceFiles, setReferenceFiles] = createSignal<File[]>([]);
+  const [keyframeGuides, setKeyframeGuides] = createSignal<KeyframeGuideSpec[]>(
+    [],
+  );
+  const [sequencePrompts, setSequencePrompts] = createSignal<string[]>([]);
 
   const f = useCreateForm({
     kind: props.variant,
@@ -28,6 +59,13 @@ export default function CreateVideoPage(props: {
         resolution: d.resolution,
         clip_duration: String(d.clip_duration),
         fps: String(d.fps),
+        h3_mode: "t2v",
+        h3_variant: "turbo_8",
+        ref_image_size: "match",
+        soundscape: "",
+        music: "",
+        style_embedding: "",
+        sequence_mode: "single",
       };
       if (isVideo()) {
         base.style_preset = d.style_preset;
@@ -40,7 +78,7 @@ export default function CreateVideoPage(props: {
       {
         field: "clip_duration",
         min: 1,
-        max: 10,
+        max: 15,
         integer: true,
         label: "Duration",
       },
@@ -52,6 +90,32 @@ export default function CreateVideoPage(props: {
         label: "FPS",
       },
     ],
+    validate: (values) => {
+      const errors: Record<string, string> = {};
+      const spec = getVideoModelSpec(values.video_model);
+      const duration = Number(values.clip_duration);
+      if (Number.isFinite(duration) && duration > spec.maxDuration) {
+        errors.clip_duration = `Duration must be at most ${spec.maxDuration}s for ${spec.label}`;
+      }
+      if (values.video_model !== "minimax-h3") return errors;
+      const mode = values.h3_mode || "t2v";
+      if ((mode === "i2v" || mode === "fl2v") && !firstFrameFile()) {
+        errors.first_frame = "First frame image is required";
+      }
+      if (mode === "fl2v" && !lastFrameFile()) {
+        errors.last_frame = "Last frame image is required";
+      }
+      if (mode === "multiframe" && referenceFiles().length < 1) {
+        errors.reference_images = "Add at least 1 reference picture";
+      }
+      if (
+        (values.sequence_mode || "single") !== "single" &&
+        sequencePrompts().filter((p) => p.trim().length > 0).length < 2
+      ) {
+        errors.sequence_prompts = "Sequences need at least 2 clip prompts";
+      }
+      return errors;
+    },
     labels: {
       prompt: "Prompt",
       style_guide: "Style guide",
@@ -61,14 +125,108 @@ export default function CreateVideoPage(props: {
       fps: "FPS",
       style_preset: "Style preset",
       loras: "LoRAs",
+      h3_mode: "Generation mode",
+      h3_variant: "Quality / speed variant",
+      ref_image_size: "Reference image sizing",
+      soundscape: "Soundscape",
+      music: "Music",
+      style_embedding: "Style embedding",
+      sequence_mode: "Sequence mode",
+      sequence_prompts: "Clip prompts",
+      first_frame: "First frame",
+      last_frame: "Last frame",
+      reference_images: "Reference pictures",
     },
     beforeSubmit: (fd) => {
       if (!isVideo()) {
         fd.delete("style_preset");
         fd.delete("loras");
       }
+      if (!isMiniMaxH3()) {
+        for (const key of H3_ONLY_KEYS) fd.delete(key);
+        return;
+      }
+      fd.delete("loras");
+      const mode = f.values.h3_mode || "t2v";
+      const first = firstFrameFile();
+      const last = lastFrameFile();
+      if (first && (mode === "i2v" || mode === "fl2v")) {
+        fd.set("first_frame", first);
+      }
+      if (last && mode === "fl2v") fd.set("last_frame", last);
+      if (mode === "multiframe") {
+        fd.delete("reference_images");
+        for (const file of referenceFiles()) {
+          fd.append("reference_images", file);
+        }
+        const guides = keyframeGuides().filter(
+          (g) => g.refIndex < referenceFiles().length,
+        );
+        if (guides.length > 0) {
+          fd.set("keyframe_guides", JSON.stringify(guides));
+        }
+      }
+      if ((f.values.sequence_mode || "single") !== "single") {
+        fd.set(
+          "sequence_prompts",
+          JSON.stringify(
+            sequencePrompts()
+              .map((p) => p.trim())
+              .filter((p) => p.length > 0),
+          ),
+        );
+      }
     },
   });
+
+  const isMiniMaxH3 = () => f.values.video_model === "minimax-h3";
+  const modelSpec = () => getVideoModelSpec(f.values.video_model);
+  const maxDuration = () => modelSpec().maxDuration;
+
+  // Keep the duration inside the selected model's range when switching away
+  // from a longer-clip model.
+  createEffect(
+    on(
+      () => f.values.video_model,
+      () => {
+        const max = maxDuration();
+        if (Number(f.values.clip_duration) > max) {
+          f.setUntouched("clip_duration", String(max));
+        }
+      },
+      { defer: true },
+    ),
+  );
+
+  // MiniMax H3 always renders at its native 24 fps; keep the submitted fps in
+  // sync so compositions and the UI agree.
+  createEffect(
+    on(
+      () => f.values.video_model,
+      (model) => {
+        if (model !== "minimax-h3") return;
+        const nativeFps = String(getVideoModelSpec(model).nativeFps);
+        if (f.values.fps !== nativeFps) {
+          f.setUntouched("fps", nativeFps);
+        }
+      },
+    ),
+  );
+
+  const resetAll = () => {
+    f.reset();
+    setFirstFrameFile(null);
+    setLastFrameFile(null);
+    setReferenceFiles([]);
+    setKeyframeGuides([]);
+    setSequencePrompts([]);
+  };
+
+  const insertPromptToken = (token: string) => {
+    const current = f.values.prompt;
+    const sep = current.length === 0 || /\s$/.test(current) ? "" : " ";
+    f.set("prompt", `${current}${sep}${token}`);
+  };
 
   let formEl: HTMLFormElement | undefined;
   const clipDuration = () => Number(f.values.clip_duration) || 5;
@@ -145,7 +303,7 @@ export default function CreateVideoPage(props: {
                   label="Duration"
                   name="clip_duration"
                   min={1}
-                  max={10}
+                  max={maxDuration()}
                   value={clipDuration()}
                   onInput={(v) => f.set("clip_duration", String(v))}
                   format={(v) => `${v}s`}
@@ -171,7 +329,29 @@ export default function CreateVideoPage(props: {
               </Show>
             </div>
           </Section>
-          <Show when={isVideo()}>
+          <Show when={isMiniMaxH3()}>
+            <MiniMaxH3Panels
+              values={f.values}
+              set={(field, value) => f.set(field, value)}
+              errors={f.errors()}
+              maxFrames={computeVideoFrameLength(
+                f.values.video_model,
+                clipDuration(),
+              )}
+              onInsertPromptToken={insertPromptToken}
+              firstFrameFile={firstFrameFile()}
+              setFirstFrameFile={setFirstFrameFile}
+              lastFrameFile={lastFrameFile()}
+              setLastFrameFile={setLastFrameFile}
+              referenceFiles={referenceFiles()}
+              setReferenceFiles={setReferenceFiles}
+              keyframeGuides={keyframeGuides()}
+              setKeyframeGuides={setKeyframeGuides}
+              sequencePrompts={sequencePrompts()}
+              setSequencePrompts={setSequencePrompts}
+            />
+          </Show>
+          <Show when={isVideo() && modelSpec().supportsLoRAs}>
             <CollapsibleSection
               title="LoRAs"
               count={f.loras().length}
@@ -201,7 +381,7 @@ export default function CreateVideoPage(props: {
             summary={summary()}
             submitting={f.submitting()}
             formError={f.formError()}
-            onReset={f.reset}
+            onReset={resetAll}
           />
         </>
       }

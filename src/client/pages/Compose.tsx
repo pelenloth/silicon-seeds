@@ -2,10 +2,12 @@ import {
   createEffect,
   createMemo,
   createSignal,
+  on,
   onCleanup,
   onMount,
   Show,
 } from "solid-js";
+import { getVideoModelSpec } from "../../shared/video-models";
 import { Icons } from "../components/Icons";
 import LoraSelector from "../components/LoraSelector";
 import SoundPresetSelect from "../components/SoundPresetSelect";
@@ -77,7 +79,7 @@ export default function Compose() {
       {
         field: "clip_duration",
         min: 1,
-        max: 10,
+        max: 15,
         integer: true,
         label: "Clip",
       },
@@ -97,6 +99,12 @@ export default function Compose() {
       },
     ],
     validate: (values) => {
+      const errors: Record<string, string> = {};
+      const spec = getVideoModelSpec(values.video_model);
+      const clip = Number(values.clip_duration);
+      if (Number.isFinite(clip) && clip > spec.maxDuration) {
+        errors.clip_duration = `Clip must be at most ${spec.maxDuration}s for ${spec.label}`;
+      }
       const hasFile = Boolean(
         fileName() ||
         (fileInput?.files &&
@@ -104,9 +112,9 @@ export default function Compose() {
           (fileInput.files[0]?.size ?? 0) > 0),
       );
       if (values.script.trim().length < 3 && !hasFile) {
-        return { script: "Write a script or upload a file" };
+        errors.script = "Write a script or upload a file";
       }
-      return undefined;
+      return errors;
     },
     labels: {
       script: "Video script",
@@ -206,6 +214,23 @@ export default function Compose() {
   };
 
   const clipDuration = () => Number(f.values.clip_duration) || 5;
+  const maxClipDuration = () =>
+    getVideoModelSpec(f.values.video_model).maxDuration;
+
+  // Keep the clip length inside the selected model's range when switching
+  // away from a longer-clip model.
+  createEffect(
+    on(
+      () => f.values.video_model,
+      () => {
+        const max = maxClipDuration();
+        if (Number(f.values.clip_duration) > max) {
+          f.setUntouched("clip_duration", String(max));
+        }
+      },
+      { defer: true },
+    ),
+  );
   const transitionDuration = () => Number(f.values.transition_duration) || 2;
   const fps = () => Number(f.values.fps) || 16;
   const summary = () =>
@@ -330,6 +355,13 @@ export default function Compose() {
                 options={VIDEO_MODELS}
                 error={f.errors().video_model}
               />
+              <Show when={f.values.video_model === "minimax-h3"}>
+                <div class="col-span-2">
+                  <span class="badge badge-info badge-sm h-auto py-0.5">
+                    MiniMax H3 generates native 24 fps stereo audio per clip
+                  </span>
+                </div>
+              </Show>
               <SelectField
                 label="Audio model"
                 name="audio_model"
@@ -369,7 +401,7 @@ export default function Compose() {
                 label="Clip"
                 name="clip_duration"
                 min={1}
-                max={10}
+                max={maxClipDuration()}
                 value={clipDuration()}
                 onInput={(v) => f.set("clip_duration", String(v))}
                 format={(v) => `${v}s`}

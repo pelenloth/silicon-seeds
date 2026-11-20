@@ -195,20 +195,39 @@ export namespace SocketServer {
         }
       }
 
-      // [STATE: prepare_transitions] — generate transition prompts, schedule transitions
+      // [STATE: prepare_transitions] — chain continuation clips, or generate
+      // transition prompts and schedule transitions
       if (event.type === Event.NewVideoPrompt && event.mode === JobMode.Video) {
-        const transitions = await VideoGenerator.prepare_transitions(event);
-
-        if (transitions) {
-          for (const transition of transitions) {
-            await VideoGenerator.schedule_transition({
-              jobId: event.jobId,
-              prompt: transition.prompt,
-              startImg: transition.first,
-              endImg: transition.last,
-              index: transition.index,
-            });
+        try {
+          const continued = await VideoGenerator.advance_continuation(event);
+          if (!continued) {
+            const transitions = await VideoGenerator.prepare_transitions(event);
+            if (transitions) {
+              for (const transition of transitions) {
+                await VideoGenerator.schedule_transition({
+                  jobId: event.jobId,
+                  prompt: transition.prompt,
+                  startImg: transition.first,
+                  endImg: transition.last,
+                  index: transition.index,
+                });
+              }
+            }
           }
+        } catch (error) {
+          // ffmpeg frame extraction or transition prep failed: mark this clip
+          // Failed (so Retry re-runs it and this step) and fail the job
+          // instead of leaving it stuck in Active.
+          Logger.error(
+            "Failed to advance video sequence or prepare transitions",
+            error,
+          );
+          await VideoGenerator.fail_media_event(
+            event,
+            "video sequence step failed",
+          );
+          void QueueManager.pump();
+          return;
         }
       }
 
@@ -235,9 +254,24 @@ export namespace SocketServer {
         allComplete,
       });
 
-      if (allComplete) {
-        Logger.info(`Triggering video combiner for job ${event.jobId}`);
-        void VideoGenerator.combine_outputs(event.jobId);
+      const completedClips = events.filter(
+        (e) =>
+          (e.type === Event.NewVideoPrompt ||
+            e.type === Event.NewTransitionPrompt) &&
+          e.status === JobStatus.Complete,
+      ).length;
+      const hasComposition = events.some(
+        (e) =>
+          e.type === Event.NewVideoComposition &&
+          e.status === JobStatus.Complete,
+      );
+
+      if (allComplete && completedClips >= 2 && !hasComposition) {
+        const job = await DB.Jobs.findById(event.jobId).catch(() => null);
+        if (job?.status === JobLifecycleStatus.Active) {
+          Logger.info(`Triggering video combiner for job ${event.jobId}`);
+          await VideoGenerator.combine_outputs(event.jobId, event);
+        }
       }
 
       await DB.Jobs.finalizeCompletedJobs();

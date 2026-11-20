@@ -26,7 +26,7 @@ export namespace Metadata {
     job_id: string;
     created_at?: string;
     filename: string;
-    filetype: "image" | "video" | "unknown";
+    filetype: "image" | "video" | "audio" | "unknown";
     resolution?: string;
     prompt: string;
     model?: string;
@@ -55,28 +55,70 @@ export namespace Metadata {
     Utils.assert(assRes, "Failed to retrieve generated image for video prompt");
 
     const { buffer, filename: fileName } = assRes;
-    const base64 = Buffer.from(buffer).toString("base64");
-    const image = await LLM.client.files.prepareImageBase64(fileName, base64);
 
-    const res = await LLM.message("Generate a description for this image.", [
-      image,
-    ]);
+    let description: string;
+    let title: string | undefined;
+    let tags: string[] | undefined;
 
-    Utils.assert(res?.content, "Failed to generate image description");
-    const description = res.content;
+    const tmpVideo = `/tmp/meta_vid_${id}.mp4`;
+    const tmpFrame = `/tmp/meta_frame_${id}.png`;
+    try {
+      if (filetype === "audio") {
+        throw new Error("Vision captioning is not available for audio");
+      }
 
-    const [titleRes, tagsRes] = await Promise.all([
-      LLM.message(
-        `Generate a 5-10 word long title for the given image description: ${description}`,
-      ),
-      LLM.structured(
-        `Generate 3-5 metatags based on this image description: ${description}`,
-        z.array(z.string()).min(1).max(5),
-      ),
-    ]);
+      // Never hand raw .mp4 bytes to the vision model: caption frame 0.
+      let visionBytes: ArrayBuffer | Uint8Array = buffer;
+      let visionName = fileName;
+      if (filetype === "video") {
+        visionBytes = await extractFirstFrame(buffer, tmpVideo, tmpFrame);
+        visionName = `${fileName.split(".")[0]}_frame0.png`;
+      }
 
-    const title = titleRes?.content;
-    const tags = tagsRes?.parsed;
+      const base64 = Buffer.from(visionBytes).toString("base64");
+      const image = await LLM.client.files.prepareImageBase64(
+        visionName,
+        base64,
+      );
+
+      const res = await LLM.message("Generate a description for this image.", [
+        image,
+      ]);
+
+      Utils.assert(res?.content, "Failed to generate image description");
+      description = res.content;
+
+      const [titleRes, tagsRes] = await Promise.all([
+        LLM.message(
+          `Generate a 5-10 word long title for the given image description: ${description}`,
+        ),
+        LLM.structured(
+          `Generate 3-5 metatags based on this image description: ${description}`,
+          z.array(z.string()).min(1).max(5),
+        ),
+      ]);
+
+      title = titleRes?.content;
+      tags = tagsRes?.parsed;
+    } catch (e) {
+      Logger.warn("Vision captioning failed — using prompt-based metadata", {
+        filename,
+        error: e instanceof Error ? e.message : String(e),
+      });
+      description = prompt;
+      title =
+        prompt.slice(0, 60) ||
+        (filetype === "video" ? "Generated Video" : "Generated Media");
+      tags = [model || filetype];
+    } finally {
+      await Promise.all(
+        [tmpVideo, tmpFrame].map((p) =>
+          Bun.file(p)
+            .delete()
+            .catch(() => undefined),
+        ),
+      );
+    }
 
     const metaJson = {
       job_id,
@@ -117,6 +159,34 @@ export namespace Metadata {
         error: e instanceof Error ? e.message : String(e),
       });
     }
+  }
+
+  async function extractFirstFrame(
+    videoBytes: ArrayBuffer,
+    tmpVideo: string,
+    tmpFrame: string,
+  ): Promise<ArrayBuffer> {
+    await Bun.write(tmpVideo, videoBytes);
+    const proc = spawn({
+      cmd: [
+        "ffmpeg",
+        "-y",
+        "-nostdin",
+        "-i",
+        tmpVideo,
+        "-frames:v",
+        "1",
+        "-update",
+        "1",
+        tmpFrame,
+      ],
+      stdio: ["ignore", "ignore", "ignore"],
+    });
+    const status = await proc.exited;
+    if (status !== 0) {
+      throw new Error(`ffmpeg frame extraction failed (exit ${status})`);
+    }
+    return await Bun.file(tmpFrame).arrayBuffer();
   }
 
   export async function getAsset(promptId: string) {

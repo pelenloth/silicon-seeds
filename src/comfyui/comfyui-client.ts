@@ -20,6 +20,17 @@ import { Logger } from "../logger/logger";
 import { Utils } from "../utils/utils";
 import { Lora } from "../styles/presets";
 import { JobsSchema } from "../db/db";
+import {
+  resolveVideoDimensions,
+  type VideoJobSettings,
+} from "../shared/video-models";
+import {
+  buildMiniMaxH3UiWorkflow,
+  buildMiniMaxH3Workflow,
+  type ComfyApiGraph,
+} from "./minimax-h3-workflows";
+import { stageVideoInputImages } from "../video/reference-images";
+import { existsSync } from "node:fs";
 
 export type LoraSpec = { name: string; strength: number };
 
@@ -36,6 +47,7 @@ type Img2VidInput = {
   kind: "image-to-video";
   imagePath: string;
   prompt: string;
+  settings?: VideoJobSettings;
 };
 
 type Text2Instrumental = {
@@ -62,13 +74,83 @@ type Img2Transition = {
   startImage: string;
   endImage: string;
   prompt: string;
+  settings?: VideoJobSettings;
 };
 
 type Text2VideoInput = {
   id: string;
   kind: "text-to-video";
   prompt: string;
+  settings?: VideoJobSettings;
 };
+
+export type VideoVariant = Text2VideoInput | Img2VidInput | Img2Transition;
+
+function isVideoVariant(input: ModelVariant): input is VideoVariant {
+  return (
+    input.kind === "text-to-video" ||
+    input.kind === "image-to-video" ||
+    input.kind === "image-to-transition"
+  );
+}
+
+function parseJobVideoSettings(
+  raw: string | null | undefined,
+): VideoJobSettings {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return parsed && typeof parsed === "object"
+      ? (parsed as VideoJobSettings)
+      : {};
+  } catch {
+    Logger.warn("Ignoring malformed job video_settings JSON");
+    return {};
+  }
+}
+
+function mergeVideoSettings(
+  input: VideoVariant,
+  job: JobsSchema,
+): VideoJobSettings {
+  return {
+    ...parseJobVideoSettings(job.video_settings),
+    ...(input.settings ?? {}),
+  };
+}
+
+/**
+ * Input images a video event's ComfyUI graph references, so staging never
+ * fails on job-level images the event does not use (e.g. a transition inside
+ * a multiframe job only needs its start/end frames).
+ */
+export function videoInputImagesToStage(
+  input: VideoVariant,
+  merged: VideoJobSettings,
+): string[] {
+  let names: (string | null | undefined)[];
+  if (input.kind === "image-to-transition") {
+    names = [input.startImage, input.endImage];
+  } else if (input.kind === "image-to-video") {
+    names = [
+      input.imagePath || merged.first_frame,
+      merged.h3_mode === "i2v" ? undefined : merged.last_frame,
+      ...(merged.h3_mode === "multiframe"
+        ? (merged.reference_images ?? [])
+        : []),
+    ];
+  } else {
+    names = [
+      merged.first_frame,
+      merged.last_frame,
+      ...(merged.reference_images ?? []),
+    ];
+  }
+  const clean = names
+    .map((name) => (typeof name === "string" ? name.trim() : ""))
+    .filter((name) => name.length > 0);
+  return [...new Set(clean)];
+}
 
 export type ModelVariant =
   | Text2ImgInput
@@ -101,7 +183,7 @@ export class ComfyUIClient {
     const api = this.buildApi(input, job);
     const body = this.buildBody(input, api, job);
 
-    await this.prepareInput(input);
+    await this.prepareInput(input, job);
 
     const response = await fetch(`${this.baseUrl}/prompt`, {
       method: "POST",
@@ -187,7 +269,14 @@ export class ComfyUIClient {
     );
 
     const [output] = outputs as any;
-    const [image] = output.images;
+    // SaveImage reports `images`; SaveVideo / VHS nodes may report `videos`
+    // or `gifs` instead.
+    const media = output.images ?? output.videos ?? output.gifs;
+    Utils.assert(
+      Array.isArray(media) && media.length > 0,
+      `ComfyUI output has no images/videos/gifs: ${JSON.stringify(output)}`,
+    );
+    const [image] = media;
     Utils.assert(
       image.subfolder === "",
       `Expected 'subfolder' to be "" (empty), but found '${image.subfolder}'`,
@@ -292,6 +381,18 @@ export class ComfyUIClient {
     };
 
     let workflow: unknown | undefined;
+    if (job.video_model === "minimax-h3" && isVideoVariant(input)) {
+      // H3 graphs are generated dynamically, so embed the matching UI graph
+      // instead of a static Wan/LTX template.
+      workflow = buildMiniMaxH3UiWorkflow(input.id, api as ComfyApiGraph);
+      return JSON.stringify({
+        ...base,
+        extra_data: {
+          extra_pnginfo: workflow,
+        },
+      });
+    }
+
     if (input.kind === "text-to-video") {
       if (job.video_model === "wan2.2") {
         workflow = wan2_2_img2vidWorkflow;
@@ -348,30 +449,46 @@ export class ComfyUIClient {
     // Better to raw dog the exported json workflows
     let api;
 
-    const resolution = { width: 0, height: 0 };
-    if (job.resolution === "480p") {
-      resolution.width = 640;
-      resolution.height = 480;
-    }
+    const resolution = resolveVideoDimensions(job.resolution, job.video_model);
 
-    if (job.resolution === "720p") {
-      resolution.width = 1280;
-      resolution.height = 720;
-    }
-
-    if (job.resolution === "1080p") {
-      resolution.width = 1920;
-      resolution.height = 1080;
-    }
-
-    if (job.resolution === "9_16_SD") {
-      resolution.width = 720;
-      resolution.height = 1280;
-    }
-
-    if (job.resolution === "9_16_HD") {
-      resolution.width = 1080;
-      resolution.height = 1920;
+    if (job.video_model === "minimax-h3" && isVideoVariant(input)) {
+      const merged = mergeVideoSettings(input, job);
+      // Transitions always bridge startImage -> endImage via fl2va, even when
+      // the job itself is a multiframe reference job.
+      const mergedSettings: VideoJobSettings =
+        input.kind === "image-to-transition"
+          ? {
+              ...merged,
+              h3_mode: "fl2v",
+              reference_images: undefined,
+              keyframe_guides: undefined,
+            }
+          : merged;
+      return buildMiniMaxH3Workflow({
+        eventId: input.id,
+        prompt: input.prompt,
+        width: resolution.width,
+        height: resolution.height,
+        durationSec:
+          input.kind === "image-to-transition"
+            ? job.transition_duration || Metadata.TRANSITION_DURATION
+            : job.clip_duration || Metadata.CLIP_DURATION,
+        firstFrameFilename:
+          input.kind === "image-to-video"
+            ? input.imagePath
+            : input.kind === "image-to-transition"
+              ? input.startImage
+              : (mergedSettings.first_frame ?? null),
+        // i2v is first-frame only; this also stops a job-level last_frame from
+        // leaking into continuation clips (undefined keys vanish in JSON).
+        lastFrameFilename:
+          input.kind === "image-to-transition"
+            ? input.endImage
+            : mergedSettings.h3_mode === "i2v"
+              ? null
+              : (mergedSettings.last_frame ?? null),
+        settings: mergedSettings,
+      });
     }
 
     if (input.kind === "text-to-image") {
@@ -553,17 +670,33 @@ export class ComfyUIClient {
     return api;
   }
 
-  private async prepareInput(input: ModelVariant) {
+  private async prepareInput(input: ModelVariant, job: JobsSchema) {
     const outDir = Bun.env.OUTPUT_DIR ?? OUTPUT_DIR;
     const inDir = Bun.env.INPUT_DIR ?? INPUT_DIR;
 
     if (input.kind === "image-to-video") {
       Utils.assert(outDir && inDir, "ComfyUI env. variables not configured!");
-      const src = `${outDir}/${input.imagePath}`.replace('"', "").trim();
-      const dst = `${inDir}/${input.imagePath}`.replace('"', "").trim();
+      const name = input.imagePath.replace('"', "").trim();
+      const src = `${outDir}/${name}`;
+      // Fresh OUTPUT_DIR frames (t2i2v) overwrite stale copies; uploaded
+      // refimg_* and continuation frames are resolved by staging below.
+      if (existsSync(src)) {
+        await Bun.write(`${inDir}/${name}`, await Bun.file(src).arrayBuffer());
+      }
+    }
 
-      const image = await Bun.file(src).arrayBuffer();
-      await Bun.write(dst, image);
+    if (isVideoVariant(input)) {
+      const filenames = videoInputImagesToStage(
+        input,
+        mergeVideoSettings(input, job),
+      );
+      if (inDir && filenames.length > 0) {
+        await stageVideoInputImages({
+          filenames,
+          inputDir: inDir,
+          outputDir: outDir,
+        });
+      }
       return;
     }
 

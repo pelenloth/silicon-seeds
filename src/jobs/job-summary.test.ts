@@ -301,6 +301,104 @@ describe("finalizeDecision", () => {
     ).toBe("complete");
   });
 
+  test("multi-clip video workflow waits for new_video_composition before completing", () => {
+    expect(
+      finalizeDecision({
+        job: {
+          workflow: "video",
+          video_model: "minimax-h3",
+        },
+        events: [
+          { type: "new_video_prompt", status: "complete" },
+          { type: "new_video_prompt", status: "complete" },
+        ],
+      }),
+    ).toBe("wait");
+
+    expect(
+      finalizeDecision({
+        job: {
+          workflow: "video",
+          video_model: "minimax-h3",
+        },
+        events: [
+          { type: "new_video_prompt", status: "complete" },
+          { type: "new_video_prompt", status: "complete" },
+          { type: "new_video_composition", status: "complete" },
+        ],
+      }),
+    ).toBe("complete");
+  });
+
+  test("continuation sequence waits while later clips are not scheduled yet", () => {
+    const job = {
+      workflow: "video",
+      video_model: "minimax-h3",
+      video_settings: JSON.stringify({
+        sequence_mode: "continuation",
+        sequence_prompts: ["shot 1", "shot 2"],
+      }),
+    };
+    // Clip 0 done, clip 1 not scheduled yet (frame extraction in flight).
+    expect(
+      finalizeDecision({
+        job,
+        events: [{ type: "new_video_prompt", status: "complete" }],
+      }),
+    ).toBe("wait");
+    // Both clips done but no composition yet.
+    expect(
+      finalizeDecision({
+        job,
+        events: [
+          { type: "new_video_prompt", status: "complete" },
+          { type: "new_video_prompt", status: "complete" },
+        ],
+      }),
+    ).toBe("wait");
+    expect(
+      finalizeDecision({
+        job,
+        events: [
+          { type: "new_video_prompt", status: "complete" },
+          { type: "new_video_prompt", status: "complete" },
+          { type: "new_video_composition", status: "complete" },
+        ],
+      }),
+    ).toBe("complete");
+  });
+
+  test("transition sequence waits for every clip and the composition", () => {
+    const job = {
+      workflow: "video",
+      video_model: "minimax-h3",
+      video_settings: JSON.stringify({
+        sequence_mode: "transition",
+        sequence_prompts: ["a", "b", "c"],
+      }),
+    };
+    expect(
+      finalizeDecision({
+        job,
+        events: [
+          { type: "new_video_prompt", status: "complete" },
+          { type: "new_video_prompt", status: "complete" },
+          { type: "new_transition_prompt", status: "complete" },
+          { type: "new_video_composition", status: "complete" },
+        ],
+      }),
+    ).toBe("wait");
+  });
+
+  test("malformed video_settings falls back to the plain video rules", () => {
+    expect(
+      finalizeDecision({
+        job: { workflow: "video", video_settings: "{not json" },
+        events: [{ type: "new_video_prompt", status: "complete" }],
+      }),
+    ).toBe("complete");
+  });
+
   test("any failed event -> failed", () => {
     expect(
       finalizeDecision({

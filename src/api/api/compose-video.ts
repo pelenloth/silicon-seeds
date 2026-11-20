@@ -3,6 +3,7 @@ import { DB } from "../../db/db";
 import { JobOrchestrator } from "../../jobs/jobs";
 import { Metadata } from "../../meta/meta";
 import { normalizeAudioModelId } from "../../shared/audio-models";
+import { normalizeVideoModelId } from "../../shared/video-models";
 import { TextGenerator } from "../../text/text-generator";
 import { Utils } from "../../utils/utils";
 import { PostCompose } from "../schemas";
@@ -56,6 +57,8 @@ export async function compose_video(options: PostCompose) {
     "stable-audio-3",
   );
 
+  const resolvedVideoModel = normalizeVideoModelId(video_model);
+
   const { id: jobId } = await JobOrchestrator.create_job({
     original_prompt: finalScript,
     fps,
@@ -63,7 +66,13 @@ export async function compose_video(options: PostCompose) {
     clip_duration,
     transition_duration,
     image_model,
-    video_model,
+    video_model: resolvedVideoModel,
+    // Compose clips are scheduled later by SocketServer (schedule_video); the
+    // job-level settings reach ComfyUIClient via job.video_settings.
+    video_settings:
+      resolvedVideoModel === "minimax-h3"
+        ? JSON.stringify({ h3_variant: "turbo_8" })
+        : null,
     audio_model: resolvedAudioModel,
     sound_preset: options.sound_preset ?? null,
     style_preset,

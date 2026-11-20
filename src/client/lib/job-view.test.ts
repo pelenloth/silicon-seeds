@@ -305,6 +305,34 @@ describe("reuse settings", () => {
       loras: '[{"name":"x.safetensors","strength":0.7}]',
     });
   });
+  test("video job restores MiniMax H3 scalar settings from video_settings", () => {
+    const out = jobToPrefill(
+      job({
+        kind: "video",
+        original_prompt: "storm",
+        video_model: "minimax-h3",
+        video_settings: JSON.stringify({
+          h3_mode: "multiframe",
+          h3_variant: "turbo_4",
+          soundscape: "thunder",
+          sequence_mode: "continuation",
+          reference_images: ["a.png"],
+          sequence_prompts: ["one", "two"],
+        }),
+      }),
+    );
+    expect(out.values).toEqual({
+      prompt: "storm",
+      video_model: "minimax-h3",
+      h3_mode: "multiframe",
+      h3_variant: "turbo_4",
+      soundscape: "thunder",
+      sequence_mode: "continuation",
+    });
+    expect(
+      jobToPrefill(job({ kind: "video", video_settings: "{bad" })).values,
+    ).toEqual({});
+  });
   test("video job goes to text-to-video unless it has a preset or LoRAs", () => {
     const plain = jobToPrefill(
       job({
