@@ -49,7 +49,7 @@ A named visual aesthetic direction (`cyberpunk`, `noir`, or user-defined) applie
 _Avoid_: Visual Preset, Theme
 
 **Style Embedding**:
-An optional MiniMax H3 visual style token file (`models/embeddings/minimaxh3_*.safetensors`, such as anime, pixel art, or oil painting) referenced via `<style:name>` in the positive prompt. Distinct from a text-only **Style Preset**.
+An optional MiniMax H3 visual style token file (`models/embeddings/minimaxh3_*.safetensors`, such as `art_is_explosion`, `blooming_flowers`, `bullet_time`, or `truman_show`) referenced via `embedding:minimaxh3_<id>` in the positive prompt. Distinct from a text-only **Style Preset**.
 _Avoid_: Style Model, Style LoRA, Visual Preset
 
 **Underscore**:

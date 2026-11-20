@@ -270,12 +270,14 @@ export namespace VideoGenerator {
    * Fail a job because of a post-processing step triggered by `event`. The
    * event is marked Failed first so Retry (which re-queues Failed events)
    * re-runs it and the follow-up step instead of leaving an Active job with
-   * no runnable events.
+   * no runnable events. Any `meta` row the event already produced is deleted
+   * first so a retry's new output is not shadowed by the stale pre-retry row.
    */
   export async function fail_media_event(
     event: JobEvent,
     reason: string,
   ): Promise<void> {
+    await DB.Meta.deleteByEventIds([event.id]);
     await JobOrchestrator.update_schedule({
       ...event,
       status: JobStatus.Failed,

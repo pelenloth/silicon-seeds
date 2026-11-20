@@ -160,8 +160,13 @@ describe("continuation failure handling", () => {
     }
   });
 
-  test("fail_media_event marks the triggering event Failed before failing the job", async () => {
+  test("fail_media_event clears stale meta, marks the event Failed, then fails the job", async () => {
     const calls: string[] = [];
+    const deleteMeta = spyOn(DB.Meta, "deleteByEventIds").mockImplementation(
+      async (ids: string[]) => {
+        calls.push(`meta:${ids.join(",")}`);
+      },
+    );
     const updateSchedule = spyOn(
       JobOrchestrator,
       "update_schedule",
@@ -175,7 +180,12 @@ describe("continuation failure handling", () => {
 
     await VideoGenerator.fail_media_event(event, "video sequence step failed");
 
-    expect(calls).toEqual([`event:${JobStatus.Failed}`, "job:job-cont-1"]);
+    expect(calls).toEqual([
+      "meta:evt-clip-0",
+      `event:${JobStatus.Failed}`,
+      "job:job-cont-1",
+    ]);
+    expect(deleteMeta).toHaveBeenCalledWith(["evt-clip-0"]);
     expect(updateSchedule.mock.calls[0][0]).toMatchObject({
       id: "evt-clip-0",
       status: JobStatus.Failed,
