@@ -1,0 +1,210 @@
+{
+  "1": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+      "type": "minimax",
+      "device": "default"
+    },
+    "_meta": {
+      "title": "Load MiniMax H3 Text Encoder"
+    }
+  },
+  "2": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "minimax_h3_video_vae_int8_convrot.safetensors"
+    },
+    "_meta": {
+      "title": "Load MiniMax H3 Video VAE"
+    }
+  },
+  "3": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "minimax_h3_audio_vae_fp32.safetensors"
+    },
+    "_meta": {
+      "title": "Load MiniMax H3 Audio VAE"
+    }
+  },
+  "4": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "minimax_h3_ref2va_pruned_int8_convrot.safetensors",
+      "weight_dtype": "default"
+    },
+    "_meta": {
+      "title": "Load MiniMax H3 Diffusion Model"
+    }
+  },
+  "5": {
+    "class_type": "LoraLoaderModelOnly",
+    "inputs": {
+      "model": ["4", 0],
+      "lora_name": "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors",
+      "strength_model": 1
+    },
+    "_meta": {
+      "title": "Load MiniMax H3 Ref2V Turbo LoRA"
+    }
+  },
+  "10": {
+    "class_type": "MiniMaxH3ReferenceToVideo",
+    "inputs": {
+      "clip": ["1", 0],
+      "vae": ["2", 0],
+      "audio_vae": ["3", 0],
+      "prompt": "subject_definitions:\n<Subject 1> is the character in <Picture 1>.\nintegrated_multimodal_description: [Shot 1] <Subject 1> moves toward <Picture 2>.",
+      "width": 1376,
+      "height": 768,
+      "length": 121,
+      "ref_image_size": "match",
+      "ref_images.ref_image_0": ["9_ref_0", 0],
+      "ref_images.ref_image_1": ["9_ref_1", 0]
+    },
+    "_meta": {
+      "title": "MiniMax H3 Reference To Video"
+    }
+  },
+  "20": {
+    "class_type": "RandomNoise",
+    "inputs": {
+      "noise_seed": 100004
+    },
+    "_meta": {
+      "title": "Random Noise"
+    }
+  },
+  "21": {
+    "class_type": "KSamplerSelect",
+    "inputs": {
+      "sampler_name": "res_multistep"
+    },
+    "_meta": {
+      "title": "KSampler Select (res_multistep)"
+    }
+  },
+  "22": {
+    "class_type": "BasicScheduler",
+    "inputs": {
+      "model": ["5", 0],
+      "scheduler": "simple",
+      "steps": 4,
+      "denoise": 1
+    },
+    "_meta": {
+      "title": "Basic Scheduler"
+    }
+  },
+  "23": {
+    "class_type": "BasicGuider",
+    "inputs": {
+      "model": ["5", 0],
+      "conditioning": ["11_guide_1", 0]
+    },
+    "_meta": {
+      "title": "Basic Guider"
+    }
+  },
+  "24": {
+    "class_type": "SamplerCustomAdvanced",
+    "inputs": {
+      "noise": ["20", 0],
+      "guider": ["23", 0],
+      "sampler": ["21", 0],
+      "sigmas": ["22", 0],
+      "latent_image": ["10", 1]
+    },
+    "_meta": {
+      "title": "Sampler Custom Advanced"
+    }
+  },
+  "30": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": ["24", 0],
+      "vae": ["2", 0]
+    },
+    "_meta": {
+      "title": "VAE Decode Video"
+    }
+  },
+  "31": {
+    "class_type": "VAEDecodeAudio",
+    "inputs": {
+      "samples": ["24", 0],
+      "vae": ["3", 0]
+    },
+    "_meta": {
+      "title": "VAE Decode Stereo Audio"
+    }
+  },
+  "32": {
+    "class_type": "CreateVideo",
+    "inputs": {
+      "images": ["30", 0],
+      "audio": ["31", 0],
+      "fps": 24
+    },
+    "_meta": {
+      "title": "Create Audio-Video Stream (24 fps)"
+    }
+  },
+  "33": {
+    "class_type": "SaveVideo",
+    "inputs": {
+      "video": ["32", 0],
+      "filename_prefix": "minimax_h3_multiframe",
+      "format": "auto",
+      "codec": "auto"
+    },
+    "_meta": {
+      "title": "Save Video"
+    }
+  },
+  "9_ref_0": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "h3_frame_ref_1.png"
+    },
+    "_meta": {
+      "title": "Load Reference Picture 1"
+    }
+  },
+  "9_ref_1": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "h3_frame_ref_2.png"
+    },
+    "_meta": {
+      "title": "Load Reference Picture 2"
+    }
+  },
+  "11_guide_0": {
+    "class_type": "MiniMaxH3AddGuide",
+    "inputs": {
+      "positive": ["10", 0],
+      "vae": ["2", 0],
+      "latent": ["10", 1],
+      "image": ["9_ref_0", 0],
+      "frame_idx": 0
+    },
+    "_meta": {
+      "title": "MiniMax H3 Keyframe Guide (0)"
+    }
+  },
+  "11_guide_1": {
+    "class_type": "MiniMaxH3AddGuide",
+    "inputs": {
+      "positive": ["11_guide_0", 0],
+      "vae": ["2", 0],
+      "latent": ["10", 1],
+      "image": ["9_ref_1", 0],
+      "frame_idx": 60
+    },
+    "_meta": {
+      "title": "MiniMax H3 Keyframe Guide (60)"
+    }
+  }
+}
