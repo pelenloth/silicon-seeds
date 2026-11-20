@@ -12,6 +12,11 @@ _Avoid_: MIDI Roll, Sheet Music
 A generative audio backbone with distinct capabilities, duration bounds, and conditioning inputs (`ace-step-1.5`, `yue2`, `minimax-music-3`, `stable-audio-3`).
 _Avoid_: Audio Engine, Synth Backend, `sa3`
 
+**Keyframe Guide**:
+An image pinned to a specific timestamp in seconds to anchor the visual state of a generated video at that moment on the timeline.
+_Avoid_: Guide Node, Control Frame, `frame_idx` Anchor
+_Considered_: Timeline Pin, Control Image
+
 **Melody Cover**:
 Generation of a new musical arrangement and vocal or instrumental performance whose melody follows an uploaded Reference Audio file.
 _Avoid_: Audio-to-Audio, Stem Remix, Voice Clone
@@ -20,6 +25,11 @@ _Considered_: Music Cover
 **Reference Audio**:
 A user-uploaded audio recording supplied to guide melody extraction in a Melody Cover.
 _Avoid_: Prompt Audio, Seed Track, Guide Stem
+
+**Reference Image**:
+A numbered visual source (`<Picture 1>` through `<Picture 9>`) supplied alongside a video prompt to define recurring characters, objects, or environments across shots.
+_Avoid_: `ref_image`, Subject Slot, IP-Adapter Image
+_Considered_: Character Sheet
 
 **Reprompting**:
 Optional expansion of a short text prompt into a detailed sonic description by an auxiliary language model inside the audio workflow before diffusion sampling.
@@ -37,3 +47,14 @@ _Avoid_: Visual Preset, Theme
 **Underscore**:
 Instrumental background music generated for a Compose video job to accompany narrated speech without competing vocals.
 _Avoid_: Backing Track, BGM, Instrumental Stem
+
+**Video Model**:
+A selectable generative video backbone in the studio catalog (`wan2.2`, `ltx2.3`, `minimax-h3`), each offering distinct motion, native audio, duration, and visual conditioning capabilities.
+_Avoid_: UNET, Diffusion Checkpoint, Video Backend
+_Considered_: Video Engine
+
+**Video Sequence**:
+An ordered multi-clip video generation job whose clips are joined either by generated visual transitions or by frame-by-frame continuation from the preceding clip.
+_Avoid_: Concat Pipeline, Multi-Prompt Batch
+_Considered_: Storyboard
+
