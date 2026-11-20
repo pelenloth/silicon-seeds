@@ -146,9 +146,10 @@ describe("ComfyUIClient MiniMax H3 dispatch", () => {
       expect(postedBody!.prompt["4"].inputs.unet_name).toBe(
         "minimax_h3_fl2va_pruned_int8_convrot.safetensors",
       );
-      expect(postedBody!.prompt["10"].inputs.width).toBe(1376);
+      expect(postedBody!.prompt["10"].inputs.width).toBe(1344);
       expect(postedBody!.prompt["10"].inputs.height).toBe(768);
-      expect(postedBody!.prompt["10"].inputs.length).toBe(145);
+      // 6s @ 24 fps = 144 raw frames -> next 17k + 5 = 158
+      expect(postedBody!.prompt["10"].inputs.length).toBe(158);
       expect(postedBody!.prompt["10"].inputs.prompt).toContain(
         "soundscape: Rain and footsteps",
       );
@@ -158,5 +159,116 @@ describe("ComfyUIClient MiniMax H3 dispatch", () => {
     } finally {
       globalThis.fetch = origFetch;
     }
+  });
+
+  const h3Job = (overrides: Record<string, unknown> = {}) => ({
+    id: "job_h3_dispatch",
+    created_at: new Date().toISOString(),
+    status: "active" as any,
+    name: "H3 Dispatch",
+    video_model: "minimax-h3",
+    resolution: "768p",
+    clip_duration: 5,
+    transition_duration: 3,
+    fps: 24,
+    ...overrides,
+  });
+
+  const buildApi = async (input: unknown, job: unknown) => {
+    const { ComfyUIClient } = await import("./comfyui-client");
+    const client = new ComfyUIClient({ baseUrl: "http://127.0.0.1:8188" });
+    return (client as any).buildApi(input, job) as Record<string, any>;
+  };
+
+  test("image-to-video in an i2v job builds a first-frame-only fl2va graph", async () => {
+    const graph = await buildApi(
+      {
+        id: "h3_i2v_evt",
+        kind: "image-to-video",
+        prompt: "Subject turns toward camera",
+        imagePath: "start.png",
+      },
+      h3Job({
+        video_settings: JSON.stringify({
+          h3_mode: "i2v",
+          last_frame: "stray_last.png",
+        }),
+      }),
+    );
+    expect(graph["10"].class_type).toBe("MiniMaxH3ImageToVideo");
+    expect(graph["9_first"].inputs.image).toBe("start.png");
+    expect(graph["10"].inputs.first_frame).toEqual(["9_first", 0]);
+    expect(graph["9_last"]).toBeUndefined();
+    expect(graph["10"].inputs.last_frame).toBeUndefined();
+    expect(graph["10"].inputs.length).toBe(124);
+  });
+
+  test("image-to-video in a multiframe job keeps the ref2va reference graph", async () => {
+    const graph = await buildApi(
+      {
+        id: "h3_mf_evt",
+        kind: "image-to-video",
+        prompt: "<Subject 1> walks forward",
+        imagePath: "start.png",
+      },
+      h3Job({
+        video_settings: JSON.stringify({
+          h3_mode: "multiframe",
+          reference_images: ["refimg_1.png", "refimg_2.png"],
+          keyframe_guides: [{ refIndex: 1, frameIdx: -1 }],
+        }),
+      }),
+    );
+    expect(graph["10"].class_type).toBe("MiniMaxH3ReferenceToVideo");
+    expect(graph["9_ref_0"].inputs.image).toBe("refimg_1.png");
+    expect(graph["9_ref_1"].inputs.image).toBe("refimg_2.png");
+    expect(graph["11_guide_0"].inputs.frame_idx).toBe(-1);
+  });
+
+  test("image-to-transition inside a multiframe sequence job builds fl2va, not ref2va", async () => {
+    const graph = await buildApi(
+      {
+        id: "h3_tr_evt",
+        kind: "image-to-transition",
+        prompt: "Morph between the two shots",
+        startImage: "clip0_last_frame.png",
+        endImage: "clip1_first_frame.png",
+      },
+      h3Job({
+        video_settings: JSON.stringify({
+          h3_mode: "multiframe",
+          reference_images: ["refimg_1.png"],
+          keyframe_guides: [{ refIndex: 0, frameIdx: 0 }],
+          sequence_mode: "transition",
+        }),
+      }),
+    );
+    const classTypes = Object.values(graph).map((n: any) => n.class_type);
+    expect(graph["10"].class_type).toBe("MiniMaxH3ImageToVideo");
+    expect(classTypes).not.toContain("MiniMaxH3ReferenceToVideo");
+    expect(classTypes).not.toContain("MiniMaxH3AddGuide");
+    expect(graph["4"].inputs.unet_name).toBe(
+      "minimax_h3_fl2va_pruned_int8_convrot.safetensors",
+    );
+    expect(graph["9_first"].inputs.image).toBe("clip0_last_frame.png");
+    expect(graph["9_last"].inputs.image).toBe("clip1_first_frame.png");
+    expect(graph["10"].inputs.first_frame).toEqual(["9_first", 0]);
+    expect(graph["10"].inputs.last_frame).toEqual(["9_last", 0]);
+    // transition_duration 3s -> 72 raw frames -> 73 (17k + 5)
+    expect(graph["10"].inputs.length).toBe(73);
+  });
+
+  test("snaps off-grid presets to the H3 canvas (1080p -> 1344x768)", async () => {
+    const graph = await buildApi(
+      {
+        id: "h3_1080_evt",
+        kind: "text-to-video",
+        prompt: "Skyline",
+        settings: { h3_mode: "t2v" },
+      },
+      h3Job({ resolution: "1080p" }),
+    );
+    expect(graph["10"].inputs.width).toBe(1344);
+    expect(graph["10"].inputs.height).toBe(768);
   });
 });

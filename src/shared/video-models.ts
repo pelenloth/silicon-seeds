@@ -23,8 +23,8 @@ export const VIDEO_RESOLUTIONS: readonly {
   { value: "720p", label: "720p (1280x720)", width: 1280, height: 720 },
   {
     value: "768p",
-    label: "768p H3 Native (1376x768)",
-    width: 1376,
+    label: "768p H3 Native (1344x768)",
+    width: 1344,
     height: 768,
   },
   { value: "1080p", label: "1080p (1920x1080)", width: 1920, height: 1080 },
@@ -268,15 +268,74 @@ export function isMiniMaxH3StyleEmbeddingId(
   );
 }
 
-export function resolveVideoDimensions(resolution: string | null | undefined): {
+const MINIMAX_H3_BASE_SHORT_EDGE = 768;
+export const MINIMAX_H3_MAX_PIXELS = 768 * 1344;
+export const MINIMAX_H3_CANVAS_MULTIPLE = 32;
+
+/**
+ * Mirrors ComfyUI `nodes_minimax_h3.py` `adapt_canvas`: keep the aspect
+ * ratio, anchor the short edge at 768, cap the area at 768*1344 and snap both
+ * edges to the 32px latent grid.
+ */
+export function adaptMiniMaxH3Canvas(
+  width: number,
+  height: number,
+): { width: number; height: number } {
+  const ratio = width / height;
+  let nomW =
+    ratio >= 1
+      ? MINIMAX_H3_BASE_SHORT_EDGE * ratio
+      : MINIMAX_H3_BASE_SHORT_EDGE;
+  let nomH =
+    ratio >= 1
+      ? MINIMAX_H3_BASE_SHORT_EDGE
+      : MINIMAX_H3_BASE_SHORT_EDGE / ratio;
+  if (nomW * nomH > MINIMAX_H3_MAX_PIXELS) {
+    const s = Math.sqrt(MINIMAX_H3_MAX_PIXELS / (nomW * nomH));
+    nomW *= s;
+    nomH *= s;
+  }
+  const m = MINIMAX_H3_CANVAS_MULTIPLE;
+  return {
+    width: Math.max(m, Math.round(nomW / m) * m),
+    height: Math.max(m, Math.round(nomH / m) * m),
+  };
+}
+
+/** True when H3 takes these dimensions as-is (32px grid, under the cap). */
+export function isMiniMaxH3NativeCanvas(
+  width: number,
+  height: number,
+): boolean {
+  return (
+    width % MINIMAX_H3_CANVAS_MULTIPLE === 0 &&
+    height % MINIMAX_H3_CANVAS_MULTIPLE === 0 &&
+    width * height <= MINIMAX_H3_MAX_PIXELS
+  );
+}
+
+/**
+ * Pixel size for a resolution preset. MiniMax H3 snaps off-grid or oversized
+ * presets through `adaptMiniMaxH3Canvas`; other models use the table as-is.
+ */
+export function resolveVideoDimensions(
+  resolution: string | null | undefined,
+  model?: string | null,
+): {
   width: number;
   height: number;
 } {
   const found = VIDEO_RESOLUTIONS.find((r) => r.value === resolution);
-  if (found) {
-    return { width: found.width, height: found.height };
+  const base = found
+    ? { width: found.width, height: found.height }
+    : { width: 1280, height: 720 };
+  if (
+    model === "minimax-h3" &&
+    !isMiniMaxH3NativeCanvas(base.width, base.height)
+  ) {
+    return adaptMiniMaxH3Canvas(base.width, base.height);
   }
-  return { width: 1280, height: 720 };
+  return base;
 }
 
 export function clampVideoDuration(
@@ -298,13 +357,19 @@ export function computeVideoFrameLength(
   const normalized = normalizeVideoModelId(modelId);
   const clamped = clampVideoDuration(normalized, durationSec);
   const spec = VIDEO_MODELS[normalized];
-  const rawFrames = clamped * spec.nativeFps + 1;
   if (normalized === "minimax-h3") {
-    // MiniMax H3 temporal VAE stride requires 4k + 1 frames (24 * sec + 1 is always 4*(6*sec) + 1)
-    const k = Math.max(1, Math.round((rawFrames - 1) / 4));
-    return 4 * k + 1;
+    return alignMiniMaxH3Frames(Math.round(clamped * spec.nativeFps));
   }
-  return rawFrames;
+  return clamped * spec.nativeFps + 1;
+}
+
+/**
+ * ComfyUI `nodes_minimax_h3.py` only accepts `17k + 5` frame counts (min 5);
+ * round the raw count up to the next valid length.
+ */
+export function alignMiniMaxH3Frames(rawFrames: number): number {
+  if (!Number.isFinite(rawFrames) || rawFrames <= 5) return 5;
+  return 5 + Math.ceil((rawFrames - 5) / 17) * 17;
 }
 
 export function formatMiniMaxH3Prompt(opts: {
@@ -353,7 +418,12 @@ export function formatMiniMaxH3Prompt(opts: {
     );
   }
   if (opts.hasLastFrame && !basePrompt.includes("<Picture 2>")) {
-    const endSec = Math.max(1, opts.durationSec ?? 5).toFixed(2);
+    // The last frame sits at (length - 1) / fps on the aligned timeline.
+    const alignedFrames = computeVideoFrameLength(
+      "minimax-h3",
+      opts.durationSec ?? 5,
+    );
+    const endSec = ((alignedFrames - 1) / 24).toFixed(2);
     const picTag = opts.hasFirstFrame ? "<Picture 2>" : "<Picture 1>";
     lines.push(
       `For the target video, at ${endSec} seconds into the target video, ${picTag} is fully referenced.`,

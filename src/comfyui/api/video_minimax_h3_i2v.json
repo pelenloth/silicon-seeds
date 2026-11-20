@@ -55,9 +55,9 @@
       "clip": ["1", 0],
       "vae": ["2", 0],
       "prompt": "For the target video, at 0.00 seconds into the target video, <Picture 1> is fully referenced.\nintegrated_multimodal_description: [Shot 1] Subject steps forward as camera dollies in.",
-      "width": 1376,
+      "width": 1344,
       "height": 768,
-      "length": 121,
+      "length": 124,
       "first_frame": ["9_first", 0]
     },
     "_meta": {

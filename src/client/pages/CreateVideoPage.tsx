@@ -198,6 +198,21 @@ export default function CreateVideoPage(props: {
     ),
   );
 
+  // MiniMax H3 always renders at its native 24 fps; keep the submitted fps in
+  // sync so compositions and the UI agree.
+  createEffect(
+    on(
+      () => f.values.video_model,
+      (model) => {
+        if (model !== "minimax-h3") return;
+        const nativeFps = String(getVideoModelSpec(model).nativeFps);
+        if (f.values.fps !== nativeFps) {
+          f.setUntouched("fps", nativeFps);
+        }
+      },
+    ),
+  );
+
   const resetAll = () => {
     f.reset();
     setFirstFrameFile(null);

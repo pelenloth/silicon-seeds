@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
+  adaptMiniMaxH3Canvas,
+  alignMiniMaxH3Frames,
   clampVideoDuration,
   computeVideoFrameLength,
   formatMiniMaxH3Prompt,
@@ -57,7 +59,7 @@ describe("video-models catalog", () => {
       "4_3_768",
     ]);
     expect(resolveVideoDimensions("768p")).toEqual({
-      width: 1376,
+      width: 1344,
       height: 768,
     });
     expect(resolveVideoDimensions("1_1_768")).toEqual({
@@ -78,20 +80,110 @@ describe("video-models catalog", () => {
     });
   });
 
-  test("clamps duration per model and computes 4k + 1 frame lengths", () => {
+  test("clamps duration per model and computes 17k + 5 H3 frame lengths", () => {
     expect(clampVideoDuration("wan2.2", 14)).toBe(10);
     expect(clampVideoDuration("minimax-h3", 14)).toBe(14);
     expect(clampVideoDuration("minimax-h3", 20)).toBe(15);
     expect(clampVideoDuration("minimax-h3", 0)).toBe(1);
 
-    // 5s @ 24fps = 121 (already 4*30 + 1)
-    expect(computeVideoFrameLength("minimax-h3", 5)).toBe(121);
-    // 10s @ 24fps = 241 (4*60 + 1)
-    expect(computeVideoFrameLength("minimax-h3", 10)).toBe(241);
-    // 15s @ 24fps = 361 (4*90 + 1)
-    expect(computeVideoFrameLength("minimax-h3", 15)).toBe(361);
-    // LTX 5s @ 25fps = 125 -> 126 (25*5+1)
+    // 24 fps raw frames rounded up to 17k + 5: 24->39, 120->124, 240->243, 360->362
+    expect(computeVideoFrameLength("minimax-h3", 1)).toBe(39);
+    expect(computeVideoFrameLength("minimax-h3", 5)).toBe(124);
+    expect(computeVideoFrameLength("minimax-h3", 10)).toBe(243);
+    expect(computeVideoFrameLength("minimax-h3", 15)).toBe(362);
     expect(computeVideoFrameLength("ltx2.3", 5)).toBe(126);
+    expect(computeVideoFrameLength("wan2.2", 5)).toBe(121);
+  });
+
+  test("alignMiniMaxH3Frames rounds up to the next 17k + 5 length (min 5)", () => {
+    expect(alignMiniMaxH3Frames(0)).toBe(5);
+    expect(alignMiniMaxH3Frames(5)).toBe(5);
+    expect(alignMiniMaxH3Frames(6)).toBe(22);
+    expect(alignMiniMaxH3Frames(22)).toBe(22);
+    expect(alignMiniMaxH3Frames(24)).toBe(39);
+    expect(alignMiniMaxH3Frames(120)).toBe(124);
+    expect(alignMiniMaxH3Frames(240)).toBe(243);
+    expect(alignMiniMaxH3Frames(360)).toBe(362);
+    for (let raw = 1; raw <= 400; raw++) {
+      const aligned = alignMiniMaxH3Frames(raw);
+      expect((aligned - 5) % 17).toBe(0);
+      expect(aligned).toBeGreaterThanOrEqual(raw);
+    }
+  });
+
+  test("adaptMiniMaxH3Canvas snaps to the 32px grid and caps area at 768*1344", () => {
+    expect(adaptMiniMaxH3Canvas(1344, 768)).toEqual({
+      width: 1344,
+      height: 768,
+    });
+    expect(adaptMiniMaxH3Canvas(1376, 768)).toEqual({
+      width: 1344,
+      height: 768,
+    });
+    expect(adaptMiniMaxH3Canvas(1280, 720)).toEqual({
+      width: 1344,
+      height: 768,
+    });
+    expect(adaptMiniMaxH3Canvas(1920, 1080)).toEqual({
+      width: 1344,
+      height: 768,
+    });
+    expect(adaptMiniMaxH3Canvas(720, 1280)).toEqual({
+      width: 768,
+      height: 1344,
+    });
+    expect(adaptMiniMaxH3Canvas(1000, 1000)).toEqual({
+      width: 768,
+      height: 768,
+    });
+    for (const [w, h] of [
+      [1920, 1080],
+      [1080, 1920],
+      [3000, 1000],
+      [517, 913],
+    ]) {
+      const out = adaptMiniMaxH3Canvas(w, h);
+      expect(out.width % 32).toBe(0);
+      expect(out.height % 32).toBe(0);
+      expect(out.width * out.height).toBeLessThanOrEqual(768 * 1344);
+    }
+  });
+
+  test("resolveVideoDimensions adapts off-grid presets for minimax-h3 only", () => {
+    expect(resolveVideoDimensions("1080p", "minimax-h3")).toEqual({
+      width: 1344,
+      height: 768,
+    });
+    expect(resolveVideoDimensions("720p", "minimax-h3")).toEqual({
+      width: 1344,
+      height: 768,
+    });
+    expect(resolveVideoDimensions("9_16_HD", "minimax-h3")).toEqual({
+      width: 768,
+      height: 1344,
+    });
+    // Presets already on the H3 grid and under the cap pass through exactly.
+    expect(resolveVideoDimensions("768p", "minimax-h3")).toEqual({
+      width: 1344,
+      height: 768,
+    });
+    expect(resolveVideoDimensions("1_1_768", "minimax-h3")).toEqual({
+      width: 768,
+      height: 768,
+    });
+    expect(resolveVideoDimensions("4_3_768", "minimax-h3")).toEqual({
+      width: 1120,
+      height: 832,
+    });
+    // Other models keep the raw table entries.
+    expect(resolveVideoDimensions("1080p", "wan2.2")).toEqual({
+      width: 1920,
+      height: 1080,
+    });
+    expect(resolveVideoDimensions("720p", "ltx2.3")).toEqual({
+      width: 1280,
+      height: 720,
+    });
   });
 
   test("exposes all 10 official MiniMax H3 style embeddings and mode/variant enums", () => {
@@ -137,7 +229,10 @@ describe("video-models catalog", () => {
     expect(formatted).toContain(
       "For the target video, at 0.00 seconds into the target video, <Picture 1> is fully referenced.",
     );
-    expect(formatted).toContain("<Picture 2>");
+    // 5s -> 124 aligned frames -> last frame at (124 - 1) / 24 = 5.125s
+    expect(formatted).toContain(
+      "For the target video, at 5.13 seconds into the target video, <Picture 2> is fully referenced.",
+    );
     expect(formatted).toContain("integrated_multimodal_description:");
     expect(formatted).toContain(
       "soundscape: Heavy rain, distant thunder, tires hissing on wet pavement",

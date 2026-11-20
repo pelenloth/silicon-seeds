@@ -1,5 +1,7 @@
 import {
+  adaptMiniMaxH3Canvas,
   computeVideoFrameLength,
+  isMiniMaxH3NativeCanvas,
   formatMiniMaxH3Prompt,
   type MiniMaxH3Mode,
   type MiniMaxH3Variant,
@@ -43,19 +45,30 @@ function randomSeed(): number {
   return Math.floor(Math.random() * 100_000_000_000_000);
 }
 
+/**
+ * Explicit frame filename wins; `null` means "no frame" and blocks the job
+ * settings fallback, `undefined` falls back to the settings value.
+ */
+function pickFrame(
+  explicit: string | null | undefined,
+  fallback: string | undefined,
+): string | null {
+  const raw = explicit === undefined ? fallback : explicit;
+  return raw?.trim() || null;
+}
+
 function resolveEffectiveMode(
   input: BuildMiniMaxH3WorkflowInput,
 ): MiniMaxH3Mode {
   const s = input.settings;
   const refs = s?.reference_images?.filter(Boolean) ?? [];
-  if (s?.h3_mode === "multiframe" && refs.length > 0) {
-    return "multiframe";
-  }
-  const first = input.firstFrameFilename ?? s?.first_frame ?? null;
-  const last = input.lastFrameFilename ?? s?.last_frame ?? null;
+  const first = pickFrame(input.firstFrameFilename, s?.first_frame);
+  const last = pickFrame(input.lastFrameFilename, s?.last_frame);
+  // A start + end pair always bridges via fl2va, even inside a multiframe job
+  // (sequence transitions carry both frames).
   if (first && last) return "fl2v";
+  if (s?.h3_mode === "multiframe" && refs.length > 0) return "multiframe";
   if (first || last) return "i2v";
-  if (refs.length > 0 && s?.h3_mode === "multiframe") return "multiframe";
   return "t2v";
 }
 
@@ -64,14 +77,16 @@ export function buildMiniMaxH3Workflow(
 ): ComfyApiGraph {
   const settings = input.settings ?? {};
   const mode = resolveEffectiveMode(input);
+  // Direct builder calls get the same 32px grid / area cap as preset lookups.
+  const canvas = isMiniMaxH3NativeCanvas(input.width, input.height)
+    ? { width: input.width, height: input.height }
+    : adaptMiniMaxH3Canvas(input.width, input.height);
   const requestedVariant: MiniMaxH3Variant = settings.h3_variant ?? "turbo_8";
   const length = computeVideoFrameLength("minimax-h3", input.durationSec);
   const seed = input.seed ?? randomSeed();
 
-  const firstFrame =
-    (input.firstFrameFilename ?? settings.first_frame ?? "").trim() || null;
-  const lastFrame =
-    (input.lastFrameFilename ?? settings.last_frame ?? "").trim() || null;
+  const firstFrame = pickFrame(input.firstFrameFilename, settings.first_frame);
+  const lastFrame = pickFrame(input.lastFrameFilename, settings.last_frame);
   const refImages = (settings.reference_images ?? [])
     .map((r) => r.trim())
     .filter(Boolean)
@@ -241,8 +256,8 @@ export function buildMiniMaxH3Workflow(
       vae: ["2", 0],
       audio_vae: ["3", 0],
       prompt: formattedPrompt,
-      width: input.width,
-      height: input.height,
+      width: canvas.width,
+      height: canvas.height,
       length,
       ref_image_size: settings.ref_image_size ?? "match",
     };
@@ -297,8 +312,8 @@ export function buildMiniMaxH3Workflow(
       clip: ["1", 0],
       vae: ["2", 0],
       prompt: formattedPrompt,
-      width: input.width,
-      height: input.height,
+      width: canvas.width,
+      height: canvas.height,
       length,
     };
 
@@ -553,7 +568,7 @@ export const CANONICAL_MINIMAX_H3_TEMPLATES = [
       eventId: "minimax_h3_t2v",
       prompt:
         "integrated_multimodal_description: [Shot 1] Wide-angle cinematic tracking shot across sunlit alpine ridges.\nsoundscape: Crisp mountain wind.\nmusic: Warm orchestral strings.",
-      width: 1376,
+      width: 1344,
       height: 768,
       durationSec: 5,
       seed: 100001,
@@ -566,7 +581,7 @@ export const CANONICAL_MINIMAX_H3_TEMPLATES = [
     {
       eventId: "minimax_h3_i2v",
       prompt: "[Shot 1] Subject steps forward as camera dollies in.",
-      width: 1376,
+      width: 1344,
       height: 768,
       durationSec: 5,
       seed: 100002,
@@ -580,7 +595,7 @@ export const CANONICAL_MINIMAX_H3_TEMPLATES = [
     {
       eventId: "minimax_h3_fl2v",
       prompt: "[Shot 1] Smooth cinematic transition from start to end pose.",
-      width: 1376,
+      width: 1344,
       height: 768,
       durationSec: 5,
       seed: 100003,
@@ -596,7 +611,7 @@ export const CANONICAL_MINIMAX_H3_TEMPLATES = [
       eventId: "minimax_h3_multiframe",
       prompt:
         "subject_definitions:\n<Subject 1> is the character in <Picture 1>.\nintegrated_multimodal_description: [Shot 1] <Subject 1> moves toward <Picture 2>.",
-      width: 1376,
+      width: 1344,
       height: 768,
       durationSec: 5,
       seed: 100004,

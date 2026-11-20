@@ -183,9 +183,9 @@
       },
       "widgets_values": [
         "subject_definitions:\n<Subject 1> is the character in <Picture 1>.\nintegrated_multimodal_description: [Shot 1] <Subject 1> moves toward <Picture 2>.",
-        1376,
+        1344,
         768,
-        121,
+        124,
         "match"
       ]
     },

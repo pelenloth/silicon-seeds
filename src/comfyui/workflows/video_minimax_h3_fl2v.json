@@ -177,10 +177,10 @@
         "Node name for S&R": "MiniMaxH3ImageToVideo"
       },
       "widgets_values": [
-        "For the target video, at 0.00 seconds into the target video, <Picture 1> is fully referenced.\nFor the target video, at 5.00 seconds into the target video, <Picture 2> is fully referenced.\nintegrated_multimodal_description: [Shot 1] Smooth cinematic transition from start to end pose.",
-        1376,
+        "For the target video, at 0.00 seconds into the target video, <Picture 1> is fully referenced.\nFor the target video, at 5.13 seconds into the target video, <Picture 2> is fully referenced.\nintegrated_multimodal_description: [Shot 1] Smooth cinematic transition from start to end pose.",
+        1344,
         768,
-        121
+        124
       ]
     },
     {

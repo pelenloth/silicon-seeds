@@ -13,8 +13,8 @@ A generative audio backbone with distinct capabilities, duration bounds, and con
 _Avoid_: Audio Engine, Synth Backend, `sa3`
 
 **Keyframe Guide**:
-An image pinned to a specific timestamp in seconds to anchor the visual state of a generated video at that moment on the timeline.
-_Avoid_: Guide Node, Control Frame, `frame_idx` Anchor
+A reference image pinned to a specific frame index (`frameIdx`, where `-1` denotes the final frame) along the video timeline via a chained `MiniMaxH3AddGuide` node, anchoring the visual state of the generated video at that frame.
+_Avoid_: Guide Node, Control Frame
 _Considered_: Timeline Pin, Control Image
 
 **Melody Cover**:

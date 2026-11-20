@@ -559,6 +559,7 @@ export namespace DB {
           "jobs.image_model",
           "jobs.video_model",
           "jobs.audio_model",
+          "jobs.video_settings",
         ])
         .distinct()
         .where("jobs.status", "=", JobLifecycleStatus.Active)

@@ -165,6 +165,20 @@ export async function stageVideoInputImages(opts: {
       candidates.push(
         assertWithinRoot(outputDir, resolve(outputDir, cleanName), "output"),
       );
+      // Uploaded references persist as reference_images/<job>_<slot>.<ext>
+      // and are staged as refimg_<job>_<slot>.<ext>.
+      for (const refName of new Set([
+        cleanName,
+        cleanName.replace(/^refimg_/, ""),
+      ])) {
+        candidates.push(
+          assertWithinRoot(
+            outputDir,
+            resolve(outputDir, "reference_images", refName),
+            "output",
+          ),
+        );
+      }
     }
     if (contentDir) {
       candidates.push(

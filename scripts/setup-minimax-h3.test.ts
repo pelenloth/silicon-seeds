@@ -43,6 +43,10 @@ describe("setup-minimax-h3", () => {
     });
   });
 
+  test("defaults to the full tier so every weight the status check needs installs", () => {
+    expect(parseSetupArgs(["--comfy-dir", "/tmp/comfy"]).tier).toBe("full");
+  });
+
   test("selectManifestEntries filters minimal vs standard vs full tiers accurately", () => {
     const minimal = selectManifestEntries({
       tier: "minimal",

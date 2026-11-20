@@ -198,20 +198,32 @@ export namespace SocketServer {
       // [STATE: prepare_transitions] — chain continuation clips, or generate
       // transition prompts and schedule transitions
       if (event.type === Event.NewVideoPrompt && event.mode === JobMode.Video) {
-        const continued = await VideoGenerator.advance_continuation(event);
-        if (!continued) {
-          const transitions = await VideoGenerator.prepare_transitions(event);
-          if (transitions) {
-            for (const transition of transitions) {
-              await VideoGenerator.schedule_transition({
-                jobId: event.jobId,
-                prompt: transition.prompt,
-                startImg: transition.first,
-                endImg: transition.last,
-                index: transition.index,
-              });
+        try {
+          const continued = await VideoGenerator.advance_continuation(event);
+          if (!continued) {
+            const transitions = await VideoGenerator.prepare_transitions(event);
+            if (transitions) {
+              for (const transition of transitions) {
+                await VideoGenerator.schedule_transition({
+                  jobId: event.jobId,
+                  prompt: transition.prompt,
+                  startImg: transition.first,
+                  endImg: transition.last,
+                  index: transition.index,
+                });
+              }
             }
           }
+        } catch (error) {
+          // ffmpeg frame extraction or transition prep failed: fail the job
+          // instead of leaving it stuck in Active.
+          Logger.error(
+            "Failed to advance video sequence or prepare transitions",
+            error,
+          );
+          await DB.Jobs.failJob(event.jobId);
+          void QueueManager.pump();
+          return;
         }
       }
 

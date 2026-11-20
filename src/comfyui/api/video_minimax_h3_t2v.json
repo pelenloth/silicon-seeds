@@ -55,9 +55,9 @@
       "clip": ["1", 0],
       "vae": ["2", 0],
       "prompt": "integrated_multimodal_description: [Shot 1] Wide-angle cinematic tracking shot across sunlit alpine ridges.\nsoundscape: Crisp mountain wind.\nmusic: Warm orchestral strings.",
-      "width": 1376,
+      "width": 1344,
       "height": 768,
-      "length": 121
+      "length": 124
     },
     "_meta": {
       "title": "MiniMax H3 Image/Text To Video"

@@ -10,7 +10,7 @@ describe("buildMiniMaxH3Workflow", () => {
     const graph = buildMiniMaxH3Workflow({
       eventId: "evt_t2v_1",
       prompt: "Cinematic orbital sunrise over ocean clouds",
-      width: 1376,
+      width: 1344,
       height: 768,
       durationSec: 5,
       seed: 42,
@@ -48,9 +48,9 @@ describe("buildMiniMaxH3Workflow", () => {
       clip: ["1", 0],
       vae: ["2", 0],
       prompt: "Cinematic orbital sunrise over ocean clouds",
-      width: 1376,
+      width: 1344,
       height: 768,
-      length: 121,
+      length: 124,
     });
     expect(graph["22"].inputs).toEqual({
       model: ["5", 0],
@@ -141,7 +141,7 @@ describe("buildMiniMaxH3Workflow", () => {
       eventId: "evt_ref",
       prompt:
         "subject_definitions:\n<Subject 1> is the hero in <Picture 1>.\nintegrated_multimodal_description: [Shot 1] Hero leaps across rooftops.",
-      width: 1376,
+      width: 1344,
       height: 768,
       durationSec: 6,
       seed: 1001,
@@ -216,6 +216,64 @@ describe("buildMiniMaxH3Workflow", () => {
       steps: 20,
       denoise: 1,
     });
+  });
+
+  test("fl2v uses 17k + 5 frame length and the aligned last-frame timestamp", () => {
+    const graph = buildMiniMaxH3Workflow({
+      eventId: "evt_fl2v_ts",
+      prompt: "Bridge the two poses",
+      width: 1344,
+      height: 768,
+      durationSec: 5,
+      seed: 3,
+      firstFrameFilename: "a.png",
+      lastFrameFilename: "b.png",
+      settings: { h3_mode: "fl2v", h3_variant: "turbo_8" },
+    });
+    expect(graph["10"].inputs.length).toBe(124);
+    expect(graph["10"].inputs.prompt).toContain(
+      "at 5.13 seconds into the target video, <Picture 2> is fully referenced.",
+    );
+  });
+
+  test("snaps off-grid or oversized canvases to the H3 32px grid and area cap", () => {
+    const graph = buildMiniMaxH3Workflow({
+      eventId: "evt_canvas",
+      prompt: "Wide skyline",
+      width: 1920,
+      height: 1080,
+      durationSec: 5,
+      seed: 4,
+      settings: { h3_mode: "t2v" },
+    });
+    expect(graph["10"].inputs.width).toBe(1344);
+    expect(graph["10"].inputs.height).toBe(768);
+  });
+
+  test("a start + end frame pair inside a multiframe job builds fl2va, not ref2va", () => {
+    const graph = buildMiniMaxH3Workflow({
+      eventId: "evt_mf_transition",
+      prompt: "Transition between clips",
+      width: 1344,
+      height: 768,
+      durationSec: 3,
+      seed: 5,
+      firstFrameFilename: "clip0_last.png",
+      lastFrameFilename: "clip1_first.png",
+      settings: {
+        h3_mode: "multiframe",
+        reference_images: ["refimg_1.png"],
+        keyframe_guides: [{ refIndex: 0, frameIdx: 0 }],
+        sequence_mode: "transition",
+      },
+    });
+    expect(graph["10"].class_type).toBe("MiniMaxH3ImageToVideo");
+    expect(graph["10"].inputs.first_frame).toEqual(["9_first", 0]);
+    expect(graph["10"].inputs.last_frame).toEqual(["9_last", 0]);
+    expect(graph["4"].inputs.unet_name).toBe(MINIMAX_H3_WEIGHTS.fl2vaUnet);
+    const classTypes = Object.values(graph).map((n) => n.class_type);
+    expect(classTypes).not.toContain("MiniMaxH3ReferenceToVideo");
+    expect(classTypes).not.toContain("MiniMaxH3AddGuide");
   });
 
   test("canonical JSON templates match programmatic builders and are valid ComfyUI UI + API JSON", async () => {

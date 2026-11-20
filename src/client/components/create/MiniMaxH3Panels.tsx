@@ -368,7 +368,7 @@ export function MiniMaxH3Panels(props: {
             />
           </Field>
           <Field
-            label="Music underscore"
+            label="Background music"
             for="h3-music"
             error={props.errors.music}
           >

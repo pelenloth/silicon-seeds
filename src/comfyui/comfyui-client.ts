@@ -416,10 +416,21 @@ export class ComfyUIClient {
     // Better to raw dog the exported json workflows
     let api;
 
-    const resolution = resolveVideoDimensions(job.resolution);
+    const resolution = resolveVideoDimensions(job.resolution, job.video_model);
 
     if (job.video_model === "minimax-h3" && isVideoVariant(input)) {
-      const mergedSettings = mergeVideoSettings(input, job);
+      const merged = mergeVideoSettings(input, job);
+      // Transitions always bridge startImage -> endImage via fl2va, even when
+      // the job itself is a multiframe reference job.
+      const mergedSettings: VideoJobSettings =
+        input.kind === "image-to-transition"
+          ? {
+              ...merged,
+              h3_mode: "fl2v",
+              reference_images: undefined,
+              keyframe_guides: undefined,
+            }
+          : merged;
       return buildMiniMaxH3Workflow({
         eventId: input.id,
         prompt: input.prompt,

@@ -100,4 +100,33 @@ describe("reference-images staging", () => {
     });
     expect(existsSync(join(inDir, "gallery_shot.png"))).toBe(true);
   });
+
+  test("re-stages a saved refimg_* from OUTPUT_DIR/reference_images after INPUT_DIR is wiped", async () => {
+    const outDir = makeTmpDir();
+    const inDir = makeTmpDir();
+    const contentDir = makeTmpDir();
+    const file = new File([PNG_BYTES], "hero.png", { type: "image/png" });
+    const saved = await saveUploadedReferenceImage(file, {
+      jobId: "job_9",
+      slot: "ref_1",
+      outputDir: outDir,
+    });
+    const staged = await copyReferenceImageToInputDir({
+      relativePath: saved.relativePath,
+      comfyInputFilename: saved.comfyInputFilename,
+      outputDir: outDir,
+      inputDir: inDir,
+    });
+    rmSync(staged);
+    expect(existsSync(staged)).toBe(false);
+
+    // No stagedPaths mapping: e.g. a regeneration after ComfyUI input cleanup.
+    await stageVideoInputImages({
+      filenames: [saved.comfyInputFilename],
+      outputDir: outDir,
+      inputDir: inDir,
+      contentLibraryDir: contentDir,
+    });
+    expect(existsSync(join(inDir, saved.comfyInputFilename))).toBe(true);
+  });
 });

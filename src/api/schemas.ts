@@ -5,6 +5,7 @@ import {
   normalizeAudioModelId,
 } from "../shared/audio-models";
 import {
+  computeVideoFrameLength,
   getVideoModelSpec,
   MINIMAX_H3_MODES,
   MINIMAX_H3_REF_IMAGE_SIZES,
@@ -116,7 +117,8 @@ const KeyframeGuidesPreprocess = z.preprocess(
     .array(
       z.object({
         refIndex: z.coerce.number().int().min(0).max(8),
-        frameIdx: z.coerce.number().int().min(0),
+        // -1 pins the guide to the final frame.
+        frameIdx: z.coerce.number().int().min(-1).max(3600),
       }),
     )
     .max(9)
@@ -191,6 +193,39 @@ export const PostTextToVideoSchema = z
         path: ["reference_images"],
         message: "Multi-frame mode needs at least 1 reference image",
       });
+    }
+    if (data.video_model === "minimax-h3") {
+      if (data.h3_mode === "i2v" && !data.first_frame) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["first_frame"],
+          message: "i2v mode requires first_frame",
+        });
+      }
+      const guides = data.keyframe_guides ?? [];
+      if (guides.length > 0) {
+        const maxFrames = computeVideoFrameLength(
+          "minimax-h3",
+          data.clip_duration ?? 5,
+        );
+        const refCount = data.reference_images?.length ?? 0;
+        if (guides.some((g) => g.refIndex >= refCount)) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["keyframe_guides"],
+            message:
+              "keyframe_guides.refIndex out of range for reference_images",
+          });
+        }
+        if (guides.some((g) => g.frameIdx < -1 || g.frameIdx >= maxFrames)) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["keyframe_guides"],
+            message:
+              "keyframe_guides.frameIdx must be between -1 and frame length - 1",
+          });
+        }
+      }
     }
     if (data.h3_mode === "fl2v") {
       if (!data.first_frame) {

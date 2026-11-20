@@ -157,7 +157,7 @@ export function resolveDefaultComfyDir(): string {
 
 export function parseSetupArgs(argv: readonly string[]): SetupOptions {
   let comfyDir = resolveDefaultComfyDir();
-  let tier: SetupTier = "standard";
+  let tier: SetupTier = "full";
   let dryRun = false;
   let skipSamples = false;
   let skipTemplates = false;

@@ -154,12 +154,43 @@ export type FinalizeDecisionInput = {
     image_model?: string | null;
     video_model?: string | null;
     audio_model?: string | null;
+    video_settings?: string | null;
   };
   events: readonly {
     type: string;
     status: string;
   }[];
 };
+
+/**
+ * Clip count a multi-clip sequence job must reach before it may complete, or
+ * null for single-clip jobs. Continuation clips are scheduled one at a time,
+ * so the event list alone cannot tell a finished chain from a paused one.
+ */
+function expectedSequenceClips(
+  rawSettings: string | null | undefined,
+): number | null {
+  if (!rawSettings) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawSettings);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object") return null;
+  const settings = parsed as {
+    sequence_mode?: unknown;
+    sequence_prompts?: unknown;
+  };
+  const prompts = Array.isArray(settings.sequence_prompts)
+    ? settings.sequence_prompts.length
+    : 0;
+  const isSequence =
+    settings.sequence_mode === "continuation" ||
+    settings.sequence_mode === "transition" ||
+    prompts > 1;
+  return isSequence ? Math.max(2, prompts) : null;
+}
 
 export function isStandaloneAudioJob(
   job: FinalizeDecisionInput["job"],
@@ -196,6 +227,13 @@ export function finalizeDecision(
       (e) => e.type === "new_video_composition" && e.status === "complete",
     );
     if (needsComposition && !hasComposition) {
+      return "wait";
+    }
+    const expectedClips = expectedSequenceClips(job.video_settings);
+    if (
+      expectedClips !== null &&
+      (completeVideos < expectedClips || !hasComposition)
+    ) {
       return "wait";
     }
   }

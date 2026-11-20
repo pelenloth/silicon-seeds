@@ -54,10 +54,10 @@
     "inputs": {
       "clip": ["1", 0],
       "vae": ["2", 0],
-      "prompt": "For the target video, at 0.00 seconds into the target video, <Picture 1> is fully referenced.\nFor the target video, at 5.00 seconds into the target video, <Picture 2> is fully referenced.\nintegrated_multimodal_description: [Shot 1] Smooth cinematic transition from start to end pose.",
-      "width": 1376,
+      "prompt": "For the target video, at 0.00 seconds into the target video, <Picture 1> is fully referenced.\nFor the target video, at 5.13 seconds into the target video, <Picture 2> is fully referenced.\nintegrated_multimodal_description: [Shot 1] Smooth cinematic transition from start to end pose.",
+      "width": 1344,
       "height": 768,
-      "length": 121,
+      "length": 124,
       "first_frame": ["9_first", 0],
       "last_frame": ["9_last", 0]
     },

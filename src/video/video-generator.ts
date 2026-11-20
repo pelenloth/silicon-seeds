@@ -17,6 +17,7 @@ import { Logger } from "../logger/logger";
 import { Utils } from "../utils/utils";
 import { DB } from "../db/db";
 import {
+  getVideoModelSpec,
   resolveVideoDimensions,
   type VideoJobSettings,
 } from "../shared/video-models";
@@ -80,6 +81,41 @@ function parseVideoSettings(
     Logger.warn("Ignoring malformed job video_settings JSON");
     return null;
   }
+}
+
+/**
+ * Frame rate for the concat composition. MiniMax H3 clips are always encoded
+ * at the model's native 24 fps, so job.fps (which may default to 16) must not
+ * resample them.
+ */
+export function compositionFps(job: {
+  video_model?: string | null;
+  fps?: number | null;
+}): number {
+  if (job.video_model === "minimax-h3") {
+    return getVideoModelSpec("minimax-h3").nativeFps;
+  }
+  return job.fps || Metadata.FPS;
+}
+
+/**
+ * Index of the continuation clip to schedule after `currentIndex`, or null
+ * when the chain is finished or that clip already exists (a regenerated
+ * upstream clip must not schedule a duplicate downstream clip).
+ */
+export function nextContinuationIndex(
+  settings: VideoJobSettings | null,
+  currentIndex: number,
+  events: readonly { type: string; index?: number | null }[],
+): number | null {
+  if (settings?.sequence_mode !== "continuation") return null;
+  const prompts = settings.sequence_prompts ?? [];
+  const nextIndex = currentIndex + 1;
+  if (nextIndex >= prompts.length) return null;
+  const alreadyScheduled = events.some(
+    (e) => e.type === Event.NewVideoPrompt && e.index === nextIndex,
+  );
+  return alreadyScheduled ? null : nextIndex;
 }
 
 /**
@@ -345,7 +381,13 @@ export namespace VideoGenerator {
 
     const prompts = videoSettings.sequence_prompts ?? [];
     const currentIndex = (event as VideoPromptEvent).index ?? 0;
-    if (currentIndex + 1 >= prompts.length) return false;
+    const events = await DB.Events.findByJobId(event.jobId);
+    const nextIndex = nextContinuationIndex(
+      videoSettings,
+      currentIndex,
+      events,
+    );
+    if (nextIndex === null) return false;
 
     const nextFrame = `${event.id}_cont_last.png`;
     try {
@@ -371,9 +413,9 @@ export namespace VideoGenerator {
 
       await schedule_video({
         jobId: event.jobId,
-        prompt: prompts[currentIndex + 1],
+        prompt: prompts[nextIndex],
         filename: nextFrame,
-        index: currentIndex + 1,
+        index: nextIndex,
         video_settings: {
           ...videoSettings,
           h3_mode: "i2v",
@@ -383,7 +425,7 @@ export namespace VideoGenerator {
       });
     } catch (error) {
       Logger.error(
-        `Continuation clip ${currentIndex + 1} failed for job ${event.jobId}`,
+        `Continuation clip ${nextIndex} failed for job ${event.jobId}`,
         error,
       );
       await DB.Jobs.failJob(event.jobId);
@@ -587,8 +629,11 @@ Your response should only include the newly generated prompt!
       return;
     }
 
-    const fps = job.fps || Metadata.FPS;
-    const { width, height } = resolveVideoDimensions(job.resolution);
+    const fps = compositionFps(job);
+    const { width, height } = resolveVideoDimensions(
+      job.resolution,
+      job.video_model,
+    );
 
     try {
       const files: string[] = [];
