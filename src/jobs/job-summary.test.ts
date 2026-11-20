@@ -301,6 +301,35 @@ describe("finalizeDecision", () => {
     ).toBe("complete");
   });
 
+  test("multi-clip video workflow waits for new_video_composition before completing", () => {
+    expect(
+      finalizeDecision({
+        job: {
+          workflow: "video",
+          video_model: "minimax-h3",
+        },
+        events: [
+          { type: "new_video_prompt", status: "complete" },
+          { type: "new_video_prompt", status: "complete" },
+        ],
+      }),
+    ).toBe("wait");
+
+    expect(
+      finalizeDecision({
+        job: {
+          workflow: "video",
+          video_model: "minimax-h3",
+        },
+        events: [
+          { type: "new_video_prompt", status: "complete" },
+          { type: "new_video_prompt", status: "complete" },
+          { type: "new_video_composition", status: "complete" },
+        ],
+      }),
+    ).toBe("complete");
+  });
+
   test("any failed event -> failed", () => {
     expect(
       finalizeDecision({

@@ -182,10 +182,20 @@ export function finalizeDecision(
     return "failed";
   }
   if (job.workflow === "video") {
-    const hasCompleteVideo = events.some(
+    const completeVideos = events.filter(
       (e) => e.type === "new_video_prompt" && e.status === "complete",
+    ).length;
+    const completeTransitions = events.filter(
+      (e) => e.type === "new_transition_prompt" && e.status === "complete",
+    ).length;
+    if (completeVideos === 0 && completeTransitions === 0) {
+      return "wait";
+    }
+    const needsComposition = completeVideos + completeTransitions > 1;
+    const hasComposition = events.some(
+      (e) => e.type === "new_video_composition" && e.status === "complete",
     );
-    if (!hasCompleteVideo) {
+    if (needsComposition && !hasComposition) {
       return "wait";
     }
   }

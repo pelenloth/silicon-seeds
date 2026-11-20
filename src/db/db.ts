@@ -71,6 +71,7 @@ export interface DbSchema {
     sound_preset?: string | null;
     style_preset?: string;
     style_guide?: string | null;
+    video_settings?: string | null;
   };
   events: {
     id: string;
@@ -88,6 +89,7 @@ export interface DbSchema {
     duration: number | null;
     lyrics: string | null;
     audio_settings: string | null;
+    video_settings?: string | null;
     lora: Lora | null;
     index: number | null;
     claimed_at: string | null;
@@ -643,6 +645,9 @@ export namespace DB {
             filename: event.filename,
             lyrics: null,
             audio_settings: null,
+            video_settings: event.video_settings
+              ? JSON.stringify(event.video_settings)
+              : null,
             start_img: null,
             end_img: null,
             duration: null,
@@ -660,6 +665,9 @@ export namespace DB {
             filename: null,
             lyrics: null,
             audio_settings: null,
+            video_settings: event.video_settings
+              ? JSON.stringify(event.video_settings)
+              : null,
             start_img: event.startImg,
             end_img: event.endImg,
             duration: null,
@@ -742,6 +750,9 @@ export namespace DB {
           return {
             ...base,
             filename: row.filename ?? null,
+            video_settings: row.video_settings
+              ? (JSON.parse(row.video_settings) as Record<string, unknown>)
+              : undefined,
             index: row.index ?? undefined,
             type: Event.NewVideoPrompt,
             prompt: row.prompt,
@@ -759,6 +770,9 @@ export namespace DB {
             ...base,
             startImg: row.start_img!,
             endImg: row.end_img!,
+            video_settings: row.video_settings
+              ? (JSON.parse(row.video_settings) as Record<string, unknown>)
+              : undefined,
             index: row.index ?? undefined,
             type: Event.NewTransitionPrompt,
             prompt: row.prompt,

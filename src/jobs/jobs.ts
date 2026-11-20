@@ -137,6 +137,7 @@ export namespace JobOrchestrator {
           type: Event.NewVideoPrompt,
           prompt,
           filename: filename ?? null,
+          video_settings: event.video_settings,
           index: event.index,
         } as any;
 
@@ -161,6 +162,7 @@ export namespace JobOrchestrator {
           prompt,
           startImg,
           endImg,
+          video_settings: event.video_settings,
           index: event.index,
         };
 

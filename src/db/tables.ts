@@ -28,6 +28,7 @@ export async function createTables(db: Kysely<DbSchema>): Promise<void> {
     .addColumn("style_preset", "text", (col) => col.defaultTo(null))
     .addColumn("style_guide", "text", (col) => col.defaultTo(null))
     .addColumn("loras", "text", (col) => col.defaultTo(null))
+    .addColumn("video_settings", "text", (col) => col.defaultTo(null))
     .execute();
 
   await db.schema
@@ -47,6 +48,7 @@ export async function createTables(db: Kysely<DbSchema>): Promise<void> {
     .addColumn("duration", "integer")
     .addColumn("lyrics", "text")
     .addColumn("audio_settings", "text")
+    .addColumn("video_settings", "text")
     .addColumn("lora", "text")
     .addColumn("index", "integer")
     .addColumn("claimed_at", "text")

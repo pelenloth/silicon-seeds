@@ -44,6 +44,7 @@ export interface Job extends BaseEvent {
   video_model?: string;
   audio_model?: string;
   style_preset?: string;
+  video_settings?: string | null;
 }
 
 export interface JobBaseEvent extends BaseEvent {
@@ -87,6 +88,7 @@ export interface VideoPromptEvent extends JobBaseEvent {
   prompt: string;
   type: Event.NewVideoPrompt;
   filename?: string | null;
+  video_settings?: Record<string, unknown>;
   index?: number;
 }
 
@@ -100,6 +102,7 @@ export interface TransitionPromptEvent extends JobBaseEvent {
   type: Event.NewTransitionPrompt;
   startImg: string;
   endImg: string;
+  video_settings?: Record<string, unknown>;
   index?: number;
 }
 
