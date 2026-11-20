@@ -206,6 +206,27 @@ export function selectManifestEntries(opts: {
   });
 }
 
+function isHuggingFaceHost(url: string): boolean {
+  try {
+    const { hostname } = new URL(url);
+    return (
+      hostname === "huggingface.co" || hostname.endsWith(".huggingface.co")
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** HF_TOKEN is only ever sent to Hugging Face hosts, never third parties. */
+export function downloadHeaders(
+  url: string,
+  hfToken: string | undefined,
+): Record<string, string> {
+  return hfToken && isHuggingFaceHost(url)
+    ? { Authorization: `Bearer ${hfToken}` }
+    : {};
+}
+
 async function downloadWithFallback(
   urls: readonly string[],
   destPath: string,
@@ -213,15 +234,15 @@ async function downloadWithFallback(
 ): Promise<void> {
   mkdirSync(dirname(destPath), { recursive: true });
   const partPath = `${destPath}.part`;
-  const headers: Record<string, string> = {};
-  if (Bun.env.HF_TOKEN && Bun.env.HF_TOKEN.trim()) {
-    headers.Authorization = `Bearer ${Bun.env.HF_TOKEN.trim()}`;
-  }
+  const hfToken = Bun.env.HF_TOKEN?.trim();
 
   let lastErr: Error | null = null;
   for (const url of urls) {
     try {
-      const res = await fetchImpl(url, { headers, redirect: "follow" });
+      const res = await fetchImpl(url, {
+        headers: downloadHeaders(url, hfToken),
+        redirect: "follow",
+      });
       if (!res.ok) {
         lastErr = new Error(`HTTP ${res.status} for ${url}`);
         continue;

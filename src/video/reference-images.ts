@@ -11,10 +11,20 @@ export const ALLOWED_REFERENCE_IMAGE_EXTENSIONS = [
 export const MAX_REFERENCE_IMAGE_BYTES = 20 * 1024 * 1024;
 
 export class ReferenceImageValidationError extends Error {
-  constructor(message: string) {
+  /** Form field the error belongs to, for `{ error, fields }` responses. */
+  readonly field: string;
+
+  constructor(message: string, field = "reference_images") {
     super(message);
     this.name = "ReferenceImageValidationError";
+    this.field = field;
   }
+}
+
+function fieldForSlot(slot: string): string {
+  return slot === "first_frame" || slot === "last_frame"
+    ? slot
+    : "reference_images";
 }
 
 function sanitizeToken(raw: string): string {
@@ -48,12 +58,17 @@ export async function saveUploadedReferenceImage(
   relativePath: string;
   comfyInputFilename: string;
 }> {
+  const field = fieldForSlot(opts.slot);
   if (!(file instanceof File) || file.size <= 0) {
-    throw new ReferenceImageValidationError("Reference image file is empty");
+    throw new ReferenceImageValidationError(
+      "Reference image file is empty",
+      field,
+    );
   }
   if (file.size > MAX_REFERENCE_IMAGE_BYTES) {
     throw new ReferenceImageValidationError(
       "Reference image exceeds 20 MB limit",
+      field,
     );
   }
 
@@ -63,6 +78,7 @@ export async function saveUploadedReferenceImage(
   ) {
     throw new ReferenceImageValidationError(
       `Unsupported image format '${ext || "unknown"}'. Allowed: PNG, JPG, JPEG, WEBP.`,
+      field,
     );
   }
 

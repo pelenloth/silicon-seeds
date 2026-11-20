@@ -84,7 +84,7 @@ type Text2VideoInput = {
   settings?: VideoJobSettings;
 };
 
-type VideoVariant = Text2VideoInput | Img2VidInput | Img2Transition;
+export type VideoVariant = Text2VideoInput | Img2VidInput | Img2Transition;
 
 function isVideoVariant(input: ModelVariant): input is VideoVariant {
   return (
@@ -117,6 +117,39 @@ function mergeVideoSettings(
     ...parseJobVideoSettings(job.video_settings),
     ...(input.settings ?? {}),
   };
+}
+
+/**
+ * Input images a video event's ComfyUI graph references, so staging never
+ * fails on job-level images the event does not use (e.g. a transition inside
+ * a multiframe job only needs its start/end frames).
+ */
+export function videoInputImagesToStage(
+  input: VideoVariant,
+  merged: VideoJobSettings,
+): string[] {
+  let names: (string | null | undefined)[];
+  if (input.kind === "image-to-transition") {
+    names = [input.startImage, input.endImage];
+  } else if (input.kind === "image-to-video") {
+    names = [
+      input.imagePath || merged.first_frame,
+      merged.h3_mode === "i2v" ? undefined : merged.last_frame,
+      ...(merged.h3_mode === "multiframe"
+        ? (merged.reference_images ?? [])
+        : []),
+    ];
+  } else {
+    names = [
+      merged.first_frame,
+      merged.last_frame,
+      ...(merged.reference_images ?? []),
+    ];
+  }
+  const clean = names
+    .map((name) => (typeof name === "string" ? name.trim() : ""))
+    .filter((name) => name.length > 0);
+  return [...new Set(clean)];
 }
 
 export type ModelVariant =
@@ -643,29 +676,26 @@ export class ComfyUIClient {
 
     if (input.kind === "image-to-video") {
       Utils.assert(outDir && inDir, "ComfyUI env. variables not configured!");
-      const src = `${outDir}/${input.imagePath}`.replace('"', "").trim();
-      const dst = `${inDir}/${input.imagePath}`.replace('"', "").trim();
-
-      // Staged reference images (refimg_*) and continuation frames
-      // (*_cont_last.png) already live in INPUT_DIR only.
-      if (!existsSync(dst) || existsSync(src)) {
-        const image = await Bun.file(src).arrayBuffer();
-        await Bun.write(dst, image);
+      const name = input.imagePath.replace('"', "").trim();
+      const src = `${outDir}/${name}`;
+      // Fresh OUTPUT_DIR frames (t2i2v) overwrite stale copies; uploaded
+      // refimg_* and continuation frames are resolved by staging below.
+      if (existsSync(src)) {
+        await Bun.write(`${inDir}/${name}`, await Bun.file(src).arrayBuffer());
       }
     }
 
     if (isVideoVariant(input)) {
-      const settings = mergeVideoSettings(input, job);
-      const filenames = [
-        settings.first_frame,
-        settings.last_frame,
-        ...(settings.reference_images ?? []),
-      ].filter(
-        (name): name is string =>
-          typeof name === "string" && name.trim().length > 0,
+      const filenames = videoInputImagesToStage(
+        input,
+        mergeVideoSettings(input, job),
       );
-      if (Bun.env.INPUT_DIR && filenames.length > 0) {
-        await stageVideoInputImages({ filenames: [...new Set(filenames)] });
+      if (inDir && filenames.length > 0) {
+        await stageVideoInputImages({
+          filenames,
+          inputDir: inDir,
+          outputDir: outDir,
+        });
       }
       return;
     }

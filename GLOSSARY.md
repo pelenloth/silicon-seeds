@@ -35,6 +35,10 @@ _Considered_: Character Sheet
 Optional expansion of a short text prompt into a detailed sonic description by an auxiliary language model inside the audio workflow before diffusion sampling.
 _Avoid_: Prompt Enhancement
 
+**Soundscape**:
+The natural ambient and Foley audio description embedded into a MiniMax H3 prompt (`Soundscape:` / `Audio:` cues) to condition the joint stereo audio-video diffusion stream.
+_Avoid_: Ambient Track, SFX Prompt, Audio Bed
+
 **Sound Preset**:
 A named, reusable bundle of genre/timbre prompt text, optional lyric scaffold, and recommended model parameters for audio generation, either built-in or user-defined.
 _Avoid_: Audio Style Preset, Genre Tag, Vibe Preset
@@ -43,6 +47,10 @@ _Considered_: Audio Preset
 **Style Preset**:
 A named visual aesthetic direction (`cyberpunk`, `noir`, or user-defined) applied to image and video generation prompts.
 _Avoid_: Visual Preset, Theme
+
+**Style Embedding**:
+An optional MiniMax H3 visual style token file (`models/embeddings/minimaxh3_*.safetensors`, such as anime, pixel art, or oil painting) referenced via `<style:name>` in the positive prompt. Distinct from a text-only **Style Preset**.
+_Avoid_: Style Model, Style LoRA, Visual Preset
 
 **Underscore**:
 Instrumental background music generated for a Compose video job to accompany narrated speech without competing vocals.

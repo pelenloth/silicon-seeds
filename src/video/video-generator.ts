@@ -240,7 +240,50 @@ async function runProcess(cmd: string[], context: string) {
   }
 }
 
+/**
+ * ffmpeg args that extract the true final frame of a clip. `-sseof -2` seeks
+ * near the end and `-update 1` keeps overwriting the single output image, so
+ * the last decoded frame wins (a tiny `-sseof` window can yield no frame).
+ */
+export function continuationFrameArgs(
+  clipPath: string,
+  frameOutPath: string,
+): string[] {
+  return [
+    "ffmpeg",
+    "-y",
+    "-nostdin",
+    "-sseof",
+    "-2",
+    "-i",
+    clipPath,
+    "-update",
+    "1",
+    "-q:v",
+    "2",
+    frameOutPath,
+  ];
+}
+
 export namespace VideoGenerator {
+  /**
+   * Fail a job because of a post-processing step triggered by `event`. The
+   * event is marked Failed first so Retry (which re-queues Failed events)
+   * re-runs it and the follow-up step instead of leaving an Active job with
+   * no runnable events.
+   */
+  export async function fail_media_event(
+    event: JobEvent,
+    reason: string,
+  ): Promise<void> {
+    await JobOrchestrator.update_schedule({
+      ...event,
+      status: JobStatus.Failed,
+      error: reason,
+    });
+    await DB.Jobs.failJob(event.jobId);
+  }
+
   async function create_video_composition_event(jobId: string, path: string) {
     const videoCompEvent: VideoCompostionEvent = {
       id: Metadata.randomId(),
@@ -367,10 +410,9 @@ export namespace VideoGenerator {
 
   /**
    * Continuation sequences: once clip N finishes, extract its last frame and
-   * schedule clip N+1 as i2v from that frame. Returns true when the event
-   * belongs to a continuation chain that this call handled (scheduled the
-   * next clip, or failed the job), false when the caller should fall through
-   * to transition handling.
+   * schedule clip N+1 as i2v from that frame. Returns true when this call
+   * scheduled the next clip, false when the caller should fall through to
+   * transition handling. Extraction/scheduling errors throw to the caller.
    */
   export async function advance_continuation(
     event: JobEvent,
@@ -390,46 +432,30 @@ export namespace VideoGenerator {
     if (nextIndex === null) return false;
 
     const nextFrame = `${event.id}_cont_last.png`;
-    try {
-      const inputDir = Bun.env.INPUT_DIR;
-      Utils.assert(inputDir, "INPUT_DIR environment variable is not set");
-      await runProcess(
-        [
-          "ffmpeg",
-          "-y",
-          "-nostdin",
-          "-sseof",
-          "-0.1",
-          "-i",
-          `/tmp/${event.jobId}_${event.id}.mp4`,
-          "-frames:v",
-          "1",
-          "-update",
-          "1",
-          `${inputDir}/${nextFrame}`,
-        ],
-        `Continuation frame extraction for ${event.id}`,
-      );
+    const inputDir = Bun.env.INPUT_DIR;
+    if (!inputDir) throw new Error("INPUT_DIR environment variable is not set");
+    // Errors propagate: the socket handler marks the triggering clip Failed
+    // and fails the job, so Retry re-runs this clip and the chain resumes.
+    await runProcess(
+      continuationFrameArgs(
+        `/tmp/${event.jobId}_${event.id}.mp4`,
+        `${inputDir}/${nextFrame}`,
+      ),
+      `Continuation frame extraction for ${event.id}`,
+    );
 
-      await schedule_video({
-        jobId: event.jobId,
-        prompt: prompts[nextIndex],
-        filename: nextFrame,
-        index: nextIndex,
-        video_settings: {
-          ...videoSettings,
-          h3_mode: "i2v",
-          first_frame: nextFrame,
-          last_frame: undefined,
-        },
-      });
-    } catch (error) {
-      Logger.error(
-        `Continuation clip ${nextIndex} failed for job ${event.jobId}`,
-        error,
-      );
-      await DB.Jobs.failJob(event.jobId);
-    }
+    await schedule_video({
+      jobId: event.jobId,
+      prompt: prompts[nextIndex],
+      filename: nextFrame,
+      index: nextIndex,
+      video_settings: {
+        ...videoSettings,
+        h3_mode: "i2v",
+        first_frame: nextFrame,
+        last_frame: undefined,
+      },
+    });
     return true;
   }
 
@@ -602,7 +628,10 @@ Your response should only include the newly generated prompt!
     return res?.content ?? null;
   }
 
-  export async function combine_outputs(jobId: string): Promise<void> {
+  export async function combine_outputs(
+    jobId: string,
+    triggerEvent?: JobEvent,
+  ): Promise<void> {
     Logger.info(`Starting video combination for job ${jobId}`);
 
     const job = await DB.Jobs.findById(jobId);
@@ -697,7 +726,11 @@ Your response should only include the newly generated prompt!
       // Direct video jobs wait on the composition to finish; without one
       // they would stay active forever, so fail them explicitly.
       if (job.workflow === "video") {
-        await DB.Jobs.failJob(jobId);
+        if (triggerEvent) {
+          await fail_media_event(triggerEvent, "video combination failed");
+        } else {
+          await DB.Jobs.failJob(jobId);
+        }
       }
     }
 

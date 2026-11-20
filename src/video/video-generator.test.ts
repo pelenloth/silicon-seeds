@@ -1,9 +1,17 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   buildSegmentNormalizeFfmpegArgs,
   compositionFps,
+  continuationFrameArgs,
   nextContinuationIndex,
+  VideoGenerator,
 } from "./video-generator";
+import { DB } from "../db/db";
+import { JobOrchestrator } from "../jobs/jobs";
+import { Event, JobMode, JobStatus, type JobEvent } from "../events/events";
 
 describe("VideoGenerator audio-safe normalization & sequencing helpers", () => {
   test("preserves existing clip audio stream when hasAudioStream is true", () => {
@@ -91,5 +99,87 @@ describe("compositionFps", () => {
   test("other models keep the job fps", () => {
     expect(compositionFps({ video_model: "wan2.2", fps: 16 })).toBe(16);
     expect(compositionFps({ video_model: "ltx2.3", fps: 12 })).toBe(12);
+  });
+});
+
+describe("continuationFrameArgs", () => {
+  test("decodes to the true final frame like video_frames", () => {
+    const args = continuationFrameArgs("/tmp/clip.mp4", "/in/last.png");
+    expect(args).toEqual([
+      "ffmpeg",
+      "-y",
+      "-nostdin",
+      "-sseof",
+      "-2",
+      "-i",
+      "/tmp/clip.mp4",
+      "-update",
+      "1",
+      "-q:v",
+      "2",
+      "/in/last.png",
+    ]);
+    expect(args).not.toContain("-frames:v");
+  });
+});
+
+describe("continuation failure handling", () => {
+  const event = {
+    id: "evt-clip-0",
+    jobId: "job-cont-1",
+    type: Event.NewVideoPrompt,
+    mode: JobMode.Video,
+    status: JobStatus.Complete,
+    index: 0,
+  } as unknown as JobEvent;
+
+  afterEach(() => {
+    mock.restore();
+  });
+
+  test("advance_continuation propagates frame extraction errors without failing the job itself", async () => {
+    const prevInputDir = Bun.env.INPUT_DIR;
+    Bun.env.INPUT_DIR = mkdtempSync(join(tmpdir(), "cont-input-"));
+    spyOn(DB.Jobs, "findById").mockResolvedValue({
+      video_settings: JSON.stringify({
+        sequence_mode: "continuation",
+        sequence_prompts: ["shot 1", "shot 2"],
+      }),
+    } as never);
+    spyOn(DB.Events, "findByJobId").mockResolvedValue([event] as never);
+    const failJob = spyOn(DB.Jobs, "failJob").mockResolvedValue(undefined);
+
+    try {
+      // The clip file does not exist, so ffmpeg (or its spawn) fails.
+      await expect(
+        VideoGenerator.advance_continuation(event),
+      ).rejects.toThrow();
+      expect(failJob).not.toHaveBeenCalled();
+    } finally {
+      Bun.env.INPUT_DIR = prevInputDir;
+    }
+  });
+
+  test("fail_media_event marks the triggering event Failed before failing the job", async () => {
+    const calls: string[] = [];
+    const updateSchedule = spyOn(
+      JobOrchestrator,
+      "update_schedule",
+    ).mockImplementation(async (e: JobEvent) => {
+      calls.push(`event:${e.status}`);
+      return e as never;
+    });
+    spyOn(DB.Jobs, "failJob").mockImplementation(async (id: string) => {
+      calls.push(`job:${id}`);
+    });
+
+    await VideoGenerator.fail_media_event(event, "video sequence step failed");
+
+    expect(calls).toEqual([`event:${JobStatus.Failed}`, "job:job-cont-1"]);
+    expect(updateSchedule.mock.calls[0][0]).toMatchObject({
+      id: "evt-clip-0",
+      status: JobStatus.Failed,
+      error: "video sequence step failed",
+    });
   });
 });

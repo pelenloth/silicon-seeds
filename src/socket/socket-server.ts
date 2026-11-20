@@ -215,13 +215,17 @@ export namespace SocketServer {
             }
           }
         } catch (error) {
-          // ffmpeg frame extraction or transition prep failed: fail the job
+          // ffmpeg frame extraction or transition prep failed: mark this clip
+          // Failed (so Retry re-runs it and this step) and fail the job
           // instead of leaving it stuck in Active.
           Logger.error(
             "Failed to advance video sequence or prepare transitions",
             error,
           );
-          await DB.Jobs.failJob(event.jobId);
+          await VideoGenerator.fail_media_event(
+            event,
+            "video sequence step failed",
+          );
           void QueueManager.pump();
           return;
         }
@@ -263,8 +267,11 @@ export namespace SocketServer {
       );
 
       if (allComplete && completedClips >= 2 && !hasComposition) {
-        Logger.info(`Triggering video combiner for job ${event.jobId}`);
-        await VideoGenerator.combine_outputs(event.jobId);
+        const job = await DB.Jobs.findById(event.jobId).catch(() => null);
+        if (job?.status === JobLifecycleStatus.Active) {
+          Logger.info(`Triggering video combiner for job ${event.jobId}`);
+          await VideoGenerator.combine_outputs(event.jobId, event);
+        }
       }
 
       await DB.Jobs.finalizeCompletedJobs();

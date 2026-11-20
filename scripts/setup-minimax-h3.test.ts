@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  downloadHeaders,
   MINIMAX_H3_ASSETS_MANIFEST,
   parseSetupArgs,
   runSetupMiniMaxH3,
@@ -186,5 +187,59 @@ describe("setup-minimax-h3", () => {
 
     expect(fetchCalls).toBe(0);
     expect(summary.installedTemplates).toHaveLength(4);
+  });
+
+  test("downloadHeaders scopes HF_TOKEN to Hugging Face hosts", () => {
+    expect(
+      downloadHeaders("https://huggingface.co/org/repo/resolve/main/x", "tok"),
+    ).toEqual({ Authorization: "Bearer tok" });
+    expect(downloadHeaders("https://cdn-lfs.huggingface.co/x", "tok")).toEqual({
+      Authorization: "Bearer tok",
+    });
+    expect(
+      downloadHeaders("https://raw.githubusercontent.com/a/b/x.png", "tok"),
+    ).toEqual({});
+    expect(downloadHeaders("https://evilhuggingface.co/x", "tok")).toEqual({});
+    expect(downloadHeaders("https://huggingface.co/x", undefined)).toEqual({});
+  });
+
+  test("sends HF_TOKEN to huggingface.co but not to sample image hosts", async () => {
+    const comfyDir = makeTmpDir();
+    const prevToken = Bun.env.HF_TOKEN;
+    Bun.env.HF_TOKEN = "hf_secret";
+    const seen: { host: string; auth: string | null }[] = [];
+
+    try {
+      await runSetupMiniMaxH3(
+        {
+          comfyDir,
+          tier: "full",
+          dryRun: false,
+          skipSamples: false,
+          skipTemplates: true,
+          onlyTemplates: false,
+        },
+        {
+          fetchImpl: async (url, init) => {
+            seen.push({
+              host: new URL(String(url)).hostname,
+              auth: new Headers(init?.headers).get("Authorization"),
+            });
+            return new Response(new Uint8Array([1]), { status: 200 });
+          },
+          log: () => {},
+        },
+      );
+    } finally {
+      if (prevToken === undefined) delete Bun.env.HF_TOKEN;
+      else Bun.env.HF_TOKEN = prevToken;
+    }
+
+    const hf = seen.filter((r) => r.host === "huggingface.co");
+    const github = seen.filter((r) => r.host === "raw.githubusercontent.com");
+    expect(hf.length).toBeGreaterThan(0);
+    expect(github.length).toBeGreaterThan(0);
+    expect(hf.every((r) => r.auth === "Bearer hf_secret")).toBe(true);
+    expect(github.every((r) => r.auth === null)).toBe(true);
   });
 });

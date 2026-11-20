@@ -120,7 +120,10 @@ app.post("/jobs/videos", async (c) => {
     return await text_to_image_to_video(parsed.data);
   } catch (err) {
     if (err instanceof ReferenceImageValidationError) {
-      return c.json({ error: err.message }, 400);
+      return c.json(
+        { error: err.message, fields: { [err.field]: err.message } },
+        400,
+      );
     }
     throw err;
   }

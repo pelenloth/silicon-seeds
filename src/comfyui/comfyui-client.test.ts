@@ -272,3 +272,135 @@ describe("ComfyUIClient MiniMax H3 dispatch", () => {
     expect(graph["10"].inputs.height).toBe(768);
   });
 });
+
+describe("ComfyUIClient prepareInput video staging", () => {
+  let tempRoot = "";
+  let outputDir = "";
+  let inputDir = "";
+  let prevOutputDir: string | undefined;
+  let prevInputDir: string | undefined;
+
+  beforeEach(() => {
+    prevOutputDir = Bun.env.OUTPUT_DIR;
+    prevInputDir = Bun.env.INPUT_DIR;
+    tempRoot = mkdtempSync(join(tmpdir(), "ss-comfy-stage-"));
+    outputDir = join(tempRoot, "output");
+    inputDir = join(tempRoot, "input");
+    mkdirSync(join(outputDir, "reference_images"), { recursive: true });
+    mkdirSync(inputDir, { recursive: true });
+    Bun.env.OUTPUT_DIR = outputDir;
+    Bun.env.INPUT_DIR = inputDir;
+  });
+
+  afterEach(() => {
+    if (prevOutputDir === undefined) delete Bun.env.OUTPUT_DIR;
+    else Bun.env.OUTPUT_DIR = prevOutputDir;
+    if (prevInputDir === undefined) delete Bun.env.INPUT_DIR;
+    else Bun.env.INPUT_DIR = prevInputDir;
+    if (tempRoot) rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  const prepareInput = async (input: unknown, job: unknown) => {
+    const { ComfyUIClient } = await import("./comfyui-client");
+    const client = new ComfyUIClient({ baseUrl: "http://127.0.0.1:8188" });
+    await (client as any).prepareInput(input, job);
+  };
+
+  const job = (videoSettings: Record<string, unknown>) => ({
+    id: "job1",
+    created_at: new Date().toISOString(),
+    status: "active" as any,
+    name: "Stage",
+    video_model: "minimax-h3",
+    video_settings: JSON.stringify(videoSettings),
+  });
+
+  test("image-to-video stages an uploaded refimg_* from OUTPUT_DIR/reference_images", async () => {
+    await Bun.write(
+      join(outputDir, "reference_images", "job1_first_frame.png"),
+      "png-bytes",
+    );
+
+    await prepareInput(
+      {
+        id: "evt-i2v",
+        kind: "image-to-video",
+        imagePath: "refimg_job1_first_frame.png",
+        prompt: "p",
+      },
+      job({ h3_mode: "i2v", first_frame: "refimg_job1_first_frame.png" }),
+    );
+
+    expect(
+      await Bun.file(join(inputDir, "refimg_job1_first_frame.png")).text(),
+    ).toBe("png-bytes");
+  });
+
+  test("image-to-transition ignores absent job-level reference images", async () => {
+    await Bun.write(join(inputDir, "a_last_frame.png"), "a");
+    await Bun.write(join(inputDir, "b_first_frame.png"), "b");
+
+    await expect(
+      prepareInput(
+        {
+          id: "evt-tr",
+          kind: "image-to-transition",
+          startImage: "a_last_frame.png",
+          endImage: "b_first_frame.png",
+          prompt: "p",
+        },
+        job({
+          h3_mode: "multiframe",
+          first_frame: "missing_first.png",
+          reference_images: ["missing_ref_1.png", "missing_ref_2.png"],
+        }),
+      ),
+    ).resolves.toBeUndefined();
+  });
+});
+
+describe("videoInputImagesToStage", () => {
+  test("scopes staged images by event kind and H3 mode", async () => {
+    const { videoInputImagesToStage } = await import("./comfyui-client");
+    const merged = {
+      h3_mode: "multiframe" as const,
+      first_frame: "first.png",
+      last_frame: "last.png",
+      reference_images: ["r1.png", "r2.png"],
+    };
+
+    expect(
+      videoInputImagesToStage(
+        {
+          id: "t",
+          kind: "image-to-transition",
+          startImage: "s.png",
+          endImage: "e.png",
+          prompt: "p",
+        },
+        merged,
+      ),
+    ).toEqual(["s.png", "e.png"]);
+
+    expect(
+      videoInputImagesToStage(
+        { id: "i", kind: "image-to-video", imagePath: "img.png", prompt: "p" },
+        merged,
+      ),
+    ).toEqual(["img.png", "last.png", "r1.png", "r2.png"]);
+
+    expect(
+      videoInputImagesToStage(
+        { id: "i", kind: "image-to-video", imagePath: "img.png", prompt: "p" },
+        { ...merged, h3_mode: "i2v" },
+      ),
+    ).toEqual(["img.png"]);
+
+    expect(
+      videoInputImagesToStage(
+        { id: "v", kind: "text-to-video", prompt: "p" },
+        merged,
+      ),
+    ).toEqual(["first.png", "last.png", "r1.png", "r2.png"]);
+  });
+});

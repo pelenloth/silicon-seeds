@@ -88,6 +88,31 @@ describe("reference-images staging", () => {
     ).rejects.toThrow(/escapes output directory/);
   });
 
+  test("validation errors carry the form field derived from the slot", async () => {
+    const outDir = makeTmpDir();
+    const badExt = new File([PNG_BYTES], "frame.gif", { type: "image/gif" });
+    const fieldFor = async (slot: string) => {
+      try {
+        await saveUploadedReferenceImage(badExt, {
+          jobId: "job_1",
+          slot,
+          outputDir: outDir,
+        });
+      } catch (err) {
+        expect(err).toBeInstanceOf(ReferenceImageValidationError);
+        return (err as ReferenceImageValidationError).field;
+      }
+      throw new Error("expected a validation error");
+    };
+
+    expect(await fieldFor("first_frame")).toBe("first_frame");
+    expect(await fieldFor("last_frame")).toBe("last_frame");
+    expect(await fieldFor("ref_0")).toBe("reference_images");
+    expect(new ReferenceImageValidationError("x").field).toBe(
+      "reference_images",
+    );
+  });
+
   test("stageVideoInputImages resolves gallery filenames or staged paths into INPUT_DIR", async () => {
     const outDir = makeTmpDir();
     const inDir = makeTmpDir();
